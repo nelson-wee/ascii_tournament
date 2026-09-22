@@ -8,13 +8,14 @@ The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
 
 ## Status
 
-**Milestone M1 — static arena and display.** The page loads the hand-made test
-arena `data/arenas/test-arena.txt` and draws it with the rot.js display. The
-display fits the arena to the screen, so it works on a desktop and on a phone.
-Bots and movement arrive with Milestone M2.
+**Milestone M2 — movement and navigation.** Six bots (3v3) spawn on the test
+arena and move to random pickup points with A*. The fixed tick loop runs from
+the speed controls: pause, 1×, 4×, and one step. Perception and combat arrive
+with Milestone M3.
 
-Milestone M0 gave the build, the seeded RNG, the data loader, the event bus,
-the tests, and the GitHub Pages deployment.
+Earlier milestones gave the build, the seeded RNG, the data loader, the event
+bus, the tests, the GitHub Pages deployment (M0), and the arena map files with
+the rot.js display (M1).
 
 ## Commands
 

@@ -88,6 +88,10 @@ This document is a blueprint for Claude Code.
 
 - **Run length.** The number of opponent teams and matches per run. Set these from a target average run duration (TBD). The number of arenas per run (currently 4–5) depends on this. If matches are more than arenas, arenas repeat.
 - **Run structure:** ladder, league, or bracket.
+- Bot-to-bot collision. Section 7.4 says "resolve collisions", and Section 7.5
+  names only walls. M2 blocks walls and lets two bots share a cell. Decide
+  before M4, because the utility AI needs to know if a teammate can block a
+  corridor.
 - Role duplication (can a team use the same role two times). Default: yes.
 - Progression reset per run or across runs.
 - Meta-progression.
@@ -921,6 +925,39 @@ Notes:
 - Add 6 bots (3v3) that move to random pickup points with A*.
 - Add the fixed tick loop, `step(state)`, and speed controls.
 - Accept: bots move without passing through walls. Speed controls work.
+
+**M2 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `ai/navigation.ts` | `findPath(map, from, to, options)`, `isStepLegal(map, a, b)`. |
+| `sim/state.ts` | `SimState`, `BotState`, `SimConfig`, `createSimState(options)`, `simConfigFromTuning()`, `cellCenter`, `posCell`, `botCell`, `TEAM_IDS`. |
+| `sim/movement.ts` | `advanceBot(map, bot)`. |
+| `sim/round.ts` | `step(state)`, `stepMany(state, ticks)`. |
+| `render/runner.ts` | `SimRunner` with `start`, `stop`, `setSpeed`, `stepOnce`. `SPEEDS`. Browser only. |
+| `render/display.ts` | `setEntities(entities)` draws bots on top of the tiles. |
+| `ui/speedControls.ts` | `createSpeedControls(options)`. Browser only. |
+
+Notes:
+
+- A diagonal step needs both of its shared neighbours to be free. Without this
+  rule A* cuts the corner of a wall. `findPath` repairs a corner cut with one
+  cardinal detour cell, and it falls back to a cardinal path (topology 4) if a
+  diagonal gap has no free neighbour.
+- `BotState` holds only what movement needs: `id`, `teamId`, `pos`,
+  `moveSpeedPerTick`, `path`, and `goalSlotId`. Health, weapons, and the score
+  arrive with M3. The `Attributes` and `Tactics` of Sections 6.4 arrive with
+  M3 and M4, and `BotState` then points at the `Bot` that holds them.
+- Spawn rule of M2: the first `teamSize` spawn cells of the arena file belong
+  to team A, and the next `teamSize` cells belong to team B. A fair split by
+  distance arrives with the arena generator (M7).
+- The goal of a bot in M2 is a random pickup point. This is a placeholder for
+  the utility AI of M4. The bot selects it with the `sim` stream, so a seed
+  gives the same movement every time.
+- Speed controls: pause, 1×, 4×, and one step. "Skip to end of round" needs the
+  round end condition of M3.
+- The runner uses an accumulator, so the frame rate does not change the result
+  of the simulation (Section 4.4).
 
 ### M3 — Perception and baseline combat
 

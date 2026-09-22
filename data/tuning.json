@@ -4,11 +4,15 @@
     "simulation.ticksPerSecond",
     "simulation.aiDecisionIntervalTicks",
     "round.scoreLimit",
-    "round.timeLimitTicks"
+    "round.timeLimitTicks",
+    "movement.moveSpeedCellsPerSecond"
   ],
   "simulation": {
     "ticksPerSecond": 20,
     "aiDecisionIntervalTicks": 5
+  },
+  "movement": {
+    "moveSpeedCellsPerSecond": 4
   },
   "match": {
     "teamSize": 3,

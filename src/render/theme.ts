@@ -31,3 +31,9 @@ export const PICKUP_STYLES: Readonly<Record<PickupKind, GlyphStyle>> = {
   powerup: { char: "★", fg: "#b98ad6", bg: "" },
   ammo: { char: "•", fg: "#9aa7b3", bg: "" },
 };
+
+/** Team colors (Section 7.18). The palette is an open decision. TBD */
+export const TEAM_STYLES: Readonly<Record<string, GlyphStyle>> = {
+  A: { char: "@", fg: "#5fb0e8", bg: "#12202b" },
+  B: { char: "@", fg: "#e8845f", bg: "#2b1a12" },
+};

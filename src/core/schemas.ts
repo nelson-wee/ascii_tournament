@@ -6,6 +6,7 @@
 import { z } from "zod";
 
 const positiveInt = z.number().int().positive();
+const positiveNumber = z.number().positive();
 
 /**
  * `data/tuning.json`: global numbers.
@@ -23,6 +24,12 @@ export const TuningSchema = z
         ticksPerSecond: positiveInt,
         /** Ticks between two AI decisions of one bot. TBD */
         aiDecisionIntervalTicks: positiveInt,
+      })
+      .strict(),
+    movement: z
+      .object({
+        /** Cells that a bot crosses in one simulated second. TBD */
+        moveSpeedCellsPerSecond: positiveNumber,
       })
       .strict(),
     match: z

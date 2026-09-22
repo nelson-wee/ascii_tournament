@@ -8,7 +8,14 @@
  */
 import { Display } from "rot-js";
 import { Tile, cellIndex, type ArenaMap, type PickupKind } from "../arena/types.js";
+import type { Cell } from "../core/types.js";
 import { DISPLAY_BG, PICKUP_STYLES, TILE_STYLES, type GlyphStyle } from "./theme.js";
+
+/** One thing that the display draws on top of a tile, for example a bot. */
+export interface EntityGlyph {
+  cell: Cell;
+  style: GlyphStyle;
+}
 
 export interface ArenaDisplayOptions {
   minFontSize?: number;
@@ -29,6 +36,8 @@ export class ArenaDisplay {
   private readonly pickupByIndex = new Map<number, PickupKind>();
   private observer: ResizeObserver | null = null;
   private frame = 0;
+  private entities: readonly EntityGlyph[] = [];
+  private entityCells: number[] = [];
 
   constructor(
     private readonly container: HTMLElement,
@@ -62,7 +71,25 @@ export class ArenaDisplay {
     this.map = map;
     this.display.setOptions({ width: map.width, height: map.height });
     this.indexPickups();
+    this.entities = [];
+    this.entityCells = [];
     this.fit();
+  }
+
+  /**
+   * Replace the things that the display draws on top of the tiles.
+   *
+   * The display redraws the cells of the last list and then the cells of the
+   * new list. It does not redraw the full map, because a tick changes only a
+   * few cells.
+   */
+  setEntities(entities: readonly EntityGlyph[]): void {
+    for (const index of this.entityCells) {
+      this.drawTile(index % this.map.width, Math.floor(index / this.map.width));
+    }
+    this.entities = entities;
+    this.entityCells = [];
+    this.drawEntities();
   }
 
   /** The canvas element of the display. */
@@ -85,14 +112,29 @@ export class ArenaDisplay {
     this.draw();
   }
 
-  /** Draw every cell of the map. */
+  /** Draw every cell of the map, and then the entities. */
   draw(): void {
     const { map } = this;
     for (let y = 0; y < map.height; y += 1) {
-      for (let x = 0; x < map.width; x += 1) {
-        const style = this.styleAt(x, y);
-        this.display.draw(x, y, style.char, style.fg, style.bg === "" ? DISPLAY_BG : style.bg);
-      }
+      for (let x = 0; x < map.width; x += 1) this.drawTile(x, y);
+    }
+    this.entityCells = [];
+    this.drawEntities();
+  }
+
+  private drawTile(x: number, y: number): void {
+    const style = this.styleAt(x, y);
+    this.display.draw(x, y, style.char, style.fg, style.bg === "" ? DISPLAY_BG : style.bg);
+  }
+
+  private drawEntities(): void {
+    for (const entity of this.entities) {
+      const { x, y } = entity.cell;
+      if (x < 0 || y < 0 || x >= this.map.width || y >= this.map.height) continue;
+      const { style } = entity;
+      const bg = style.bg === "" ? DISPLAY_BG : style.bg;
+      this.display.draw(x, y, style.char, style.fg, bg);
+      this.entityCells.push(cellIndex(this.map, x, y));
     }
   }
 
