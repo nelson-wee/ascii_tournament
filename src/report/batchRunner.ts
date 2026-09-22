@@ -88,6 +88,7 @@ export function runPlannedRound(
   const shotsByWeapon: Record<string, number> = {};
   let shots = 0;
   let hits = 0;
+  let unawareKills = 0;
   for (const event of bus.log) {
     if (event.type === "Shot") {
       shots += 1;
@@ -98,6 +99,7 @@ export function runPlannedRound(
     } else if (event.type === "Kill") {
       const archetype = String(event.data["weaponArchetype"] ?? "unknown");
       killsByArchetype[archetype] = (killsByArchetype[archetype] ?? 0) + 1;
+      if (event.data["targetAware"] === false) unawareKills += 1;
     }
   }
 
@@ -113,6 +115,7 @@ export function runPlannedRound(
     scoreB: result.outcome.score.B,
     shots,
     hits,
+    unawareKills,
     killsByArchetype,
     shotsByWeapon,
   };

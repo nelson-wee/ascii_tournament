@@ -39,7 +39,7 @@ export function formatReport(summary: BatchSummary): string {
 
   parts.push(
     table(
-      ["rounds", "mean ticks", "mean kills", "mean shots", "hit rate"],
+      ["rounds", "mean ticks", "mean kills", "mean shots", "hit rate", "kills from behind"],
       [
         [
           String(summary.rounds),
@@ -47,9 +47,10 @@ export function formatReport(summary: BatchSummary): string {
           summary.meanKills.toFixed(1),
           summary.meanShots.toFixed(0),
           percent(summary.hitRate),
+          percent(summary.unawareKillShare),
         ],
       ],
-      [true, true, true, true, true],
+      [true, true, true, true, true, true],
     ),
   );
 
@@ -178,6 +179,7 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       "scoreB",
       "shots",
       "hits",
+      "unawareKills",
       ...archetypes.map((archetype) => `kills_${archetype}`),
     ],
   ];
@@ -194,6 +196,7 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       round.scoreB,
       round.shots,
       round.hits,
+      round.unawareKills,
       ...archetypes.map((archetype) => round.killsByArchetype[archetype] ?? 0),
     ]);
   }

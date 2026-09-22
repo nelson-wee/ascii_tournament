@@ -44,6 +44,23 @@ export const TuningSchema = z
         sightRadiusCells: positiveNumber,
         /** Ticks that a bot remembers the last seen position of an enemy. TBD */
         memoryTicks: positiveInt,
+        /**
+         * Half the width of the focus arc, in degrees. A bot fires only at an
+         * enemy inside this arc. TBD
+         */
+        focusHalfAngleDegrees: z.number().min(1).max(180),
+        /** Half the width of the peripheral arc at awareness 0, in degrees. TBD */
+        peripheralHalfAngleBaseDegrees: z.number().min(1).max(180),
+        /** How many degrees the awareness attribute adds to the arc. TBD */
+        peripheralHalfAngleAwarenessDegrees: z.number().min(0).max(180),
+        /** Ticks of sight before a peripheral contact counts. TBD */
+        peripheralDelayTicks: nonNegativeInt,
+        /**
+         * How far a bot turns in one tick, in degrees. It sets the value of a
+         * flank: a bot that is caught from the side needs time to turn. 180
+         * turns the bot at once. TBD
+         */
+        turnRateDegreesPerTick: z.number().min(1).max(180),
       })
       .strict(),
     combat: z

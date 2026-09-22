@@ -975,7 +975,7 @@ Two changes to Section 7.6. Both push a bot to keep moving.
 Together these make the choice real. Stand still and shoot straight, and a
 precise weapon crits you. Move and be hard to hit, and your own shots miss more.
 
-#### 7.20.6 A field of view with a front and a side
+#### 7.20.6 A field of view with a front and a side — built, and it changed nothing
 
 **Today every bot sees through 360 degrees.** `ai/perception.ts` asks rot.js for
 every cell inside the sight radius and asks no question about which way the bot
@@ -1009,6 +1009,22 @@ test is one angle comparison per enemy, and there are five enemies.
 22.5 % of rounds reaching the time limit. Watch the mean kills per round
 (Section 7.2.1) when this lands. The memory of a last seen position and the
 `Chase` action are what keep a round moving.
+
+**Result: it is built, and it changed nothing.** Section 7.20.10 holds the
+measurement and the cause. Read it before you plan any more work on vision.
+The rules as built:
+
+| Rule | Value |
+|---|---|
+| Focus arc | 45 degrees each side of the facing. The bot fires only inside it. |
+| Peripheral arc | 70 degrees each side, plus 40 more at full `awareness`. |
+| Peripheral delay | 8 ticks of unbroken sight before the bot notices a contact. |
+| Behind | Nothing. |
+| Turn rate | 12 degrees per tick. A half turn takes 15 ticks. |
+| Incoming fire | A bot that takes damage learns where the shot came from. |
+
+A bot turns toward, in order: the enemy that it aims at, the nearest enemy that
+it knows about, then the way that it moves.
 
 #### 7.20.7 Reaction order: the tick order becomes a mechanic
 
@@ -1084,6 +1100,66 @@ Rules for the layer:
 | Rounds with very few kills | 139 of 1000 | Near zero |
 | Mirror matchup of every preset | 48–54 % | Stays at 50 % |
 | Kills by archetype | One weapon | No archetype above about half the kills |
+
+#### 7.20.10 Measurement: why a bot that holds a position wins
+
+Section 7.20.6 was built first, on its own, so that the batch could say what it
+changed. The answer is: **nothing**. Three configurations, 900 rounds each, the
+same seed and the same three presets.
+
+| Vision | `anchor` win rate | Kills from behind | Rounds at the time limit |
+|---|---|---|---|
+| 360 degrees (before) | 82.0 % ±1.6 | — | 11.3 % |
+| Focus and peripheral, turn at once | 82.2 % ±1.6 | 11.3 % | 12.2 % |
+| Focus and peripheral, turn 12°/tick | 82.6 % ±1.5 | 12.3 % | 11.6 % |
+
+The three win rates are inside one standard error of each other. A flank does
+happen — one kill in eight is on a target that cannot see its killer — but it
+does not change who wins.
+
+**Two sweeps then found the real cause.** Each one changes one tactic and
+holds the other seven, over 320 rounds.
+
+| `holdPosition` | 0.0 | 0.3 | 0.6 | 0.9 |
+|---|---|---|---|---|
+| Win rate | 30.0 % ±3.6 | 38.4 % ±3.8 | 61.9 % ±3.8 | 69.7 % ±3.6 |
+
+| `itemControl` | 0.0 | 0.3 | 0.6 | 0.9 |
+|---|---|---|---|---|
+| Win rate | 45.6 % ±3.9 | 52.5 % ±3.9 | 56.3 % ±3.9 | 45.6 % ±3.9 |
+
+`holdPosition` rises without a break. `itemControl` is flat: the sweep has no
+trend, and the highest and the lowest setting give the same rate.
+
+**The cause.** A pickup point does nothing. Armor, health, a power-up, and ammo
+all arrive with M8 (Section 7.12). Until then the arena has no reward for
+crossing it. `holdPosition` therefore trades away a benefit of zero and keeps a
+cost of zero, and `itemControl` buys nothing at all. A bot that stands still
+cannot lose ground that is worth nothing, and the bot that walks to a pickup
+point pays in exposure and receives nothing.
+
+**This is why the vision change could not help.** No rule about who sees whom
+can fix a reward that does not exist. The same is true of any counter that
+works by making movement safer.
+
+**What follows from this:**
+
+1. **Do not judge `holdPosition`, `itemControl`, or any preset built from them
+   until the pickups of M8 work.** The current win rates measure a game with
+   one half missing. Section 7.20.9 keeps its targets, but the `anchor` number
+   cannot reach 50 % from weapons alone.
+2. **M6 can still help, but not by itself.** A weapon that hits an area or
+   takes a cell away (Section 7.20.3) raises the cost of standing still. That
+   attacks one side of the trade. M8 raises the reward for moving, which is
+   the other side. Expect the full answer only when both are in.
+3. **Keep a one-tactic sweep in the toolbox.** Two sweeps of 320 rounds each
+   found in two minutes what a matrix of full presets could not: a preset
+   mixes eight tactics, so its win rate cannot say which one carries it.
+4. **Keep the vision change.** It costs about 20 % of the round time (159 ms to
+   195 ms per round) and it buys nothing today. It stays because the design
+   that follows needs it: "target unaware" is a real state now, which the crit
+   rule of Section 7.20.5 needs, and a flank becomes worth something as soon as
+   holding a position stops being free.
 
 ---
 
@@ -1483,9 +1559,25 @@ It won 19.1 % and it stalled rounds. The default presets are `balanced`,
 `aggressive`, and `anchor`. Section 7.20 holds the design that answers the two
 failures above.
 
+### M5.5 — Directional vision (done)
+
+Built on its own, before M6, so that the batch could say what it changed.
+
+- A facing, a focus arc, a peripheral arc with a delay, and a turn rate
+  (Section 7.20.6). The `awareness` attribute of Section 6.4 sets the width of
+  the peripheral arc, and it has its first use.
+- A bot that takes damage learns where the shot came from.
+- The display shows the facing of a bot with an arrow.
+- The batch harness now reports the share of kills on a target that could not
+  see its killer, which measures a flank.
+- Accept: the batch runs and the measurement is recorded. **The measurement
+  says that the change moved nothing** (Section 7.20.10).
+
 ### M6 — Weapon generation
 
-Section 7.20 holds the design of this milestone. Read it first.
+Section 7.20 holds the design of this milestone. Read it first, and read
+Section 7.20.10: the batch shows that weapons alone cannot bring the `anchor`
+preset to 50 %, because a pickup point gives nothing until M8.
 
 - Implement the role traits, the seven attack types, the power budget, and the
   DPS profiles. Derive the archetype label (Section 7.20.2 to 7.20.4).
@@ -1495,13 +1587,12 @@ Section 7.20 holds the design of this milestone. Read it first.
 - Give each weapon a reaction per range band, and make the bots act in the
   order of their reaction speed (Section 7.20.7).
 - Connect AI weapon selection to DPS profiles.
-- Accept: weapon budget tests pass. Bots switch weapons by range. The batch of
-  M5 shows the `anchor` preset near 50 %, and the mirror matchups stay at 50 %
-  (Section 7.20.9).
+- Accept: weapon budget tests pass. Bots switch weapons by range. The mirror
+  matchups stay at 50 %, and the `anchor` win rate falls (Section 7.20.9). It
+  cannot reach 50 % before the pickups of M8.
 
-The field of view with a focus arc and a peripheral arc (Section 7.20.6) and
-the advanced tactics layer (Section 7.20.8) are designed but not scheduled.
-Decide whether they go in M6 or in a milestone of their own.
+The advanced tactics layer (Section 7.20.8) is designed but not scheduled. The
+field of view (Section 7.20.6) is built; see M5.5.
 
 ### M7 — Arena generation
 

@@ -24,6 +24,8 @@ export interface RoundRecord {
   scoreB: number;
   shots: number;
   hits: number;
+  /** Kills where the target could not see the killer. It measures a flank. */
+  unawareKills: number;
   killsByArchetype: Readonly<Record<string, number>>;
   shotsByWeapon: Readonly<Record<string, number>>;
 }
@@ -49,6 +51,8 @@ export interface BatchSummary {
   meanKills: number;
   meanShots: number;
   hitRate: number;
+  /** The share of kills on a target that could not see its killer. */
+  unawareKillShare: number;
   /** Rounds per end reason. */
   byReason: Map<RoundEndReason, number>;
   /** Rounds that made fewer kills than this share of the score limit. */
@@ -120,6 +124,7 @@ export function summarize(
   let kills = 0;
   let shots = 0;
   let hits = 0;
+  let unawareKills = 0;
   let lowKillRounds = 0;
 
   for (const round of records) {
@@ -140,6 +145,7 @@ export function summarize(
     kills += round.scoreA + round.scoreB;
     shots += round.shots;
     hits += round.hits;
+    unawareKills += round.unawareKills;
     if (round.scoreA + round.scoreB < scoreLimit * lowKillShare) lowKillRounds += 1;
 
     for (const [archetype, count] of Object.entries(round.killsByArchetype)) {
@@ -178,6 +184,7 @@ export function summarize(
     meanKills: count === 0 ? 0 : kills / count,
     meanShots: count === 0 ? 0 : shots / count,
     hitRate: shots === 0 ? 0 : hits / shots,
+    unawareKillShare: kills === 0 ? 0 : unawareKills / kills,
     byReason,
     lowKillRounds,
     killsByArchetype,

@@ -49,6 +49,11 @@ export interface BotState {
   pos: Vec2;
   /** Cells that the bot crosses in one tick. */
   moveSpeedPerTick: number;
+  /**
+   * The way that the bot looks, in radians. 0 points at +x, and the angle
+   * turns toward +y. Vision uses it (Section 7.20.6).
+   */
+  facing: number;
   /** The cells that are left of the current path. The first is the next one. */
   path: Cell[];
   /** The cell that the current path ends on. It stops a needless new search. */
@@ -94,8 +99,18 @@ export interface BotState {
   visibleCells: CellSet;
   /** The cell that `visibleCells` belongs to, or `null` if it is not valid. */
   fovCell: Cell | null;
-  /** The ids of the enemies that the bot can see, in a stable order. */
+  /**
+   * The enemies inside the focus arc, in a stable order. The bot fires only at
+   * these.
+   */
   visibleEnemyIds: string[];
+  /**
+   * The enemies inside the peripheral arc that the bot noticed. It knows that
+   * they are there, but it must turn before it can fire.
+   */
+  peripheralEnemyIds: string[];
+  /** Ticks of unbroken sight of an enemy inside the peripheral arc. */
+  peripheralTicks: Map<string, number>;
   /** The last known position of each enemy. */
   lastSeen: Map<string, LastSeen>;
 
@@ -114,6 +129,11 @@ export interface SimConfig {
   repathAfterBlockedTicks: number;
   sightRadiusCells: number;
   memoryTicks: number;
+  focusHalfAngle: number;
+  peripheralHalfAngleBase: number;
+  peripheralHalfAngleAwareness: number;
+  peripheralDelayTicks: number;
+  turnRatePerTick: number;
   healthMax: number;
   respawnDelayTicks: number;
   rangeBandCloseMax: number;
@@ -192,6 +212,12 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     repathAfterBlockedTicks: tuning.movement.repathAfterBlockedTicks,
     sightRadiusCells: tuning.perception.sightRadiusCells,
     memoryTicks: tuning.perception.memoryTicks,
+    focusHalfAngle: (tuning.perception.focusHalfAngleDegrees * Math.PI) / 180,
+    peripheralHalfAngleBase: (tuning.perception.peripheralHalfAngleBaseDegrees * Math.PI) / 180,
+    peripheralHalfAngleAwareness:
+      (tuning.perception.peripheralHalfAngleAwarenessDegrees * Math.PI) / 180,
+    peripheralDelayTicks: tuning.perception.peripheralDelayTicks,
+    turnRatePerTick: (tuning.perception.turnRateDegreesPerTick * Math.PI) / 180,
     healthMax: tuning.combat.healthMax,
     respawnDelayTicks: tuning.combat.respawnDelayTicks,
     rangeBandCloseMax: tuning.combat.rangeBandCloseMax,
@@ -255,6 +281,36 @@ export function botsInTickOrder(state: SimState): BotState[] {
   return state.tick % 2 === 0 ? state.bots : [...state.bots].reverse();
 }
 
+/** An angle folded into the range -pi to pi. */
+export function normalizeAngle(angle: number): number {
+  const turn = Math.PI * 2;
+  let value = angle % turn;
+  if (value > Math.PI) value -= turn;
+  if (value < -Math.PI) value += turn;
+  return value;
+}
+
+/** The smallest turn from one angle to another, always 0 or more. */
+export function angleBetween(a: number, b: number): number {
+  return Math.abs(normalizeAngle(b - a));
+}
+
+/** The angle from one bot to a point. */
+export function angleTo(from: BotState, x: number, y: number): number {
+  return Math.atan2(y - from.pos.y, x - from.pos.x);
+}
+
+/**
+ * Half the width of the peripheral arc of a bot (Section 7.20.6).
+ * The `awareness` attribute makes the arc wider.
+ */
+export function peripheralHalfAngle(state: SimState, bot: BotState): number {
+  return (
+    state.config.peripheralHalfAngleBase +
+    bot.attributes.awareness * state.config.peripheralHalfAngleAwareness
+  );
+}
+
 /** The distance between two bots, in cells. */
 export function distanceBetween(a: BotState, b: BotState): number {
   return Math.hypot(a.pos.x - b.pos.x, a.pos.y - b.pos.y);
@@ -295,6 +351,7 @@ interface MakeBotOptions {
   tactics: Tactics;
   weapon: Weapon;
   cellCount: number;
+  facing: number;
 }
 
 function makeBot(options: MakeBotOptions): BotState {
@@ -305,6 +362,7 @@ function makeBot(options: MakeBotOptions): BotState {
     attributes: options.attributes,
     tactics: options.tactics,
     pos: cellCenter(options.spawn),
+    facing: options.facing,
     moveSpeedPerTick: config.moveSpeedPerTick,
     path: [],
     pathGoal: null,
@@ -327,6 +385,8 @@ function makeBot(options: MakeBotOptions): BotState {
     visibleCells: new CellSet(options.cellCount),
     fovCell: null,
     visibleEnemyIds: [],
+    peripheralEnemyIds: [],
+    peripheralTicks: new Map<string, number>(),
     lastSeen: new Map<string, LastSeen>(),
     lastKillTick: -Infinity,
     multiKillCount: 0,
@@ -377,6 +437,8 @@ export function createSimState(options: CreateSimStateOptions): SimState {
           tactics: { ...tacticsFor(teamId) },
           weapon,
           cellCount: map.width * map.height,
+          // A bot starts by looking at the middle of the arena.
+          facing: Math.atan2(map.height / 2 - (spawn.y + 0.5), map.width / 2 - (spawn.x + 0.5)),
         }),
       );
     }

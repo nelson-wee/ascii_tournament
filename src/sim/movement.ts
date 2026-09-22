@@ -9,6 +9,7 @@
  *   `sim/combat.ts`.
  */
 import { isStepLegal } from "../ai/navigation.js";
+import { updateFacing } from "../ai/perception.js";
 import { isWalkable, tileAt } from "../arena/types.js";
 import type { Cell } from "../core/types.js";
 import { botCell, cellCenter, enemyAt, posCell, type BotState, type SimState } from "./state.js";
@@ -75,6 +76,7 @@ export function advanceBot(state: SimState, bot: BotState): void {
 
   applyEvasion(state, bot, start);
   bot.movedLastTick = bot.pos.x !== start.x || bot.pos.y !== start.y;
+  updateFacing(state, bot, { x: bot.pos.x - start.x, y: bot.pos.y - start.y });
 }
 
 /**

@@ -26,7 +26,12 @@
     "ai.hazardAvoidBelowTolerance",
     "ai.teamSpacingCells",
     "ai.actionBase",
-    "combat.targetSwitchMargin"
+    "combat.targetSwitchMargin",
+    "perception.focusHalfAngleDegrees",
+    "perception.peripheralHalfAngleBaseDegrees",
+    "perception.peripheralHalfAngleAwarenessDegrees",
+    "perception.peripheralDelayTicks",
+    "perception.turnRateDegreesPerTick"
   ],
   "simulation": {
     "ticksPerSecond": 20,
@@ -39,7 +44,12 @@
   },
   "perception": {
     "sightRadiusCells": 20,
-    "memoryTicks": 60
+    "memoryTicks": 60,
+    "focusHalfAngleDegrees": 45,
+    "peripheralHalfAngleBaseDegrees": 70,
+    "peripheralHalfAngleAwarenessDegrees": 40,
+    "peripheralDelayTicks": 8,
+    "turnRateDegreesPerTick": 12
   },
   "combat": {
     "healthMax": 100,

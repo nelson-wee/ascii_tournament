@@ -54,6 +54,7 @@ function record(over: Partial<RoundRecord> = {}): RoundRecord {
     scoreB: 10,
     shots: 100,
     hits: 40,
+    unawareKills: 5,
     killsByArchetype: { baseline: 25 },
     shotsByWeapon: { "baseline-rifle": 100 },
     ...over,
@@ -290,6 +291,7 @@ describe("the CSV files", () => {
     const lines = roundsCsv(records).trim().split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toContain("seed,arena,teamA,teamB,winner,reason,ticks");
+    expect(lines[0]).toContain("unawareKills");
     expect(lines[0]).toContain("kills_baseline");
     expect(lines[0]).toContain("kills_precision");
     expect(lines[2]).toContain("draw");

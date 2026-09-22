@@ -37,3 +37,17 @@ export const TEAM_STYLES: Readonly<Record<string, GlyphStyle>> = {
   A: { char: "@", fg: "#5fb0e8", bg: "#12202b" },
   B: { char: "@", fg: "#e8845f", bg: "#2b1a12" },
 };
+
+/**
+ * The glyph of a bot by the way that it looks (Section 7.20.6).
+ * The index is the octant of the facing angle, starting at +x and turning
+ * toward +y.
+ */
+export const FACING_CHARS = ["\u2192", "\u2198", "\u2193", "\u2199", "\u2190", "\u2196", "\u2191", "\u2197"] as const;
+
+/** The glyph for a facing in radians. */
+export function facingChar(facing: number): string {
+  const turn = Math.PI * 2;
+  const octant = Math.round((((facing % turn) + turn) % turn) / (turn / 8)) % 8;
+  return FACING_CHARS[octant] ?? "@";
+}

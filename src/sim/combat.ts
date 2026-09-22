@@ -12,7 +12,7 @@
  * (Section 7.3), and the ammo pickups arrive with M8.
  */
 import { Tile, tileAt } from "../arena/types.js";
-import { canSee, isUnaware } from "../ai/perception.js";
+import { canSee, isUnaware, noteIncomingFire } from "../ai/perception.js";
 import type { RangeBand } from "../weapons/types.js";
 import {
   botCell,
@@ -163,6 +163,9 @@ function emitAnnouncements(state: SimState, shooter: BotState, victim: BotState)
 
 /** Apply damage and, if the target dies, the death and the kill. */
 function applyDamage(state: SimState, shooter: BotState, target: BotState, damage: number): void {
+  // Section 7.20.6: a bot that takes fire learns where the shot came from.
+  // Without this a bot can be shot from behind and never turn.
+  noteIncomingFire(state, target, shooter);
   target.health -= damage;
   if (target.health > 0) return;
 
@@ -179,6 +182,8 @@ function applyDamage(state: SimState, shooter: BotState, target: BotState, damag
   target.aimTicks = 0;
   target.visibleCells.clear();
   target.visibleEnemyIds = [];
+  target.peripheralEnemyIds = [];
+  target.peripheralTicks.clear();
 
   shooter.multiKillCount =
     tick - shooter.lastKillTick <= config.multiKillWindowTicks ? shooter.multiKillCount + 1 : 1;
@@ -289,6 +294,9 @@ export function respawn(state: SimState, bot: BotState): void {
   bot.alive = true;
   bot.health = state.config.healthMax;
   bot.pos = cellCenter(cell);
+  // A bot that respawns looks at the middle of the arena, as at the start.
+  bot.facing = Math.atan2(state.map.height / 2 - bot.pos.y, state.map.width / 2 - bot.pos.x);
+  bot.fovCell = null;
   bot.path = [];
   bot.goalSlotId = null;
   bot.blockedTicks = 0;
@@ -297,6 +305,8 @@ export function respawn(state: SimState, bot: BotState): void {
   bot.targetId = null;
   bot.aimTicks = 0;
   bot.lastSeen.clear();
+  bot.peripheralEnemyIds = [];
+  bot.peripheralTicks.clear();
   state.bus.emit("Spawn", state.tick, state.roundNumber, {
     botId: bot.id,
     teamId: bot.teamId,

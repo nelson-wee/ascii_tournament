@@ -12,7 +12,7 @@ import { loadTuning } from "./core/data.js";
 import { feedLines } from "./report/killFeed.js";
 import { ArenaDisplay, type EntityGlyph } from "./render/display.js";
 import { SimRunner, type Speed } from "./render/runner.js";
-import { PICKUP_STYLES, TEAM_STYLES, TILE_STYLES } from "./render/theme.js";
+import { PICKUP_STYLES, TEAM_STYLES, TILE_STYLES, facingChar } from "./render/theme.js";
 import {
   botCell,
   createSimState,
@@ -45,8 +45,8 @@ function buildLegend(): string {
     [PICKUP_STYLES.health.char, "health", PICKUP_STYLES.health.fg],
     [PICKUP_STYLES.powerup.char, "powerup", PICKUP_STYLES.powerup.fg],
     [PICKUP_STYLES.ammo.char, "ammo", PICKUP_STYLES.ammo.fg],
-    [TEAM_STYLES["A"]!.char, "team A", TEAM_STYLES["A"]!.fg],
-    [TEAM_STYLES["B"]!.char, "team B", TEAM_STYLES["B"]!.fg],
+    ["\u2192", "team A (it shows the facing)", TEAM_STYLES["A"]!.fg],
+    ["\u2192", "team B", TEAM_STYLES["B"]!.fg],
   ];
   return items
     .map(([glyph, label, color]) => `<b style="color:${color}">${glyph}</b> ${label}`)
@@ -98,10 +98,11 @@ try {
   function entities(): EntityGlyph[] {
     return state.bots
       .filter((bot) => bot.alive)
-      .map((bot) => ({
-        cell: botCell(bot),
-        style: TEAM_STYLES[bot.teamId] ?? TEAM_STYLES["A"]!,
-      }));
+      .map((bot) => {
+        const team = TEAM_STYLES[bot.teamId] ?? TEAM_STYLES["A"]!;
+        // The glyph shows the way that the bot looks (Section 7.20.6).
+        return { cell: botCell(bot), style: { ...team, char: facingChar(bot.facing) } };
+      });
   }
 
   function render(): void {
