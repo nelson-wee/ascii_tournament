@@ -7,13 +7,21 @@
  */
 import { Path } from "rot-js";
 import type { Cell } from "../core/types.js";
-import { isWalkable, tileAt, type ArenaMap } from "../arena/types.js";
+import { Tile, isWalkable, tileAt, type ArenaMap } from "../arena/types.js";
 
 /** 4 = cardinal steps only. 8 = cardinal and diagonal steps. */
 export type Topology = 4 | 8;
 
 export interface FindPathOptions {
   topology?: Topology;
+  /**
+   * Treat a hazard tile as a wall.
+   *
+   * The `hazardTolerance` tactic controls this value. It is the simple form of
+   * the path cost `danger × (1 − hazardTolerance)` of Section 7.10. The full
+   * cost needs the influence maps of Section 7.9, which arrive with M8.
+   */
+  avoidHazard?: boolean;
 }
 
 /**
@@ -32,12 +40,25 @@ export function isStepLegal(map: ArenaMap, a: Cell, b: Cell): boolean {
   return isWalkable(tileAt(map, b.x, a.y)) && isWalkable(tileAt(map, a.x, b.y));
 }
 
+/** True if a bot with these options can cross the cell. */
+function passable(map: ArenaMap, x: number, y: number, avoidHazard: boolean): boolean {
+  const tile = tileAt(map, x, y);
+  if (!isWalkable(tile)) return false;
+  return !(avoidHazard && tile === Tile.Hazard);
+}
+
 /** Compute the raw rot.js path. The result holds `from` first and `to` last. */
-function computeRaw(map: ArenaMap, from: Cell, to: Cell, topology: Topology): Cell[] {
+function computeRaw(
+  map: ArenaMap,
+  from: Cell,
+  to: Cell,
+  topology: Topology,
+  avoidHazard: boolean,
+): Cell[] {
   const astar = new Path.AStar(
     to.x,
     to.y,
-    (x, y) => isWalkable(tileAt(map, x, y)),
+    (x, y) => passable(map, x, y, avoidHazard),
     { topology },
   );
   const path: Cell[] = [];
@@ -88,10 +109,21 @@ export function findPath(
   options: FindPathOptions = {},
 ): Cell[] | null {
   const topology = options.topology ?? 8;
+  let avoidHazard = options.avoidHazard ?? false;
   if (!isWalkable(tileAt(map, from.x, from.y))) return null;
   if (!isWalkable(tileAt(map, to.x, to.y))) return null;
+  // A bot that stands on a hazard tile, or that must reach one, still needs a
+  // path. The avoidance applies only when it can help.
+  if (avoidHazard && (tileAt(map, from.x, from.y) === Tile.Hazard || tileAt(map, to.x, to.y) === Tile.Hazard)) {
+    avoidHazard = false;
+  }
 
-  const raw = computeRaw(map, from, to, topology);
+  let raw = computeRaw(map, from, to, topology, avoidHazard);
+  if (raw.length === 0 && avoidHazard) {
+    // The hazard tiles cut the arena in two. Cross them.
+    avoidHazard = false;
+    raw = computeRaw(map, from, to, topology, avoidHazard);
+  }
   if (raw.length === 0) return null;
   if (topology === 4) return raw;
 
@@ -99,6 +131,6 @@ export function findPath(
   if (repaired !== null) return repaired;
 
   // A diagonal gap between two walls. Cardinal steps always avoid it.
-  const cardinal = computeRaw(map, from, to, 4);
+  const cardinal = computeRaw(map, from, to, 4, avoidHazard);
   return cardinal.length === 0 ? null : cardinal;
 }

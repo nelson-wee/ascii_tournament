@@ -9,61 +9,82 @@
  *   1. Timers          — respawn and the weapon cooldown. DoT, hazards, and
  *                        pickup timers arrive with M6 and M8.
  *   2. Perception      — FOV, visible enemies, memory
- *   3. AI decision     — M4 (the utility AI). M3 selects a random pickup point.
+ *   3. AI decision     — the utility AI of Section 7.8
  *   4. AI action       — movement intent and fire intent
  *   5. Movement        — apply movement, resolve collisions
  *   6. Combat          — hitscan shots. Projectiles and area damage: M6.
  *   7. Death, respawn
  *   8. Pickups         — M8
  *   9. Events
- *  10. End condition   — the score limit or the time limit
+ *  10. End condition   — the score limit, the time limit, or sudden death
  */
-import { findPath } from "../ai/navigation.js";
 import { updatePerception } from "../ai/perception.js";
-import type { PickupPoint } from "../arena/types.js";
+import { actionLabel, applyAction, decide, noteReachedPickup } from "../ai/utility.js";
 import type { GameEvent } from "../core/events.js";
 import { respawn, tryFire } from "./combat.js";
 import { advanceBot } from "./movement.js";
-import {
-  TEAM_IDS,
-  botCell,
-  type BotState,
-  type RoundOutcome,
-  type SimState,
-  type TeamId,
-} from "./state.js";
+import { TEAM_IDS, type RoundOutcome, type SimState, type TeamId } from "./state.js";
 
 /**
- * Give a bot a new goal: a random pickup point that it can reach.
+ * The AI decision step (Section 7.4, step 3).
  *
- * This is a placeholder for the utility AI of Milestone M4. It keeps the bots
- * in motion, so that they meet and fight.
+ * Only a bot whose decision timer is at zero decides. The others keep their
+ * action. The bot then turns the action into a movement intent.
  */
-function chooseGoal(state: SimState, bot: BotState): void {
-  const from = botCell(bot);
-  const candidates = state.map.pickups.filter(
-    (pickup) => pickup.cell.x !== from.x || pickup.cell.y !== from.y,
-  );
+function decideActions(state: SimState): void {
+  for (const bot of state.bots) {
+    if (!bot.alive) continue;
+    noteReachedPickup(state, bot);
+    if (bot.decisionCooldownTicks > 0) {
+      bot.decisionCooldownTicks -= 1;
+      continue;
+    }
+    bot.decisionCooldownTicks = state.config.aiDecisionIntervalTicks;
 
-  // Try each candidate one time, in a random order. The arena can hold a
-  // pickup point that this bot cannot reach.
-  for (const pickup of state.rng.shuffle(candidates) as PickupPoint[]) {
-    const path = findPath(state.map, from, pickup.cell);
-    if (path === null || path.length < 2) continue;
-    bot.path = path.slice(1);
-    bot.goalSlotId = pickup.slotId;
-    state.bus.emit("DecisionChanged", state.tick, state.roundNumber, {
-      botId: bot.id,
-      action: "SeekPickup",
-      slotId: pickup.slotId,
-      cell: pickup.cell,
-      pathLength: bot.path.length,
-    });
-    return;
+    const chosen = decide(state, bot);
+    const label = actionLabel(chosen.action);
+    const changed = label !== actionLabel(bot.action);
+    bot.action = chosen.action;
+    bot.actionScore = chosen.score;
+    // The intent refreshes on every decision, because a target moves.
+    applyAction(state, bot, chosen.action);
+
+    if (changed) {
+      state.bus.emit("DecisionChanged", state.tick, state.roundNumber, {
+        botId: bot.id,
+        action: label,
+        score: chosen.score,
+      });
+    }
   }
+}
 
-  bot.path = [];
-  bot.goalSlotId = null;
+/** The team with the higher score, or `null` if the score is equal. */
+function leader(state: SimState): TeamId | null {
+  const [first, second] = TEAM_IDS;
+  const a = state.score[first] ?? 0;
+  const b = state.score[second] ?? 0;
+  if (a > b) return first;
+  if (b > a) return second;
+  return null;
+}
+
+/**
+ * Start sudden death if the time limit arrived with an equal score.
+ *
+ * Decision: a drawn round goes to sudden death, and the next kill wins.
+ */
+export function enterSuddenDeathIfNeeded(state: SimState): void {
+  if (state.suddenDeath) return;
+  if (state.tick < state.config.timeLimitTicks) return;
+  if (leader(state) !== null) return;
+
+  state.suddenDeath = true;
+  state.suddenDeathStartTick = state.tick;
+  state.bus.emit("Announcement", state.tick, state.roundNumber, {
+    kind: "suddenDeath",
+    text: "Sudden Death",
+  });
 }
 
 /** The result of the round, or `null` while the round runs. */
@@ -76,16 +97,24 @@ export function checkRoundEnd(state: SimState): RoundOutcome | null {
     }
   }
 
+  if (state.suddenDeath) {
+    // The next kill wins.
+    const winner = leader(state);
+    if (winner !== null) {
+      return { winnerTeamId: winner, reason: "suddenDeath", score: { ...score }, ticks: tick };
+    }
+    // A safety limit. It stops a round that never ends.
+    if (tick - state.suddenDeathStartTick >= config.suddenDeathMaxTicks) {
+      return { winnerTeamId: null, reason: "timeLimit", score: { ...score }, ticks: tick };
+    }
+    return null;
+  }
+
   if (tick >= config.timeLimitTicks) {
-    const [first, second] = TEAM_IDS;
-    const a = score[first] ?? 0;
-    const b = score[second] ?? 0;
-    // A draw is possible at the time limit. The match rules of M8 decide what
-    // a draw does to the best-of-3 count. TBD
-    let winnerTeamId: TeamId | null = null;
-    if (a > b) winnerTeamId = first;
-    else if (b > a) winnerTeamId = second;
-    return { winnerTeamId, reason: "timeLimit", score: { ...score }, ticks: tick };
+    const winner = leader(state);
+    // An equal score starts sudden death instead of a draw.
+    if (winner === null) return null;
+    return { winnerTeamId: winner, reason: "timeLimit", score: { ...score }, ticks: tick };
   }
 
   return null;
@@ -105,18 +134,17 @@ export function step(state: SimState): void {
   // 2. Perception.
   updatePerception(state);
 
-  // 3. AI decision.
-  for (const bot of state.bots) {
-    if (bot.alive && bot.path.length === 0) chooseGoal(state, bot);
-  }
+  // 3 and 4. AI decision and intent.
+  decideActions(state);
 
-  // 4 and 5. Movement.
+  // 5. Movement.
   for (const bot of state.bots) advanceBot(state, bot);
 
   // 6 and 7. Combat, death, and the kill events.
   for (const bot of state.bots) tryFire(state, bot);
 
   // 10. End condition.
+  enterSuddenDeathIfNeeded(state);
   const outcome = checkRoundEnd(state);
   if (outcome !== null) {
     state.outcome = outcome;

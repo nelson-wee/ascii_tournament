@@ -34,6 +34,8 @@ export const TuningSchema = z
         moveSpeedCellsPerSecond: positiveNumber,
         /** Ticks that a bot waits behind an enemy before it takes a new path. TBD */
         repathAfterBlockedTicks: positiveInt,
+        /** How far evasion moves a bot sideways, as a part of its speed. TBD */
+        evasionLateralFactor: unitRange,
       })
       .strict(),
     perception: z
@@ -64,6 +66,31 @@ export const TuningSchema = z
         movingTargetPenalty: unitRange,
         /** The lowest hit chance, whatever the distance. TBD */
         minHitChance: unitRange,
+        /** How much the evasion of a bot lowers its own accuracy. TBD */
+        evasionAccuracyPenalty: unitRange,
+      })
+      .strict(),
+    ai: z
+      .object({
+        /** A new action must score this much more than the current one. TBD */
+        hysteresisMargin: z.number().min(1),
+        /** A bot with a lower hazard tolerance walks around a hazard tile. TBD */
+        hazardAvoidBelowTolerance: unitRange,
+        /** The distance that makes a bot follow a teammate, in cells. TBD */
+        teamSpacingCells: positiveNumber,
+        /** The base consideration of each action, before the tactics weights. TBD */
+        actionBase: z
+          .object({
+            engage: positiveNumber,
+            chase: positiveNumber,
+            retreat: positiveNumber,
+            seekPickup: positiveNumber,
+            holdPosition: positiveNumber,
+            reposition: positiveNumber,
+            switchWeapon: positiveNumber,
+            follow: positiveNumber,
+          })
+          .strict(),
       })
       .strict(),
     botDefaults: z
@@ -92,6 +119,12 @@ export const TuningSchema = z
         scoreLimit: positiveInt,
         /** Ticks that end a round. 3600 ticks = 3 simulated minutes at 20 ticks/s. */
         timeLimitTicks: positiveInt,
+        /**
+         * The longest sudden death, in ticks. A round with an equal score at
+         * the time limit goes to sudden death, and the next kill wins. This
+         * limit only stops a round that never ends. TBD
+         */
+        suddenDeathMaxTicks: positiveInt,
       })
       .strict(),
   })
@@ -102,6 +135,56 @@ export const TuningSchema = z
   );
 
 export type Tuning = z.infer<typeof TuningSchema>;
+
+/** `data/tactics.json`: the tactics presets (Section 6.4). */
+export const TacticsSchema = z
+  .object({
+    aggression: unitRange,
+    retreatThreshold: unitRange,
+    preferredRange: z.enum(["close", "mid", "long"]),
+    weaponRolePref: z
+      .enum(["precision", "splash", "burst", "denial", "versatile", "baseline"])
+      .nullable(),
+    itemControl: unitRange,
+    holdPosition: unitRange,
+    evasion: unitRange,
+    hazardTolerance: unitRange,
+  })
+  .strict();
+
+export type Tactics = z.infer<typeof TacticsSchema>;
+
+export const TacticsFileSchema = z
+  .object({ _notes: z.string().optional(), default: TacticsSchema })
+  .strict();
+
+/** One entry of an announcement table. */
+const AnnouncementTierSchema = z
+  .object({ count: positiveInt, text: z.string().min(1) })
+  .strict();
+
+/** `data/announcements.json`: the kill announcements of the kill feed. */
+export const AnnouncementsSchema = z
+  .object({
+    _notes: z.string().optional(),
+    /** Kills of one bot inside the multi-kill window. */
+    multiKill: z.array(AnnouncementTierSchema).min(1),
+    /** Kills of one bot with no death between them. */
+    spree: z.array(AnnouncementTierSchema).min(1),
+    multiKillTemplate: z.string().min(1),
+    spreeTemplate: z.string().min(1),
+    spreeEndedTemplate: z.string().min(1),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      [value.multiKill, value.spree].every((table) =>
+        table.every((tier, index) => index === 0 || tier.count > (table[index - 1]?.count ?? 0)),
+      ),
+    "each announcement table must rise by count",
+  );
+
+export type Announcements = z.infer<typeof AnnouncementsSchema>;
 
 /** `data/weapons/*.json`: one weapon (Section 6.3). */
 export const WeaponSchema = z

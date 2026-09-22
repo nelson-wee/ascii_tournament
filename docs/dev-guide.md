@@ -76,6 +76,7 @@ This document is a blueprint for Claude Code.
 - **Progression timing:** affinity collects during all rounds. Traits apply after the match, not during it.
 - **Collision:** an enemy bot blocks movement. A teammate does not.
 - **Round end:** a round ends when one team makes 15 kills, or after 3 simulated minutes (3600 ticks at 20 ticks per second).
+- **A drawn round:** an equal score at the time limit starts sudden death. The next kill wins the round.
 - **Pickups:** the spawn table is fixed for all rounds of a match. The spawn table can change in the next match.
 - **Arenas:** spawn points and pickup points are fixed per arena.
 - **Weapons per run:** 5 total. 1–2 are fixed baseline weapons. The other weapons are procedural.
@@ -90,9 +91,10 @@ This document is a blueprint for Claude Code.
 
 - **Run length.** The number of opponent teams and matches per run. Set these from a target average run duration (TBD). The number of arenas per run (currently 4–5) depends on this. If matches are more than arenas, arenas repeat.
 - **Run structure:** ladder, league, or bracket.
-- A drawn round. A round at the time limit with an equal score has no winner.
-  Decide what a draw does to the best-of-3 count. M3 gives `winnerTeamId` the
-  value `null`. Decide before M8.
+- Spawn fairness of the test arena. With the same tactics on both teams, the
+  south-east spawn group wins 68 % of 60 rounds. The batch harness (M5) must
+  measure this, and the arena metrics and the validation rules (M7) must stop
+  it. Do not tune the AI around it.
 - Role duplication (can a team use the same role two times). Default: yes.
 - Progression reset per run or across runs.
 - Meta-progression.
@@ -155,6 +157,8 @@ The project root is the repository root.
 │   ├── arenas/*.txt               # hand-made arena maps (M1 test arena)
 │   ├── archetypes/*.json          # weapon archetypes
 │   ├── weapons/*.json             # fixed weapons (the M3 baseline weapon)
+│   ├── tactics.json               # tactics presets
+│   ├── announcements.json         # kill announcement tables
 │   ├── weapon-traits.json         # weapon mutations
 │   ├── bot-traits.json            # bot traits
 │   ├── roles.json                 # role presets
@@ -367,6 +371,7 @@ Minimum event types:
 - `PickupTaken`, `PickupRespawned`
 - `DecisionChanged` (debug)
 - `TraitGained`, `RivalryStarted`, `RivalryEventAdded`, `NicknameGained`
+- `Announcement` (a multi-kill, a killing spree, the end of a spree, sudden death)
 
 `Kill` events must include context: weapon archetype, range band, killer in cover, target aware, killer health, multi-kill count.
 
@@ -679,6 +684,7 @@ Rule: if one doctrine wins in all arena profiles, report it as a balance failure
 ### 7.17 Reports and kill feed (`report/`)
 
 - Kill feed lines from event templates (for example, "Vex killed Rook with a precision weapon at long range").
+- Kill announcements from `data/announcements.json`: a multi-kill (Double Kill, Multi Kill, Mega Kill, Ultra Kill, Monster Kill), a killing spree (Killing Spree, Rampage, Dominating, Unstoppable, Godlike), and the end of a spree. The counts are lower than the classic ones, because a 3v3 round ends at 15 team kills.
 - Round report (between rounds): score, kills, deaths, damage by archetype, death heatmap (ASCII).
 - Match report: all round data, pickup control time, progression results.
 - Bot stat card: role, traits, affinities, rivalries, nickname.
@@ -1006,6 +1012,54 @@ Notes:
 - Implement the utility AI with the starting action set.
 - Connect the `Tactics` fields to action weights.
 - Accept: a headless test shows different results for high and low aggression.
+
+**M4 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `ai/utility.ts` | `decide(state, bot)`, `scoreActions(state, bot)`, `applyAction(state, bot, action)`, `actionLabel(action)`, `bestWeaponAt(state, bot, distance)`, `bandDistance`, `healthFraction`, `noteReachedPickup`. Types `Action`, `ScoredAction`. |
+| `ai/navigation.ts` | `findPath` takes `avoidHazard`. |
+| `sim/round.ts` | `enterSuddenDeathIfNeeded(state)`. |
+| `sim/state.ts` | `BotState` holds `tactics`, `action`, `actionScore`, `decisionCooldownTicks`, `weapons`, `spreeCount`, `visitedSlotIds`. `SimState` holds `suddenDeath` and `suddenDeathStartTick`. |
+| `core/data.ts` | `loadDefaultTactics()`, `loadAnnouncements()`. |
+| `report/killFeed.ts` | `announcementLine(event)`, `feedLines(events, limit)`, type `FeedLine`. |
+
+Notes:
+
+- `SimState` is the world view of `decide`. A narrower view can replace it when
+  a system needs the AI without the full state.
+- The role modifier (M8), the trait modifiers (M10), and the team modifier (M8)
+  are hooks in `ai/utility.ts`. Each one gives 1 until its milestone.
+- **What each tactic does, and what it costs:**
+
+  | Tactic | Benefit | Cost |
+  |---|---|---|
+  | `aggression` | Raises `Engage` and `Chase` | Lowers `Retreat`, so the bot fights at low health |
+  | `retreatThreshold` | The bot leaves a lost fight | It gives ground and makes no kills |
+  | `preferredRange` | `Reposition` holds the band of the weapon | The bot moves instead of firing |
+  | `weaponRolePref` | A bias in the weapon choice | It can take a weapon with a lower DPS |
+  | `itemControl` | Raises `SeekPickup` | The bot crosses the open arena |
+  | `holdPosition` | Raises `HoldPosition`, lowers `SeekPickup` and `Follow` | The bot takes no items |
+  | `evasion` | The bot is harder to hit | It lowers the accuracy of the bot itself |
+  | `hazardTolerance` | A short path through a hazard | A long path around it |
+
+- A bot that retreats does not fire. This gives the aggression tactic a real
+  cost. TBD
+- `hazardTolerance` is a yes-or-no rule in M4: a bot below the threshold treats
+  a hazard tile as a wall. The path cost `danger × (1 − hazardTolerance)` of
+  Section 7.10 needs the influence maps of M8.
+- `SwitchWeapon` reads the DPS profile of `bot.weapons`. M4 gives every bot one
+  baseline weapon, so the action never wins. M6 and M8 fill the list.
+- `visitedSlotIds` makes a bot work a route over the pickup points. Without it
+  the bot stops on the first point beside its spawn and the two teams never
+  meet. M8 replaces the memory with the real respawn timers of Section 7.12.
+- **Finding for M5 and M7:** with the same tactics on both teams, the south-east
+  spawn group of the test arena wins 68 % of 60 rounds. This is a spawn fairness
+  fault of the arena, not of the AI (Section 2.3).
+- **Finding for the tuning:** the classic spree counts (5, 10, 15, 20, 25) never
+  happen in a 3v3 round that ends at 15 team kills. The counts are now 3, 5, 7,
+  9, and 12, and the classic words stay. Over 15 rounds the game now announces
+  43 multi-kills, 33 sprees, and 30 ends of a spree.
 
 ### M5 — Headless batch harness
 

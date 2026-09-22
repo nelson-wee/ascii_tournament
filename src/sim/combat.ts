@@ -43,6 +43,8 @@ export function hitChance(state: SimState, shooter: BotState, target: BotState):
   const reach = Math.min(1, distance / shooter.weapon.rangeMax);
   let chance = shooter.attributes.accuracy * (1 - reach * config.distanceFalloff);
   if (target.movedLastTick) chance *= 1 - config.movingTargetPenalty;
+  // Section 7.5: evasion lowers the accuracy of the bot that evades.
+  chance *= 1 - shooter.tactics.evasion * config.evasionAccuracyPenalty;
   return Math.min(1, Math.max(config.minHitChance, chance));
 }
 
@@ -76,6 +78,68 @@ export function selectTarget(state: SimState, bot: BotState): BotState | null {
   return best;
 }
 
+/** The tier text of an exact count, or `null`. */
+function tierText(
+  tiers: readonly { count: number; text: string }[],
+  count: number,
+): string | null {
+  return tiers.find((tier) => tier.count === count)?.text ?? null;
+}
+
+/** The highest tier that a count reached, or `null`. */
+function reachedTier(
+  tiers: readonly { count: number; text: string }[],
+  count: number,
+): string | null {
+  let text: string | null = null;
+  for (const tier of tiers) {
+    if (count >= tier.count) text = tier.text;
+  }
+  return text;
+}
+
+/**
+ * The kill announcements of Section 7.17: a multi-kill, a killing spree, and
+ * the end of a spree.
+ */
+function emitAnnouncements(state: SimState, shooter: BotState, victim: BotState): void {
+  const { config, tick, roundNumber, bus } = state;
+
+  const multiKill = tierText(config.multiKillTiers, shooter.multiKillCount);
+  if (multiKill !== null) {
+    bus.emit("Announcement", tick, roundNumber, {
+      kind: "multiKill",
+      botId: shooter.id,
+      teamId: shooter.teamId,
+      count: shooter.multiKillCount,
+      text: multiKill,
+    });
+  }
+
+  const spree = tierText(config.spreeTiers, shooter.spreeCount);
+  if (spree !== null) {
+    bus.emit("Announcement", tick, roundNumber, {
+      kind: "spree",
+      botId: shooter.id,
+      teamId: shooter.teamId,
+      count: shooter.spreeCount,
+      text: spree,
+    });
+  }
+
+  const endedSpree = reachedTier(config.spreeTiers, victim.spreeCount);
+  if (endedSpree !== null) {
+    bus.emit("Announcement", tick, roundNumber, {
+      kind: "spreeEnded",
+      botId: victim.id,
+      teamId: victim.teamId,
+      killerId: shooter.id,
+      count: victim.spreeCount,
+      text: endedSpree,
+    });
+  }
+}
+
 /** Apply damage and, if the target dies, the death and the kill. */
 function applyDamage(state: SimState, shooter: BotState, target: BotState, damage: number): void {
   target.health -= damage;
@@ -98,6 +162,7 @@ function applyDamage(state: SimState, shooter: BotState, target: BotState, damag
   shooter.multiKillCount =
     tick - shooter.lastKillTick <= config.multiKillWindowTicks ? shooter.multiKillCount + 1 : 1;
   shooter.lastKillTick = tick;
+  shooter.spreeCount += 1;
   state.score[shooter.teamId] += 1;
 
   state.bus.emit("Death", tick, roundNumber, {
@@ -120,7 +185,11 @@ function applyDamage(state: SimState, shooter: BotState, target: BotState, damag
     targetAware: !unaware,
     killerHealth: shooter.health,
     multiKillCount: shooter.multiKillCount,
+    spreeCount: shooter.spreeCount,
   });
+  emitAnnouncements(state, shooter, target);
+  // The death ends the killing spree of the target.
+  target.spreeCount = 0;
 }
 
 /**
@@ -130,6 +199,13 @@ function applyDamage(state: SimState, shooter: BotState, target: BotState, damag
 export function tryFire(state: SimState, bot: BotState): void {
   if (!bot.alive) return;
   if (bot.fireCooldownTicks > 0) return;
+  // A bot that retreats breaks contact. It does not fire. This gives the
+  // aggression tactic a cost and a benefit. TBD
+  if (bot.action.kind === "Retreat") {
+    bot.targetId = null;
+    bot.aimTicks = 0;
+    return;
+  }
 
   const target = selectTarget(state, bot);
   if (!target) {

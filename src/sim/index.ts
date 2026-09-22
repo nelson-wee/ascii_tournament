@@ -9,4 +9,11 @@ export {
   selectTarget,
   tryFire,
 } from "./combat.js";
-export { checkRoundEnd, runRound, step, stepMany, type RoundResult } from "./round.js";
+export {
+  checkRoundEnd,
+  enterSuddenDeathIfNeeded,
+  runRound,
+  step,
+  stepMany,
+  type RoundResult,
+} from "./round.js";

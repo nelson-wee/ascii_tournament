@@ -5,10 +5,20 @@
  * same loader works in the browser, in the tests, and in the batch harness.
  * Every file passes through its zod schema before any system reads it.
  */
+import announcementsJson from "../../data/announcements.json";
+import tacticsJson from "../../data/tactics.json";
 import tuningJson from "../../data/tuning.json";
 import baselineWeaponJson from "../../data/weapons/baseline.json";
 import type { Weapon } from "../weapons/types.js";
-import { TuningSchema, WeaponSchema, type Tuning } from "./schemas.js";
+import {
+  AnnouncementsSchema,
+  TacticsFileSchema,
+  TuningSchema,
+  WeaponSchema,
+  type Announcements,
+  type Tactics,
+  type Tuning,
+} from "./schemas.js";
 
 /** Thrown when a data file does not match its schema. */
 export class DataValidationError extends Error {
@@ -38,6 +48,8 @@ export function parseData<T>(
 
 let tuningCache: Tuning | null = null;
 let baselineWeaponCache: Weapon | null = null;
+let announcementsCache: Announcements | null = null;
+let tacticsCache: Tactics | null = null;
 
 /** The global tuning numbers. The result is cached after the first call. */
 export function loadTuning(): Tuning {
@@ -58,8 +70,26 @@ export function loadBaselineWeapon(): Weapon {
   return baselineWeaponCache;
 }
 
+/** The kill announcement tables (Section 7.17). */
+export function loadAnnouncements(): Announcements {
+  announcementsCache ??= parseData(
+    "data/announcements.json",
+    AnnouncementsSchema,
+    announcementsJson,
+  );
+  return announcementsCache;
+}
+
+/** The default tactics preset (Section 6.4). The role presets arrive with M8. */
+export function loadDefaultTactics(): Tactics {
+  tacticsCache ??= parseData("data/tactics.json", TacticsFileSchema, tacticsJson).default;
+  return tacticsCache;
+}
+
 /** Forget the cached data files. The tests use this. */
 export function clearDataCache(): void {
   tuningCache = null;
   baselineWeaponCache = null;
+  announcementsCache = null;
+  tacticsCache = null;
 }

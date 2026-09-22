@@ -84,22 +84,28 @@ describe("step", () => {
     expect(state.tick).toBe(10);
   });
 
-  it("gives every bot a goal and a path", () => {
+  it("gives every bot an action inside one decision interval", () => {
     const state = newState();
-    step(state);
+    // The bots decide on different ticks, so the first decision of the last
+    // bot comes one full interval after the first tick.
+    stepMany(state, state.config.aiDecisionIntervalTicks + 1);
     for (const bot of state.bots) {
-      expect(bot.goalSlotId, `${bot.id} has no goal`).not.toBeNull();
-      expect(bot.path.length).toBeGreaterThan(0);
+      expect(bot.action.kind, `${bot.id} never decided`).not.toBe("Idle");
     }
   });
 
-  it("emits a DecisionChanged event for every new goal", () => {
+  it("emits a DecisionChanged event when the action of a bot changes", () => {
     const bus = new EventBus();
     const state = newState(1, bus);
-    step(state);
+    stepMany(state, state.config.aiDecisionIntervalTicks + 1);
     const decisions = bus.filter("DecisionChanged");
-    expect(decisions).toHaveLength(6);
-    expect(decisions[0]?.data["action"]).toBe("SeekPickup");
+    expect(decisions.length).toBeGreaterThan(0);
+    const bots = new Set(decisions.map((event) => event.data["botId"]));
+    expect(bots.size).toBe(state.bots.length);
+    for (const event of decisions) {
+      expect(typeof event.data["action"]).toBe("string");
+      expect(event.data["score"]).toBeGreaterThan(0);
+    }
   });
 
   it("moves the bots", () => {
@@ -136,7 +142,10 @@ describe("step", () => {
         const start = before[index] as { pos: { x: number; y: number }; alive: boolean };
         if (!start.alive && bot.alive) continue; // a respawn
         const moved = Math.hypot(bot.pos.x - start.pos.x, bot.pos.y - start.pos.y);
-        expect(moved, `${bot.id} jumped ${moved} cells`).toBeLessThanOrEqual(speed + 1e-9);
+        // Evasion adds a lateral step on top of the step along the path.
+        const evasion = bot.tactics.evasion * state.config.evasionLateralFactor;
+        const limit = speed * Math.hypot(1, evasion) + 1e-9;
+        expect(moved, `${bot.id} jumped ${moved} cells`).toBeLessThanOrEqual(limit);
       }
     }
   });
@@ -174,16 +183,14 @@ describe("step", () => {
     expect(changed, "the bot never reached its first goal").toBe(true);
   });
 
-  it("stands on the goal cell when it arrives", () => {
-    const bus = new EventBus();
-    const state = newState(3, bus);
-    const bot = state.bots[0];
-    if (!bot) throw new Error("no bot");
-    step(state);
-    const goal = state.map.pickups.find((pickup) => pickup.slotId === bot.goalSlotId);
-    if (!goal) throw new Error("no goal");
-    while (bot.path.length > 0) step(state);
-    expect(botCell(bot)).toEqual(goal.cell);
+  it("reaches pickup points and remembers them", () => {
+    // A bot marks a pickup point only when it stands on that cell.
+    const state = newState(3);
+    stepMany(state, 1200);
+    const visited = state.bots.flatMap((bot) => bot.visitedSlotIds);
+    expect(visited.length).toBeGreaterThan(0);
+    const slotIds = new Set(state.map.pickups.map((pickup) => pickup.slotId));
+    for (const slotId of visited) expect(slotIds.has(slotId)).toBe(true);
   });
 });
 

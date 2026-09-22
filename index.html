@@ -82,6 +82,10 @@
       #feed li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #feed li + li { margin-top: 1px; }
       #feed li:last-child { color: var(--fg); }
+      #feed li.announce { color: #d9c15a; }
+      #feed li.spreeEnded { color: #d96a7a; }
+      #feed li.suddenDeath { color: var(--accent); letter-spacing: 0.1em; }
+      #status.urgent { color: var(--accent); }
       /* A wide screen puts the panel beside the arena (Section 7.18). */
       @media (min-width: 980px) {
         #stage {

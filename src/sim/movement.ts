@@ -5,12 +5,13 @@
  * - Walls block movement. Low cover does not block movement. TBD
  * - An enemy bot blocks movement. A teammate does not.
  * - A bot moves along the cells of its path, from cell centre to cell centre.
- *
- * Evasion (random lateral movement) needs the tactics of Milestone M4.
+ * - Evasion adds random lateral movement. It lowers the accuracy of the bot in
+ *   `sim/combat.ts`.
  */
 import { isStepLegal } from "../ai/navigation.js";
+import { isWalkable, tileAt } from "../arena/types.js";
 import type { Cell } from "../core/types.js";
-import { botCell, cellCenter, enemyAt, type BotState, type SimState } from "./state.js";
+import { botCell, cellCenter, enemyAt, posCell, type BotState, type SimState } from "./state.js";
 
 /** Distances below this value count as zero. */
 const EPSILON = 1e-9;
@@ -72,5 +73,44 @@ export function advanceBot(state: SimState, bot: BotState): void {
     remaining = 0;
   }
 
+  applyEvasion(state, bot, start);
   bot.movedLastTick = bot.pos.x !== start.x || bot.pos.y !== start.y;
+}
+
+/**
+ * Add random lateral movement (Section 7.5).
+ *
+ * The bot evades only while it can see an enemy, because evasion has a cost:
+ * it lowers the accuracy of the bot itself. The offset applies only if the new
+ * cell is free.
+ */
+function applyEvasion(state: SimState, bot: BotState, start: { x: number; y: number }): void {
+  const strength = bot.tactics.evasion;
+  if (strength <= 0 || bot.visibleEnemyIds.length === 0) return;
+
+  let dx = bot.pos.x - start.x;
+  let dy = bot.pos.y - start.y;
+  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) {
+    // The bot stands. It side-steps across the line to its target.
+    const target = state.bots.find((other) => other.id === bot.visibleEnemyIds[0]);
+    if (!target) return;
+    dx = target.pos.x - bot.pos.x;
+    dy = target.pos.y - bot.pos.y;
+  }
+  const length = Math.hypot(dx, dy);
+  if (length < 1e-9) return;
+
+  const amount =
+    state.rng.float(-1, 1) * strength * state.config.evasionLateralFactor * bot.moveSpeedPerTick;
+  const next = {
+    x: bot.pos.x + (-dy / length) * amount,
+    y: bot.pos.y + (dx / length) * amount,
+  };
+
+  const from = botCell(bot);
+  const to = posCell(next);
+  if (!isWalkable(tileAt(state.map, to.x, to.y))) return;
+  if ((to.x !== from.x || to.y !== from.y) && !isStepLegal(state.map, from, to)) return;
+  if ((to.x !== from.x || to.y !== from.y) && enemyAt(state, to, bot.teamId)) return;
+  bot.pos = next;
 }

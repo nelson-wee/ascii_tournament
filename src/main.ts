@@ -9,7 +9,7 @@
 import { loadTestArena } from "./arena/index.js";
 import { Tile } from "./arena/types.js";
 import { loadTuning } from "./core/data.js";
-import { killFeedLines } from "./report/killFeed.js";
+import { feedLines } from "./report/killFeed.js";
 import { ArenaDisplay, type EntityGlyph } from "./render/display.js";
 import { SimRunner, type Speed } from "./render/runner.js";
 import { PICKUP_STYLES, TEAM_STYLES, TILE_STYLES } from "./render/theme.js";
@@ -63,7 +63,12 @@ function timeLeft(state: SimState): string {
 function outcomeText(state: SimState): string {
   const { outcome } = state;
   if (outcome === null) return "";
-  const reason = outcome.reason === "scoreLimit" ? "score limit" : "time limit";
+  const reason =
+    outcome.reason === "scoreLimit"
+      ? "score limit"
+      : outcome.reason === "suddenDeath"
+        ? "sudden death"
+        : "time limit";
   if (outcome.winnerTeamId === null) return `Round drawn — ${reason}`;
   return `Team ${outcome.winnerTeamId} wins the round — ${reason}`;
 }
@@ -111,16 +116,21 @@ try {
     ].join(" ");
 
     feedEl.replaceChildren();
-    for (const line of killFeedLines(state.bus.log, KILL_FEED_LINES)) {
+    for (const line of feedLines(state.bus.log, KILL_FEED_LINES)) {
       const item = document.createElement("li");
-      item.textContent = line;
+      item.textContent = line.text;
+      if (line.kind !== "kill") item.className = `announce ${line.kind}`;
       feedEl.append(item);
     }
 
-    statusEl.textContent =
-      state.outcome === null
-        ? `round ${state.roundNumber}  ·  ${timeLeft(state)} left  ·  tick ${state.tick}`
-        : outcomeText(state);
+    if (state.outcome !== null) {
+      statusEl.textContent = outcomeText(state);
+    } else if (state.suddenDeath) {
+      statusEl.textContent = `round ${state.roundNumber}  ·  SUDDEN DEATH  ·  next kill wins`;
+    } else {
+      statusEl.textContent = `round ${state.roundNumber}  ·  ${timeLeft(state)} left  ·  tick ${state.tick}`;
+    }
+    statusEl.classList.toggle("urgent", state.suddenDeath && state.outcome === null);
   }
 
   const runner = new SimRunner({

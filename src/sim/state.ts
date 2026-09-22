@@ -5,10 +5,16 @@
  * The `Tactics` and the `Role` of Sections 6.4 and 7.11 arrive with M4 and M8.
  */
 import type { ArenaMap } from "../arena/types.js";
-import { loadBaselineWeapon, loadTuning } from "../core/data.js";
+import {
+  loadAnnouncements,
+  loadBaselineWeapon,
+  loadDefaultTactics,
+  loadTuning,
+} from "../core/data.js";
 import { CellSet } from "../core/cellSet.js";
 import { EventBus } from "../core/events.js";
-import type { Tuning } from "../core/schemas.js";
+import type { Tactics, Tuning } from "../core/schemas.js";
+import type { Action } from "../ai/utility.js";
 import { createRng, type Rng } from "../core/rng.js";
 import type { Cell, Vec2 } from "../core/types.js";
 import type { Weapon } from "../weapons/types.js";
@@ -37,6 +43,8 @@ export interface BotState {
   id: string;
   teamId: TeamId;
   attributes: Attributes;
+  /** What the player TELLS the bot (Section 6.4). */
+  tactics: Tactics;
   /** Sub-cell position. The centre of cell (x, y) is (x + 0.5, y + 0.5). */
   pos: Vec2;
   /** Cells that the bot crosses in one tick. */
@@ -45,15 +53,33 @@ export interface BotState {
   path: Cell[];
   /** The `slotId` of the pickup point that the bot moves to. */
   goalSlotId: string | null;
+  /**
+   * The pickup points that the bot reached, oldest first.
+   *
+   * The bot does not walk back to a point that it just took, so it works a
+   * route over the arena instead of stepping between two near points. M8
+   * replaces this memory with the real respawn timers of Section 7.12.
+   */
+  visitedSlotIds: string[];
   /** Ticks that an enemy bot blocked the next cell of the path. */
   blockedTicks: number;
   /** True if the bot changed position in the last tick. */
   movedLastTick: boolean;
 
+  /** The action that the utility AI selected (Section 7.8). */
+  action: Action;
+  /** The score of `action` when the AI selected it. Hysteresis uses it. */
+  actionScore: number;
+  /** Ticks before the bot decides again. */
+  decisionCooldownTicks: number;
+
   alive: boolean;
   health: number;
   /** The tick of the respawn. Only valid while `alive` is false. */
   respawnAtTick: number;
+  /** Every weapon that the bot holds. M3 and M4 give one baseline weapon. */
+  weapons: Weapon[];
+  /** The weapon in the hands of the bot. `SwitchWeapon` changes it. */
   weapon: Weapon;
   /** Ticks before the weapon can fire again. */
   fireCooldownTicks: number;
@@ -75,6 +101,8 @@ export interface BotState {
   lastKillTick: number;
   /** Kills of this bot inside the multi-kill window. */
   multiKillCount: number;
+  /** Kills of this bot with no death between them (a killing spree). */
+  spreeCount: number;
 }
 
 export interface SimConfig {
@@ -95,10 +123,21 @@ export interface SimConfig {
   minHitChance: number;
   scoreLimit: number;
   timeLimitTicks: number;
+  suddenDeathMaxTicks: number;
+  aiDecisionIntervalTicks: number;
+  hysteresisMargin: number;
+  hazardAvoidBelowTolerance: number;
+  teamSpacingCells: number;
+  actionBase: Readonly<Record<string, number>>;
+  evasionLateralFactor: number;
+  evasionAccuracyPenalty: number;
+  /** The kill announcement tiers (Section 7.17). */
+  multiKillTiers: readonly { count: number; text: string }[];
+  spreeTiers: readonly { count: number; text: string }[];
 }
 
 /** Why a round ended. */
-export type RoundEndReason = "scoreLimit" | "timeLimit";
+export type RoundEndReason = "scoreLimit" | "timeLimit" | "suddenDeath";
 
 export interface RoundOutcome {
   /** `null` means a draw: the time ran out with an equal score. */
@@ -111,6 +150,10 @@ export interface RoundOutcome {
 export interface SimState {
   /** The number of ticks that ran. The first `step` makes this 1. */
   tick: number;
+  /** True after the time limit ended a round with an equal score. */
+  suddenDeath: boolean;
+  /** The tick that sudden death started on. */
+  suddenDeathStartTick: number;
   roundNumber: number;
   map: ArenaMap;
   config: SimConfig;
@@ -133,6 +176,8 @@ export interface CreateSimStateOptions {
   /** The weapon of every bot. M3 gives all bots the baseline weapon. */
   weapon?: Weapon;
   attributes?: Attributes;
+  /** The tactics of every bot, or of one team. */
+  tactics?: Tactics | Partial<Record<TeamId, Tactics>>;
 }
 
 /** Read the simulation numbers from `data/tuning.json`. */
@@ -155,6 +200,16 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     minHitChance: tuning.combat.minHitChance,
     scoreLimit: tuning.round.scoreLimit,
     timeLimitTicks: tuning.round.timeLimitTicks,
+    suddenDeathMaxTicks: tuning.round.suddenDeathMaxTicks,
+    aiDecisionIntervalTicks: tuning.simulation.aiDecisionIntervalTicks,
+    hysteresisMargin: tuning.ai.hysteresisMargin,
+    hazardAvoidBelowTolerance: tuning.ai.hazardAvoidBelowTolerance,
+    teamSpacingCells: tuning.ai.teamSpacingCells,
+    actionBase: tuning.ai.actionBase,
+    evasionLateralFactor: tuning.movement.evasionLateralFactor,
+    evasionAccuracyPenalty: tuning.combat.evasionAccuracyPenalty,
+    multiKillTiers: loadAnnouncements().multiKill,
+    spreeTiers: loadAnnouncements().spree,
   };
 }
 
@@ -213,38 +268,51 @@ export function teamSpawns(state: SimState, teamId: TeamId): Cell[] {
   return state.map.spawns.slice(index * size, index * size + size);
 }
 
-function makeBot(
-  id: string,
-  teamId: TeamId,
-  spawn: Cell,
-  config: SimConfig,
-  attributes: Attributes,
-  weapon: Weapon,
-  cellCount: number,
-): BotState {
+interface MakeBotOptions {
+  id: string;
+  teamId: TeamId;
+  spawn: Cell;
+  slot: number;
+  config: SimConfig;
+  attributes: Attributes;
+  tactics: Tactics;
+  weapon: Weapon;
+  cellCount: number;
+}
+
+function makeBot(options: MakeBotOptions): BotState {
+  const { config } = options;
   return {
-    id,
-    teamId,
-    attributes,
-    pos: cellCenter(spawn),
+    id: options.id,
+    teamId: options.teamId,
+    attributes: options.attributes,
+    tactics: options.tactics,
+    pos: cellCenter(options.spawn),
     moveSpeedPerTick: config.moveSpeedPerTick,
     path: [],
     goalSlotId: null,
+    visitedSlotIds: [],
     blockedTicks: 0,
     movedLastTick: false,
+    action: { kind: "Idle" },
+    actionScore: 0,
+    // The bots decide on different ticks, so that the work spreads evenly.
+    decisionCooldownTicks: options.slot % config.aiDecisionIntervalTicks,
     alive: true,
     health: config.healthMax,
     respawnAtTick: 0,
-    weapon,
+    weapons: [options.weapon],
+    weapon: options.weapon,
     fireCooldownTicks: 0,
     targetId: null,
     aimTicks: 0,
-    visibleCells: new CellSet(cellCount),
+    visibleCells: new CellSet(options.cellCount),
     fovCell: null,
     visibleEnemyIds: [],
     lastSeen: new Map<string, LastSeen>(),
     lastKillTick: -Infinity,
     multiKillCount: 0,
+    spreeCount: 0,
   };
 }
 
@@ -263,6 +331,11 @@ export function createSimState(options: CreateSimStateOptions): SimState {
   const rng = createRng(seed, "sim");
   const weapon = options.weapon ?? loadBaselineWeapon();
   const attributes = options.attributes ?? defaultAttributes();
+  const tacticsOption = options.tactics ?? loadDefaultTactics();
+  const tacticsFor = (teamId: TeamId): Tactics =>
+    "aggression" in tacticsOption
+      ? tacticsOption
+      : (tacticsOption[teamId] ?? loadDefaultTactics());
 
   const needed = config.teamSize * TEAM_IDS.length;
   if (map.spawns.length < needed) {
@@ -276,21 +349,25 @@ export function createSimState(options: CreateSimStateOptions): SimState {
     for (let slot = 0; slot < config.teamSize; slot += 1) {
       const spawn = map.spawns[teamIndex * config.teamSize + slot] as Cell;
       bots.push(
-        makeBot(
-          `${teamId}${slot}`,
+        makeBot({
+          id: `${teamId}${slot}`,
           teamId,
           spawn,
+          slot: teamIndex * config.teamSize + slot,
           config,
-          { ...attributes },
+          attributes: { ...attributes },
+          tactics: { ...tacticsFor(teamId) },
           weapon,
-          map.width * map.height,
-        ),
+          cellCount: map.width * map.height,
+        }),
       );
     }
   }
 
   const state: SimState = {
     tick: 0,
+    suddenDeath: false,
+    suddenDeathStartTick: 0,
     roundNumber,
     map,
     config,

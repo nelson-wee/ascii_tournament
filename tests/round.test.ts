@@ -49,14 +49,13 @@ describe("checkRoundEnd", () => {
     expect(outcome?.winnerTeamId).toBe("B");
   });
 
-  it("gives a draw at the time limit with an equal score", () => {
+  it("does not end at the time limit with an equal score", () => {
+    // The round goes to sudden death instead. See tests/announcements.test.ts.
     const state = arenaState();
     state.tick = state.config.timeLimitTicks;
     state.score.A = 4;
     state.score.B = 4;
-    const outcome = checkRoundEnd(state);
-    expect(outcome?.reason).toBe("timeLimit");
-    expect(outcome?.winnerTeamId).toBeNull();
+    expect(checkRoundEnd(state)).toBeNull();
   });
 
   it("uses the score limit before the time limit", () => {

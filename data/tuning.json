@@ -18,7 +18,14 @@
     "combat.minHitChance",
     "botDefaults.accuracy",
     "botDefaults.reactionTicks",
-    "botDefaults.awareness"
+    "botDefaults.awareness",
+    "round.suddenDeathMaxTicks",
+    "movement.evasionLateralFactor",
+    "combat.evasionAccuracyPenalty",
+    "ai.hysteresisMargin",
+    "ai.hazardAvoidBelowTolerance",
+    "ai.teamSpacingCells",
+    "ai.actionBase"
   ],
   "simulation": {
     "ticksPerSecond": 20,
@@ -26,7 +33,8 @@
   },
   "movement": {
     "moveSpeedCellsPerSecond": 4,
-    "repathAfterBlockedTicks": 10
+    "repathAfterBlockedTicks": 10,
+    "evasionLateralFactor": 0.5
   },
   "perception": {
     "sightRadiusCells": 20,
@@ -41,7 +49,23 @@
     "critMultiplier": 2,
     "distanceFalloff": 0.6,
     "movingTargetPenalty": 0.25,
-    "minHitChance": 0.05
+    "minHitChance": 0.05,
+    "evasionAccuracyPenalty": 0.4
+  },
+  "ai": {
+    "hysteresisMargin": 1.2,
+    "hazardAvoidBelowTolerance": 0.5,
+    "teamSpacingCells": 12,
+    "actionBase": {
+      "engage": 1.0,
+      "chase": 0.55,
+      "retreat": 1.1,
+      "seekPickup": 0.8,
+      "holdPosition": 0.5,
+      "reposition": 0.7,
+      "switchWeapon": 0.9,
+      "follow": 0.4
+    }
   },
   "botDefaults": {
     "accuracy": 0.75,
@@ -55,6 +79,7 @@
   },
   "round": {
     "scoreLimit": 15,
-    "timeLimitTicks": 3600
+    "timeLimitTicks": 3600,
+    "suddenDeathMaxTicks": 3600
   }
 }
