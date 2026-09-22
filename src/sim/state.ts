@@ -129,6 +129,7 @@ export interface SimConfig {
   repathAfterBlockedTicks: number;
   sightRadiusCells: number;
   memoryTicks: number;
+  directionalVision: boolean;
   focusHalfAngle: number;
   peripheralHalfAngleBase: number;
   peripheralHalfAngleAwareness: number;
@@ -212,6 +213,7 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     repathAfterBlockedTicks: tuning.movement.repathAfterBlockedTicks,
     sightRadiusCells: tuning.perception.sightRadiusCells,
     memoryTicks: tuning.perception.memoryTicks,
+    directionalVision: tuning.perception.directionalVision,
     focusHalfAngle: (tuning.perception.focusHalfAngleDegrees * Math.PI) / 180,
     peripheralHalfAngleBase: (tuning.perception.peripheralHalfAngleBaseDegrees * Math.PI) / 180,
     peripheralHalfAngleAwareness:

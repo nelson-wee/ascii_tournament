@@ -18,6 +18,7 @@ import {
   cellCenter,
   createSimState,
   peripheralHalfAngle,
+  simConfigFromTuning,
   type BotState,
   type SimState,
 } from "../src/sim/index.js";
@@ -31,8 +32,13 @@ const SPLIT = [
   "###########",
 ].join("\n");
 
-function splitState(): SimState {
-  return createSimState({ map: parseArenaText(SPLIT, { source: "split" }), seed: 1 });
+/** The vision arcs are off by default, so the tests of the arcs turn them on. */
+function splitState(directionalVision = true): SimState {
+  return createSimState({
+    map: parseArenaText(SPLIT, { source: "split" }),
+    seed: 1,
+    config: { ...simConfigFromTuning(), directionalVision },
+  });
 }
 
 describe("blocksSight", () => {
@@ -272,6 +278,44 @@ describe("the vision arcs (Section 7.20.6)", () => {
     updatePerception(state);
     expect(hasLineOfSight(state, a0, b0)).toBe(false);
     expect(arcOf(state, a0, b0)).toBe("blind");
+  });
+});
+
+describe("the directional vision toggle", () => {
+  it("is off in data/tuning.json", () => {
+    // Section 7.20.10: the arcs change nothing while a pickup point gives
+    // nothing. They stay off until the pickups of M8 work.
+    expect(simConfigFromTuning().directionalVision).toBe(false);
+  });
+
+  it("sees through 360 degrees when it is off", () => {
+    const state = splitState(false);
+    const a0 = state.bots[0] as BotState;
+    const b0 = state.bots[3] as BotState;
+    a0.pos = cellCenter({ x: 2, y: 1 });
+    b0.pos = cellCenter({ x: 8, y: 1 });
+    a0.facing = Math.PI; // It looks away from the enemy.
+    updatePerception(state);
+    expect(arcOf(state, a0, b0)).toBe("focus");
+    expect(canTarget(a0, b0)).toBe(true);
+  });
+
+  it("still needs a line of sight when it is off", () => {
+    const state = splitState(false);
+    const a0 = state.bots[0] as BotState;
+    const b0 = state.bots[3] as BotState;
+    a0.pos = cellCenter({ x: 4, y: 3 });
+    b0.pos = cellCenter({ x: 6, y: 3 });
+    updatePerception(state);
+    expect(arcOf(state, a0, b0)).toBe("blind");
+  });
+
+  it("does not turn a bot when it is off", () => {
+    const state = splitState(false);
+    const a0 = state.bots[0] as BotState;
+    a0.facing = 1.23;
+    updateFacing(state, a0, { x: 0, y: 1 });
+    expect(a0.facing).toBe(1.23);
   });
 });
 

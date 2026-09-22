@@ -1010,8 +1010,16 @@ test is one angle comparison per enemy, and there are five enemies.
 (Section 7.2.1) when this lands. The memory of a last seen position and the
 `Chase` action are what keep a round moving.
 
-**Result: it is built, and it changed nothing.** Section 7.20.10 holds the
-measurement and the cause. Read it before you plan any more work on vision.
+**Result: it is built, it changed nothing, and it is switched off.** Section
+7.20.10 holds the measurement and the cause. Read it before you plan any more
+work on vision.
+
+`perception.directionalVision` in `data/tuning.json` turns it on and off. It is
+`false`. With it off a bot sees through 360 degrees, as in the milestones before
+M5.5, and the simulation does not calculate a facing at all. Turn it on again
+when the pickups of M8 give a reason to cross the arena, and measure it then
+against a fresh baseline.
+
 The rules as built:
 
 | Rule | Value |
@@ -1155,11 +1163,13 @@ works by making movement safer.
 3. **Keep a one-tactic sweep in the toolbox.** Two sweeps of 320 rounds each
    found in two minutes what a matrix of full presets could not: a preset
    mixes eight tactics, so its win rate cannot say which one carries it.
-4. **Keep the vision change.** It costs about 20 % of the round time (159 ms to
-   195 ms per round) and it buys nothing today. It stays because the design
-   that follows needs it: "target unaware" is a real state now, which the crit
-   rule of Section 7.20.5 needs, and a flank becomes worth something as soon as
-   holding a position stops being free.
+4. **Keep the vision change, but switch it off.** It costs about 20 % of the
+   round time (159 ms to 195 ms per round) and it buys nothing today.
+   `perception.directionalVision` is `false`, so the code stays and the cost
+   does not. Turn it on with the pickups of M8: "target unaware" is a real
+   state under the arcs, which the crit rule of Section 7.20.5 wants, and a
+   flank becomes worth something as soon as holding a position stops being
+   free. Measure it again then, against a fresh baseline.
 
 ---
 
@@ -1570,6 +1580,8 @@ Built on its own, before M6, so that the batch could say what it changed.
 - The display shows the facing of a bot with an arrow.
 - The batch harness now reports the share of kills on a target that could not
   see its killer, which measures a flank.
+- `perception.directionalVision` turns the whole change on and off. It is off,
+  because the measurement says that it moves nothing today.
 - Accept: the batch runs and the measurement is recorded. **The measurement
   says that the change moved nothing** (Section 7.20.10).
 

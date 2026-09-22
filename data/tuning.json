@@ -43,6 +43,7 @@
     "evasionLateralFactor": 0.5
   },
   "perception": {
+    "directionalVision": false,
     "sightRadiusCells": 20,
     "memoryTicks": 60,
     "focusHalfAngleDegrees": 45,

@@ -40,6 +40,14 @@ export const TuningSchema = z
       .strict(),
     perception: z
       .object({
+        /**
+         * false: a bot sees through 360 degrees, as before Milestone M5.5.
+         * true: a bot has a facing, a focus arc, and a peripheral arc
+         * (Section 7.20.6). The measurement of Section 7.20.10 says that the
+         * arcs change nothing while a pickup point gives nothing, so this is
+         * off until the pickups of M8 work.
+         */
+        directionalVision: z.boolean(),
         /** The sight radius of a bot, in cells. TBD */
         sightRadiusCells: positiveNumber,
         /** Ticks that a bot remembers the last seen position of an enemy. TBD */

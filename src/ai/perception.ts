@@ -82,9 +82,15 @@ export function hasLineOfSight(state: SimState, viewer: BotState, other: BotStat
 /** Where a bot lies in the vision of another bot. */
 export type VisionArc = "focus" | "peripheral" | "blind";
 
-/** The arc that holds `other`, before the peripheral delay applies. */
+/**
+ * The arc that holds `other`, before the peripheral delay applies.
+ *
+ * With `directionalVision` off, every cell that the bot can see is in its
+ * focus arc, which is the 360-degree sight of the milestones before M5.5.
+ */
 export function arcOf(state: SimState, viewer: BotState, other: BotState): VisionArc {
   if (!hasLineOfSight(state, viewer, other)) return "blind";
+  if (!state.config.directionalVision) return "focus";
   const offset = angleBetween(viewer.facing, angleTo(viewer, other.pos.x, other.pos.y));
   if (offset <= state.config.focusHalfAngle) return "focus";
   if (offset <= peripheralHalfAngle(state, viewer)) return "peripheral";
@@ -131,7 +137,7 @@ export function isUnaware(state: SimState, attacker: BotState, target: BotState)
  * arc around, and it cannot fire until it does.
  */
 export function updateFacing(state: SimState, bot: BotState, moved: { x: number; y: number }): void {
-  if (!bot.alive) return;
+  if (!bot.alive || !state.config.directionalVision) return;
 
   const target = bot.targetId === null ? null : state.bots.find((o) => o.id === bot.targetId);
   if (target?.alive && canSee(state, bot, target)) {

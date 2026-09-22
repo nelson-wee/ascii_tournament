@@ -8,10 +8,12 @@ The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
 
 ## Status
 
-**Milestone M5.5 — directional vision.** A bot has a facing, a narrow focus arc
-where it can fire, a wide peripheral arc where it only notices, and a turn rate.
-The display shows the facing with an arrow. The batch says the change did not
-move the balance, and Section 7.20.10 of the dev guide says why.
+**Milestone M5.5 — directional vision (off).** A bot can have a facing, a narrow
+focus arc where it can fire, a wide peripheral arc where it only notices, and a
+turn rate. The batch says the change did not move the balance, and Section
+7.20.10 of the dev guide says why. `perception.directionalVision` in
+`data/tuning.json` turns it on; it is off until the pickups of Milestone M8
+give a reason to cross the arena.
 
 **Milestone M5 — headless batch harness.** `npm run batch` runs rounds in Node
 with no display and prints a win-rate table, the round end reasons, the weapon

@@ -34,7 +34,7 @@ function showError(error: unknown): void {
   document.querySelector("#arena")?.replaceChildren(box);
 }
 
-function buildLegend(): string {
+function buildLegend(directional: boolean): string {
   const items: [string, string, string][] = [
     [TILE_STYLES[Tile.Wall].char, "wall", TILE_STYLES[Tile.Wall].fg],
     [TILE_STYLES[Tile.CoverLow].char, "cover", TILE_STYLES[Tile.CoverLow].fg],
@@ -45,8 +45,8 @@ function buildLegend(): string {
     [PICKUP_STYLES.health.char, "health", PICKUP_STYLES.health.fg],
     [PICKUP_STYLES.powerup.char, "powerup", PICKUP_STYLES.powerup.fg],
     [PICKUP_STYLES.ammo.char, "ammo", PICKUP_STYLES.ammo.fg],
-    ["\u2192", "team A (it shows the facing)", TEAM_STYLES["A"]!.fg],
-    ["\u2192", "team B", TEAM_STYLES["B"]!.fg],
+    [directional ? "\u2192" : TEAM_STYLES["A"]!.char, "team A", TEAM_STYLES["A"]!.fg],
+    [directional ? "\u2192" : TEAM_STYLES["B"]!.char, "team B", TEAM_STYLES["B"]!.fg],
   ];
   return items
     .map(([glyph, label, color]) => `<b style="color:${color}">${glyph}</b> ${label}`)
@@ -100,8 +100,10 @@ try {
       .filter((bot) => bot.alive)
       .map((bot) => {
         const team = TEAM_STYLES[bot.teamId] ?? TEAM_STYLES["A"]!;
-        // The glyph shows the way that the bot looks (Section 7.20.6).
-        return { cell: botCell(bot), style: { ...team, char: facingChar(bot.facing) } };
+        // With directional vision on, the glyph shows the way that the bot
+        // looks (Section 7.20.6). With it off, the facing means nothing.
+        const char = config.directionalVision ? facingChar(bot.facing) : team.char;
+        return { cell: botCell(bot), style: { ...team, char } };
       });
   }
 
@@ -167,7 +169,7 @@ try {
     `${state.bots.length} bots`,
     `${config.ticksPerSecond} ticks/s`,
   ].join("  ·  ");
-  legend.innerHTML = buildLegend();
+  legend.innerHTML = buildLegend(config.directionalVision);
 
   render();
   runner.start();
