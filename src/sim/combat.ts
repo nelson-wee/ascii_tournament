@@ -16,7 +16,7 @@
  * (Section 7.3), and the ammo pickups arrive with M8.
  */
 import { canSee, isUnaware } from "../ai/perception.js";
-import type { RangeBand } from "../weapons/types.js";
+import type { RangeBand, Weapon } from "../weapons/types.js";
 import {
   applyConeDamage,
   applyLineDamage,
@@ -35,6 +35,52 @@ import {
 } from "./state.js";
 
 export { isInCover, rangeBandOf };
+
+/**
+ * True if the weapon never runs out of rounds.
+ * The baseline weapon is the fallback of Section 7.3, so it is never empty.
+ */
+export function hasUnlimitedAmmo(bot: BotState, weapon: Weapon): boolean {
+  return weapon.id === (bot.weapons[0]?.id ?? "");
+}
+
+/**
+ * The rounds that a bot has left for a weapon.
+ * The map records what a bot spent, so a weapon that it never fired is full.
+ */
+export function ammoOf(bot: BotState, weapon: Weapon): number {
+  if (hasUnlimitedAmmo(bot, weapon)) return Number.POSITIVE_INFINITY;
+  return bot.ammo.get(weapon.id) ?? weapon.ammoMax;
+}
+
+/** True if the bot can fire the weapon now. */
+export function hasAmmo(bot: BotState, weapon: Weapon): boolean {
+  return ammoOf(bot, weapon) > 0;
+}
+
+/**
+ * Spend one round, and fall back to the baseline weapon if that was the last.
+ *
+ * A magazine is therefore a real cost: a weapon with a small magazine gives a
+ * short burst of power and then the bot is back on the fallback. The ammo
+ * pickups of M8 refill it.
+ */
+function spendAmmo(state: SimState, bot: BotState): void {
+  if (hasUnlimitedAmmo(bot, bot.weapon)) return;
+  const left = (bot.ammo.get(bot.weapon.id) ?? 0) - 1;
+  bot.ammo.set(bot.weapon.id, Math.max(0, left));
+  if (left > 0) return;
+
+  const fallback = bot.weapons[0];
+  if (!fallback) return;
+  state.bus.emit("WeaponEmpty", state.tick, state.roundNumber, {
+    botId: bot.id,
+    weaponId: bot.weapon.id,
+    fallbackId: fallback.id,
+  });
+  bot.weapon = fallback;
+  bot.fireCooldownTicks = Math.max(bot.fireCooldownTicks, fallback.fireIntervalTicks);
+}
 
 /** The reaction of a bot with its weapon, at a range band (Section 7.20.7). */
 export function effectiveReaction(bot: BotState, band: RangeBand): number {
@@ -196,6 +242,7 @@ export function tryFire(state: SimState, bot: BotState): void {
   if (bot.aimTicks < effectiveReaction(bot, band)) return;
 
   bot.fireCooldownTicks = bot.weapon.fireIntervalTicks;
+  const fired = bot.weapon;
   state.bus.emit("Shot", state.tick, state.roundNumber, {
     shooterId: bot.id,
     targetId: target.id,
@@ -204,6 +251,7 @@ export function tryFire(state: SimState, bot: BotState): void {
     rangeBand: band,
   });
   releaseShot(state, bot, target);
+  if (bot.weapon.id === fired.id) spendAmmo(state, bot);
 }
 
 /** Put a dead bot back on a spawn cell of its team. */
@@ -235,6 +283,9 @@ export function respawn(state: SimState, bot: BotState): void {
   bot.targetId = null;
   bot.aimTicks = 0;
   bot.dots = [];
+  // A round starts the bot on the best weapon it has rounds for.
+  for (const weapon of bot.weapons) bot.ammo.set(weapon.id, weapon.ammoMax);
+  bot.weapon = bot.weapons[0] ?? bot.weapon;
   bot.lastSeen.clear();
   bot.peripheralEnemyIds = [];
   bot.peripheralTicks.clear();

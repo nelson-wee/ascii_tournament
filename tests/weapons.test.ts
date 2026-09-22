@@ -25,16 +25,34 @@ function manyWeapons(sets = 40): Weapon[] {
 }
 
 describe("the power budget", () => {
-  it("puts every generated weapon inside the budget", () => {
+  it("puts every generated weapon inside the budget of its tier", () => {
     // The acceptance test of Milestone M6 (Section 7.3, step 7).
-    const { budget } = loadWeaponRoles();
+    const { budget, tiers } = loadWeaponRoles();
     const weapons = manyWeapons();
     expect(weapons.length).toBeGreaterThan(100);
     for (const weapon of weapons) {
+      const tier = tiers.list.find((entry) => entry.name === weapon.tier);
+      expect(tier, `${weapon.id} has an unknown tier "${weapon.tier}"`).toBeDefined();
+      const target = budget.target * tier!.budgetFactor;
       expect(
-        Math.abs(weapon.budgetUsed - budget.target),
-        `${weapon.id} costs ${weapon.budgetUsed.toFixed(1)}`,
+        Math.abs(weapon.budgetUsed - target),
+        `${weapon.id} costs ${weapon.budgetUsed.toFixed(1)} against a target of ${target.toFixed(1)}`,
       ).toBeLessThanOrEqual(budget.tolerance);
+    }
+  });
+
+  it("gives a run a clear ranking of tiers", () => {
+    // A run should not hold five weapons of the same power.
+    const { tiers } = loadWeaponRoles();
+    const best = [...tiers.list].sort((a, b) => b.budgetFactor - a.budgetFactor)[0]!;
+    for (let seed = 1; seed <= 12; seed += 1) {
+      const set = generateWeaponSet(createRng(seed, "weapons"), 5).slice(1);
+      const names = set.map((weapon) => weapon.tier);
+      expect(names, `seed ${seed} has no ${best.name} weapon`).toContain(best.name);
+      expect(new Set(names).size, `seed ${seed} has one tier only`).toBeGreaterThan(1);
+      // The best weapon of a run must really be the strongest.
+      const budgets = set.map((weapon) => weapon.budgetUsed);
+      expect(Math.max(...budgets)).toBeGreaterThan(Math.min(...budgets) * 1.15);
     }
   });
 

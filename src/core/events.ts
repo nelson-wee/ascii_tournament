@@ -26,6 +26,7 @@ export const GAME_EVENT_TYPES = [
   "Crit",
   "DotTick",
   "HazardCreated",
+  "WeaponEmpty",
   "PickupTaken",
   "PickupRespawned",
   "DecisionChanged",

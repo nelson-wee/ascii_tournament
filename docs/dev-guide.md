@@ -573,6 +573,86 @@ number that the budget charged for, and the AI could not see.
    over time and the hazard tiles are now inside the DPS profile, the budget no
    longer charges for them twice, and both are much smaller.
 
+#### 7.20.12 The budget must trade more than damage
+
+Section 7.20.11 left `splash` at 80 % of the kills and could not explain it away
+by tuning. The cause was simpler than the models: **the budget solved for the
+damage and for nothing else.**
+
+Every other attribute came from the role and was never touched again. Inside
+the `heavy` role, the measurement was:
+
+| Attack type | damage | range | magazine | ticks per shot |
+|---|---|---|---|---|
+| burst (an area) | 33.5 | 25.8 | 19 | 13.3 |
+| line | 32.1 | 23.6 | 18 | 12.0 |
+| projectile | 38.4 | 27.3 | 24 | 12.0 |
+
+An area weapon that never misses and touches more than one bot held the same
+range, the same magazine, and the same cadence as a plain shot. It paid for all
+of that with about one point of damage.
+
+**The fix: the attack type now shifts four numbers.**
+
+| Attack type | Range | Magazine | Ticks per shot |
+|---|---|---|---|
+| hitscan | 1.00 | 1.00 | 1.00 |
+| projectile | 0.95 | 0.90 | 1.05 |
+| ricochet | 0.90 | 0.80 | 1.10 |
+| line | 0.90 | 0.60 | 1.25 |
+| cone | 0.55 | 0.65 | 1.15 |
+| burst | 0.80 | 0.45 | 1.30 |
+| tile | 0.75 | 0.40 | 1.35 |
+
+A cone now reaches about half as far. A tile weapon holds four rounds in ten
+and fires a third more slowly. The budget then solves for the damage on top of
+that shape, so an area weapon pays in reach, in rounds, and in cadence before
+it pays in damage.
+
+**Two more changes came with it.**
+
+- **Weapons have tiers.** A run holds one `prize` weapon at 1.25 of the budget,
+  one `strong` at 1.0, and the rest at `standard` at 0.85. A run therefore has
+  a clear ranking, and the player can build tactics around the best weapon of
+  the run. Five weapons of equal power give the player nothing to choose.
+- **Ammo is counted.** A shot spends a round, and an empty weapon drops the bot
+  back to the baseline. A magazine is now a real cost: a strong weapon with a
+  small magazine gives a short burst of power and then the fallback. The
+  baseline weapon never runs dry, which is what Section 7.3 means by a viable
+  fallback. The ammo pickups of M8 refill the rest.
+- **The budget was rescaled.** `dpsWeight` went from 1.0 to 2.7. At 1.0 a
+  weapon needed about 85 mean DPS against 100 health, so a slow weapon had to
+  deal more than 150 damage in one shot, and no `sniper` or `heavy` weapon
+  could be built at all: **0 of 200 drafts fitted their damage range**. The
+  damage ranges of every role were then measured from what the budget asks for,
+  instead of guessed. Every role now builds 75 % to 98 % of the time.
+
+**The result.**
+
+| Measurement | Before M6 | M6 | M6 with the full budget |
+|---|---|---|---|
+| `anchor` win rate | 82.0 % ±1.6 | 74.2 % ±1.8 | **69.1 % ±1.9** |
+| `balanced` win rate | 27.0 % ±1.8 | 50.8 % ±2.0 | 48.1 % ±2.0 |
+| `aggressive` win rate | 41.0 % ±2.0 | 24.9 % ±1.8 | 32.8 % ±1.9 |
+| Highest archetype kill share | — | 80 % (`splash`) | **22 % (`assault`)** |
+
+The kill share now reads: assault 22 %, precision 19 %, marksman 15 %, heavy
+13 %, baseline 10 %, splash 10 %, denial 8 %. Section 7.20.9 asked that no
+archetype take more than about half. It takes 22 %.
+
+**What this says about the winner-take-all reading of Section 7.20.11.** That
+reading was right about the mechanism and wrong about the cure. The AI does
+take the weapon with the top DPS at the current band. Once no single weapon
+holds the top place at every band, and once a magazine runs out, the bot rotates
+on its own. A weapon that reaches 12 cells cannot hold the long band, and a
+weapon with 7 rounds cannot hold any band for long. Ammo and a real shape did
+what tuning a single number could not.
+
+**A tier is not a fault.** Weapons are not meant to be equal. A run should have
+a best weapon, and the player should plan around it. The balance question is
+whether the strong weapon pays for its power in reach, in rounds, and in
+cadence, and whether the batch still shows every archetype taking kills.
+
 ### 7.3 Weapon generation (`weapons/`)
 
 Purpose: generate readable procedural weapons with clear roles.
@@ -1183,6 +1263,11 @@ Rules for the layer:
 | Mirror matchup of every preset | 48–54 % | Stays at 50 % |
 | Kills by archetype | One weapon | No archetype above about half the kills |
 
+A weapon is not meant to be the equal of every other weapon. A run has tiers
+(Section 7.20.12), and the player should build tactics around the best weapon
+of the run. What the batch must show is that the strong weapon pays for its
+power, and that every archetype still takes kills.
+
 #### 7.20.10 Measurement: why a bot that holds a position wins
 
 Section 7.20.6 was built first, on its own, so that the batch could say what it
@@ -1707,9 +1792,14 @@ Notes:
   Section 7.20.11 says what happens when they do not.
 - **Every bot holds every weapon of the run.** This is a stand-in so that the
   AI can select by DPS profile at all. The pickups of M8 decide who holds what.
-- Ammo is still not counted. It arrives with the ammo pickups of M8.
-- The measurement is in Section 7.20.11: `anchor` fell from 82.0 % to 74.2 %,
-  and the kill share target was missed for a reason that tuning cannot fix.
+- **Ammo is counted** (Section 7.20.12). A shot spends a round, and an empty
+  weapon drops the bot back to the baseline, which never runs dry. The ammo
+  pickups of M8 refill the rest.
+- **A weapon has a tier.** A run holds one `prize`, one `strong`, and the rest
+  `standard`, so it has a clear ranking.
+- The measurement is in Sections 7.20.11 and 7.20.12. `anchor` fell from
+  82.0 % to 69.1 %, and the highest archetype kill share fell from 80 % to 22 %
+  once the budget traded range, magazine, and cadence and not damage alone.
 
 The advanced tactics layer (Section 7.20.8) is designed but not scheduled. The
 field of view (Section 7.20.6) is built and switched off; see M5.5.

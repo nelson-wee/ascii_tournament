@@ -189,9 +189,19 @@ function buildDraft(rng: Rng, role: RoleTrait, tables: WeaponRoles, ticksPerSeco
   if (!attackData) throw new Error(`data/weapon-roles.json has no attack type "${attackType}"`);
   const { shape } = tables;
 
-  const fireIntervalTicks = rollIntRange(rng, roleData.fireIntervalTicks as Range);
-  const rangeMax = rollRange(rng, roleData.rangeMax as Range);
-  const ammoMax = rollIntRange(rng, roleData.ammoMax as Range);
+  // The attack type shifts the range, the magazine, and the cadence. An area
+  // type reaches less far, holds fewer shots, and fires more slowly. Without
+  // this the budget pays for an area with damage alone, and an area weapon
+  // keeps the range and the magazine of a plain shot.
+  const fireIntervalTicks = Math.max(
+    1,
+    Math.round(rollIntRange(rng, roleData.fireIntervalTicks as Range) * attackData.intervalFactor),
+  );
+  const rangeMax = rollRange(rng, roleData.rangeMax as Range) * attackData.rangeFactor;
+  const ammoMax = Math.max(
+    1,
+    Math.round(rollIntRange(rng, roleData.ammoMax as Range) * attackData.ammoFactor),
+  );
   const critChance = rollRange(rng, roleData.critChance as Range);
 
   const aoeRadius =
@@ -248,11 +258,31 @@ function buildDraft(rng: Rng, role: RoleTrait, tables: WeaponRoles, ticksPerSeco
   return { ...partial, perDamageDps, flatDps: flatDpsOf(partial, tables, ticksPerSecond) };
 }
 
+export interface WeaponTier {
+  name: string;
+  budgetFactor: number;
+  weight: number;
+}
+
 export interface GenerateOptions {
   ticksPerSecond?: number;
   tables?: WeaponRoles;
   /** How many drafts to try before it gives up on a role. */
   maxTries?: number;
+  /** Force a tier. The set generator uses it to give a run a clear ranking. */
+  tier?: WeaponTier;
+}
+
+/** Take a tier from the weighted list. */
+export function pickTier(rng: Rng, tables: WeaponRoles): WeaponTier {
+  const list = tables.tiers.list;
+  const total = list.reduce((sum, tier) => sum + tier.weight, 0);
+  let roll = rng.float(0, total);
+  for (const tier of list) {
+    roll -= tier.weight;
+    if (roll <= 0) return tier;
+  }
+  return list[list.length - 1] as WeaponTier;
 }
 
 /**
@@ -276,20 +306,24 @@ export function generateWeapon(
   if (!roleData) throw new Error(`data/weapon-roles.json has no role "${role}"`);
   const damageRange = roleData.damage as Range;
 
+  // The tier sets the budget of this weapon. A run then holds a clear ranking
+  // instead of five weapons of the same power.
+  const tier = options.tier ?? pickTier(rng, tables);
+  const target = tables.budget.target * tier.budgetFactor;
+
   for (let attempt = 0; attempt < maxTries; attempt += 1) {
     const draft = buildDraft(rng, role, tables, ticksPerSecond);
     const meanPerDamage =
       (draft.perDamageDps.close + draft.perDamageDps.mid + draft.perDamageDps.long) / 3;
     if (meanPerDamage <= 0) continue;
 
-    // Solve for the damage that puts the cost on the budget target.
-    const wanted =
-      (tables.budget.target - fixedCost(draft, tables)) / (meanPerDamage * tables.budget.dpsWeight);
+    // Solve for the damage that puts the cost on the budget of the tier.
+    const wanted = (target - fixedCost(draft, tables)) / (meanPerDamage * tables.budget.dpsWeight);
     if (!Number.isFinite(wanted) || wanted < damageRange[0] || wanted > damageRange[1]) continue;
 
     const damage = Math.round(wanted * 10) / 10;
     const budgetUsed = costOf(draft, damage, tables);
-    if (Math.abs(budgetUsed - tables.budget.target) > tables.budget.tolerance) continue;
+    if (Math.abs(budgetUsed - target) > tables.budget.tolerance) continue;
 
     const attackData = tables.attackTypes[draft.attackType];
     const word = attackData?.word ?? "Arm";
@@ -300,6 +334,7 @@ export function generateWeapon(
       name: `${roleWord} ${word}`,
       archetype: archetypeOf(role, draft.attackType),
       role,
+      tier: tier.name,
       attackType: draft.attackType,
       damage,
       fireIntervalTicks: draft.fireIntervalTicks,
@@ -335,12 +370,22 @@ export function generateWeaponSet(rng: Rng, count = 5, options: GenerateOptions 
   const weapons: Weapon[] = [loadBaselineWeapon()];
   if (count <= 1) return weapons;
 
+  const tables = options.tables ?? loadWeaponRoles();
   const order: RoleTrait[] = [];
   while (order.length < count - 1) order.push(...rng.shuffle(ROLE_TRAITS));
 
+  // A run holds a clear ranking: the best tier one time, the next one time, and
+  // the rest at the lowest tier. The player can then build tactics around the
+  // best weapon of the run, and a weapon is worth taking or leaving.
+  const byFactor = [...tables.tiers.list].sort((a, b) => b.budgetFactor - a.budgetFactor);
+  const lowest = byFactor[byFactor.length - 1] as WeaponTier;
+  const wanted: WeaponTier[] = [];
+  for (let i = 0; i < count - 1; i += 1) wanted.push((byFactor[i] ?? lowest) as WeaponTier);
+
   for (let index = 0; weapons.length < count; index += 1) {
     const role = order[index % order.length] as RoleTrait;
-    const weapon = generateWeapon(rng, role, index, options);
+    const tier = options.tier ?? (wanted[weapons.length - 1] as WeaponTier);
+    const weapon = generateWeapon(rng, role, index, { ...options, tier });
     if (weapon !== null) weapons.push(weapon);
     else if (index > count * 40) {
       throw new Error(`Weapon generation could not fill the set of ${count}.`);

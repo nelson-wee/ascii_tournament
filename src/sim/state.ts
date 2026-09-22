@@ -129,6 +129,11 @@ export interface BotState {
   weapons: Weapon[];
   /** The weapon in the hands of the bot. `SwitchWeapon` changes it. */
   weapon: Weapon;
+  /**
+   * Rounds left, by weapon id. The baseline weapon is the fallback of
+   * Section 7.3, so it never runs dry. The ammo pickups of M8 refill the rest.
+   */
+  ammo: Map<string, number>;
   /** Ticks before the weapon can fire again. */
   fireCooldownTicks: number;
   /** The enemy that the bot aims at. */
@@ -473,6 +478,7 @@ function makeBot(options: MakeBotOptions): BotState {
     respawnAtTick: 0,
     weapons: [...options.weapons],
     weapon: options.weapons[0] as Weapon,
+    ammo: new Map(options.weapons.map((weapon) => [weapon.id, weapon.ammoMax])),
     fireCooldownTicks: 0,
     targetId: null,
     aimTicks: 0,

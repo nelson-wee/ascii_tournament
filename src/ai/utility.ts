@@ -30,6 +30,7 @@ import {
   type BotState,
   type SimState,
 } from "../sim/state.js";
+import { hasAmmo } from "../sim/combat.js";
 import { findPath } from "./navigation.js";
 
 export type Action =
@@ -120,10 +121,12 @@ function bandOf(state: SimState, distance: number): RangeBand {
  */
 export function bestWeaponAt(state: SimState, bot: BotState, distance: number): Weapon {
   const band = bandOf(state, distance);
-  let best = bot.weapon;
+  let best = bot.weapons[0] ?? bot.weapon;
   let bestValue = -Infinity;
   for (const weapon of bot.weapons) {
     if (distance > weapon.rangeMax) continue;
+    // An empty weapon is not a choice. The magazine is a real limit.
+    if (!hasAmmo(bot, weapon)) continue;
     let value = weapon.dpsProfile[band];
     // The weapon role preference is a bias, not a rule.
     if (bot.tactics.weaponRolePref !== null && weapon.archetype === bot.tactics.weaponRolePref) {
@@ -456,7 +459,9 @@ export function applyAction(state: SimState, bot: BotState, action: Action): voi
       return;
     }
     case "SwitchWeapon": {
-      const weapon = bot.weapons.find((candidate) => candidate.id === action.weaponId);
+      const weapon = bot.weapons.find(
+        (candidate) => candidate.id === action.weaponId && hasAmmo(bot, candidate),
+      );
       if (weapon) {
         bot.weapon = weapon;
         bot.fireCooldownTicks = Math.max(bot.fireCooldownTicks, weapon.fireIntervalTicks);

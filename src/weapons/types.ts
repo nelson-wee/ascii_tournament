@@ -78,6 +78,11 @@ export interface Weapon {
   archetype: Archetype;
   /** The role trait that the generator rolled. `null` for the baseline weapon. */
   role: RoleTrait | null;
+  /**
+   * The power tier: how much budget the weapon spent. A run holds a clear
+   * ranking, so the player can build tactics around the best weapon of a run.
+   */
+  tier: string;
   attackType: AttackType;
   damage: number;
   fireIntervalTicks: number;

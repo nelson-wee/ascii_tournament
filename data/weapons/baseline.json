@@ -3,9 +3,10 @@
   "name": "Standard Rifle",
   "archetype": "baseline",
   "role": null,
+  "tier": "baseline",
   "attackType": "hitscan",
-  "damage": 18,
-  "fireIntervalTicks": 6,
+  "damage": 25,
+  "fireIntervalTicks": 12,
   "rangeMax": 30,
   "projectileSpeed": null,
   "aoeRadius": 0,
@@ -27,9 +28,9 @@
     "long": 5
   },
   "dpsProfile": {
-    "close": 60,
-    "mid": 60,
-    "long": 60
+    "close": 22.9,
+    "mid": 22.9,
+    "long": 22.9
   },
   "budgetUsed": 0,
   "hazardDamagePerTick": 0

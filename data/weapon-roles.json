@@ -3,8 +3,8 @@
   "roles": {
     "precise": {
       "damage": [
-        14,
-        24
+        10,
+        55
       ],
       "fireIntervalTicks": [
         8,
@@ -46,9 +46,9 @@
         ]
       },
       "attackTypeWeights": {
-        "hitscan": 10,
+        "hitscan": 12,
         "projectile": 2,
-        "line": 4,
+        "line": 3,
         "cone": 0,
         "burst": 0,
         "ricochet": 1,
@@ -63,8 +63,8 @@
     },
     "assault": {
       "damage": [
-        9,
-        16
+        4,
+        30
       ],
       "fireIntervalTicks": [
         3,
@@ -105,13 +105,13 @@
         ]
       },
       "attackTypeWeights": {
-        "hitscan": 4,
-        "projectile": 3,
+        "hitscan": 8,
+        "projectile": 4,
         "line": 2,
-        "cone": 5,
-        "burst": 4,
+        "cone": 3,
+        "burst": 2,
         "ricochet": 3,
-        "tile": 2
+        "tile": 1
       },
       "nameWords": [
         "Ripper",
@@ -122,8 +122,8 @@
     },
     "sniper": {
       "damage": [
-        26,
-        44
+        14,
+        115
       ],
       "fireIntervalTicks": [
         16,
@@ -164,9 +164,9 @@
         ]
       },
       "attackTypeWeights": {
-        "hitscan": 8,
+        "hitscan": 10,
         "projectile": 2,
-        "line": 5,
+        "line": 4,
         "cone": 0,
         "burst": 1,
         "ricochet": 1,
@@ -181,8 +181,8 @@
     },
     "heavy": {
       "damage": [
-        22,
-        40
+        10,
+        90
       ],
       "fireIntervalTicks": [
         12,
@@ -223,13 +223,13 @@
         ]
       },
       "attackTypeWeights": {
-        "hitscan": 1,
+        "hitscan": 3,
         "projectile": 3,
         "line": 3,
-        "cone": 4,
-        "burst": 6,
-        "ricochet": 3,
-        "tile": 5
+        "cone": 3,
+        "burst": 4,
+        "ricochet": 2,
+        "tile": 4
       },
       "nameWords": [
         "Maul",
@@ -248,7 +248,10 @@
       },
       "reactionAdd": 0,
       "word": "Rifle",
-      "accuracyFactor": 0.55
+      "accuracyFactor": 0.55,
+      "rangeFactor": 1.0,
+      "ammoFactor": 1.0,
+      "intervalFactor": 1.0
     },
     "projectile": {
       "bandMultiplier": {
@@ -258,7 +261,10 @@
       },
       "reactionAdd": 1,
       "word": "Caster",
-      "accuracyFactor": 0.8
+      "accuracyFactor": 0.8,
+      "rangeFactor": 0.95,
+      "ammoFactor": 0.9,
+      "intervalFactor": 1.05
     },
     "cone": {
       "bandMultiplier": {
@@ -268,7 +274,10 @@
       },
       "reactionAdd": 0,
       "word": "Spray",
-      "accuracyFactor": 1.0
+      "accuracyFactor": 1.0,
+      "rangeFactor": 0.55,
+      "ammoFactor": 0.65,
+      "intervalFactor": 1.15
     },
     "burst": {
       "bandMultiplier": {
@@ -278,7 +287,10 @@
       },
       "reactionAdd": 1,
       "word": "Mortar",
-      "accuracyFactor": 0.9
+      "accuracyFactor": 0.9,
+      "rangeFactor": 0.8,
+      "ammoFactor": 0.45,
+      "intervalFactor": 1.3
     },
     "line": {
       "bandMultiplier": {
@@ -288,7 +300,10 @@
       },
       "reactionAdd": 1,
       "word": "Beam",
-      "accuracyFactor": 0.55
+      "accuracyFactor": 0.55,
+      "rangeFactor": 0.9,
+      "ammoFactor": 0.6,
+      "intervalFactor": 1.25
     },
     "ricochet": {
       "bandMultiplier": {
@@ -298,7 +313,10 @@
       },
       "reactionAdd": 1,
       "word": "Skipper",
-      "accuracyFactor": 0.75
+      "accuracyFactor": 0.75,
+      "rangeFactor": 0.9,
+      "ammoFactor": 0.8,
+      "intervalFactor": 1.1
     },
     "tile": {
       "bandMultiplier": {
@@ -308,7 +326,10 @@
       },
       "reactionAdd": 2,
       "word": "Seeder",
-      "accuracyFactor": 0.85
+      "accuracyFactor": 0.85,
+      "rangeFactor": 0.75,
+      "ammoFactor": 0.4,
+      "intervalFactor": 1.35
     }
   },
   "shape": {
@@ -354,7 +375,7 @@
   "budget": {
     "target": 100,
     "tolerance": 12,
-    "dpsWeight": 1.0,
+    "dpsWeight": 2.7,
     "rangeWeight": 0.35,
     "critWeight": 22,
     "lineWeight": 9,
@@ -371,5 +392,25 @@
     "lineTargets": 0.4,
     "dotStackCap": 2.5,
     "hazardOccupancy": 0.06
+  },
+  "tiers": {
+    "_notes": "The power budget of a weapon. A run holds a clear ranking, and the tactics can name the tier. TBD",
+    "list": [
+      {
+        "name": "standard",
+        "budgetFactor": 0.85,
+        "weight": 4
+      },
+      {
+        "name": "strong",
+        "budgetFactor": 1.0,
+        "weight": 3
+      },
+      {
+        "name": "prize",
+        "budgetFactor": 1.25,
+        "weight": 2
+      }
+    ]
   }
 }

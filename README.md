@@ -17,6 +17,11 @@ projectiles, hazard tiles, damage over time, a crit against a target that stands
 still, a dodge for one that moves, and an order of fire that comes from the
 reaction speed of the bot and its weapon.
 
+The power budget trades four things, not one: an area weapon pays for its power
+in reach, in magazine size, and in cadence before it pays in damage. A run holds
+a clear tier ranking (`prize`, `strong`, `standard`), and ammo is counted, so an
+empty weapon drops a bot back to the baseline.
+
 **Milestone M5.5 — directional vision (off).** A bot can have a facing, a narrow
 focus arc where it can fire, a wide peripheral arc where it only notices, and a
 turn rate. The batch says the change did not move the balance, and Section

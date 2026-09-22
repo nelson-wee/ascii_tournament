@@ -293,6 +293,15 @@ export const WeaponRolesSchema = z
            * the bot and the dodge of the target, so it is lower. TBD
            */
           accuracyFactor: unitRange,
+          /**
+           * How the attack type shifts the range, the magazine, and the ticks
+           * between two shots of a weapon. An area type reaches less far, holds
+           * fewer shots, and fires more slowly. Without these, the budget pays
+           * for an area with damage alone. TBD
+           */
+          rangeFactor: positiveNumber,
+          ammoFactor: positiveNumber,
+          intervalFactor: positiveNumber,
           word: z.string().min(1),
         })
         .strict(),
@@ -322,6 +331,22 @@ export const WeaponRolesSchema = z
         lineTargets: z.number().nonnegative(),
         dotStackCap: positiveNumber,
         hazardOccupancy: unitRange,
+      })
+      .strict(),
+    tiers: z
+      .object({
+        _notes: z.string().optional(),
+        list: z
+          .array(
+            z
+              .object({
+                name: z.string().min(1),
+                budgetFactor: positiveNumber,
+                weight: z.number().positive(),
+              })
+              .strict(),
+          )
+          .min(1),
       })
       .strict(),
     budget: z
@@ -358,6 +383,7 @@ export const WeaponSchema = z
       "baseline",
     ]),
     role: z.enum(["precise", "assault", "sniper", "heavy"]).nullable(),
+    tier: z.string().min(1),
     attackType: z.enum(ATTACK_TYPE_NAMES),
     damage: positiveNumber,
     fireIntervalTicks: positiveInt,
