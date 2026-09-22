@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "tbd": [
+    "simulation.ticksPerSecond",
+    "simulation.aiDecisionIntervalTicks",
+    "round.scoreLimit",
+    "round.timeLimitTicks"
+  ],
+  "simulation": {
+    "ticksPerSecond": 20,
+    "aiDecisionIntervalTicks": 5
+  },
+  "match": {
+    "teamSize": 3,
+    "maxRounds": 3,
+    "roundWinsToWinMatch": 2
+  },
+  "round": {
+    "scoreLimit": 15,
+    "timeLimitTicks": 3600
+  }
+}
