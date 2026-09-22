@@ -1,46 +1,58 @@
 /**
  * Browser entry point.
  *
- * Milestone M0 shows a placeholder page. It proves that the build, the data
- * loader, and the RNG streams work in the browser. The arena display arrives
- * with Milestone M1.
+ * Milestone M1 loads the hand-made test arena from a text file and draws it
+ * with the rot.js display. Bots and movement arrive with Milestone M2.
  */
+import { loadTestArena } from "./arena/index.js";
+import { Tile } from "./arena/types.js";
 import { loadTuning } from "./core/data.js";
-import { createRngStreams, RNG_STREAM_NAMES } from "./core/rng.js";
-import { EventBus } from "./core/events.js";
+import { ArenaDisplay } from "./render/display.js";
+import { PICKUP_STYLES, TILE_STYLES } from "./render/theme.js";
 
-const app = document.querySelector<HTMLDivElement>("#app");
-if (!app) throw new Error("The element #app is missing from index.html");
+function showError(error: unknown): void {
+  const box = document.createElement("pre");
+  box.className = "error";
+  box.textContent = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  document.querySelector("#arena")?.replaceChildren(box);
+}
 
-const tuning = loadTuning();
-const streams = createRngStreams(1);
-const bus = new EventBus();
-bus.emit("MatchStart", 0, 0, { note: "placeholder" });
+function buildLegend(): string {
+  const items: [string, string][] = [
+    [TILE_STYLES[Tile.Wall].char, "wall"],
+    [TILE_STYLES[Tile.Floor].char, "floor"],
+    [TILE_STYLES[Tile.CoverLow].char, "low cover"],
+    [TILE_STYLES[Tile.Hazard].char, "hazard"],
+    [TILE_STYLES[Tile.Spawn].char, "spawn"],
+    [PICKUP_STYLES.weapon.char, "weapon"],
+    [PICKUP_STYLES.armor.char, "armor"],
+    [PICKUP_STYLES.health.char, "health"],
+    [PICKUP_STYLES.powerup.char, "powerup"],
+    [PICKUP_STYLES.ammo.char, "ammo"],
+  ];
+  return items.map(([glyph, label]) => `<b>${glyph}</b> ${label}`).join(" ");
+}
 
-const sample = RNG_STREAM_NAMES.map(
-  (name) => `${name.padEnd(12)} ${streams[name].next().toFixed(6)}`,
-).join("\n");
+try {
+  const arenaHost = document.querySelector<HTMLElement>("#arena");
+  const meta = document.querySelector<HTMLElement>("#meta");
+  const legend = document.querySelector<HTMLElement>("#legend");
+  if (!arenaHost || !meta || !legend) {
+    throw new Error("index.html is missing #arena, #meta, or #legend");
+  }
 
-const title = document.createElement("h1");
-title.textContent = "ASCII BOT SHOOTER";
+  const tuning = loadTuning();
+  const arena = loadTestArena();
+  new ArenaDisplay(arenaHost, arena);
 
-const status = document.createElement("p");
-status.textContent = "Milestone M0 — scaffolding and deployment.";
-
-const note = document.createElement("p");
-note.className = "dim";
-note.textContent = "The arena display arrives with Milestone M1.";
-
-const report = document.createElement("pre");
-report.textContent = [
-  `tick rate            ${tuning.simulation.ticksPerSecond} ticks/second`,
-  `AI decision interval ${tuning.simulation.aiDecisionIntervalTicks} ticks`,
-  `team size            ${tuning.match.teamSize} bots`,
-  `match format         best of ${tuning.match.maxRounds}`,
-  `events logged        ${bus.log.length}`,
-  "",
-  "RNG streams (seed 1, first value):",
-  sample,
-].join("\n");
-
-app.append(title, status, note, report);
+  meta.textContent = [
+    `M1 — ${arena.name}`,
+    `${arena.width}×${arena.height}`,
+    `${arena.spawns.length} spawns`,
+    `${arena.pickups.length} pickups`,
+    `${tuning.simulation.ticksPerSecond} ticks/s`,
+  ].join("  ·  ");
+  legend.innerHTML = buildLegend();
+} catch (error) {
+  showError(error);
+}

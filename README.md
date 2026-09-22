@@ -8,9 +8,13 @@ The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
 
 ## Status
 
-**Milestone M0 — scaffolding and deployment.** The build, the seeded RNG, the
-data loader, the event bus, the tests, and the GitHub Pages deployment work.
-The game itself starts at Milestone M1.
+**Milestone M1 — static arena and display.** The page loads the hand-made test
+arena `data/arenas/test-arena.txt` and draws it with the rot.js display. The
+display fits the arena to the screen, so it works on a desktop and on a phone.
+Bots and movement arrive with Milestone M2.
+
+Milestone M0 gave the build, the seeded RNG, the data loader, the event bus,
+the tests, and the GitHub Pages deployment.
 
 ## Commands
 
@@ -44,6 +48,32 @@ These rules come from Sections 4 and 13 of the dev guide.
 
 The ESLint configuration and the test `tests/boundary.test.ts` check rules 1
 and 4 automatically.
+
+## Arena map files
+
+A file in `data/arenas/` holds one hand-made arena. The file has an optional
+header, a line with `---`, and then the map:
+
+```
+name: Proving Ground
+notes: free text
+---
+##########
+#S..,.^..#
+##########
+```
+
+| Glyph | Tile |
+|---|---|
+| `#` | wall |
+| `.` | floor |
+| `,` | low cover |
+| `^` | hazard |
+| `S` | spawn |
+| `W` `A` `H` `U` `M` | a weapon, armor, health, powerup, or ammo pickup |
+
+Every row must have the same width, and the map needs two spawn cells at
+minimum.
 
 ## Deployment
 

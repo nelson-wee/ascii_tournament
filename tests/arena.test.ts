@@ -1,0 +1,208 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  ArenaParseError,
+  Tile,
+  cellIndex,
+  clearArenaCache,
+  inBounds,
+  isWalkable,
+  loadTestArena,
+  parseArenaText,
+  tileAt,
+  type ArenaMap,
+} from "../src/arena/index.js";
+
+const SMALL = ["#####", "#S.W#", "#.,.#", "#^.S#", "#####"].join("\n");
+
+/** All walkable cells that a flood fill reaches from the first walkable cell. */
+function reachableCount(map: ArenaMap): number {
+  const walkable: number[] = [];
+  for (let y = 0; y < map.height; y += 1) {
+    for (let x = 0; x < map.width; x += 1) {
+      if (isWalkable(tileAt(map, x, y))) walkable.push(cellIndex(map, x, y));
+    }
+  }
+  const first = walkable[0];
+  if (first === undefined) return 0;
+  const seen = new Set<number>([first]);
+  const stack = [first];
+  while (stack.length > 0) {
+    const index = stack.pop() as number;
+    const x = index % map.width;
+    const y = Math.floor(index / map.width);
+    for (const [nx, ny] of [
+      [x + 1, y],
+      [x - 1, y],
+      [x, y + 1],
+      [x, y - 1],
+    ] as [number, number][]) {
+      if (!inBounds(map, nx, ny)) continue;
+      const next = cellIndex(map, nx, ny);
+      if (seen.has(next) || !isWalkable(tileAt(map, nx, ny))) continue;
+      seen.add(next);
+      stack.push(next);
+    }
+  }
+  return seen.size;
+}
+
+function walkableCount(map: ArenaMap): number {
+  let count = 0;
+  for (const value of map.tiles) if (isWalkable(value as Tile)) count += 1;
+  return count;
+}
+
+describe("parseArenaText", () => {
+  it("reads the grid, the spawns, and the pickups", () => {
+    const map = parseArenaText(SMALL, { source: "small" });
+    expect(map.width).toBe(5);
+    expect(map.height).toBe(5);
+    expect(map.tiles).toHaveLength(25);
+    expect(map.spawns).toEqual([
+      { x: 1, y: 1 },
+      { x: 3, y: 3 },
+    ]);
+    expect(map.pickups).toEqual([
+      { cell: { x: 3, y: 1 }, kind: "weapon", slotId: "weapon:0", respawnTicks: 0 },
+    ]);
+  });
+
+  it("maps every glyph to its tile", () => {
+    const map = parseArenaText(SMALL, { source: "small" });
+    expect(tileAt(map, 0, 0)).toBe(Tile.Wall);
+    expect(tileAt(map, 2, 1)).toBe(Tile.Floor);
+    expect(tileAt(map, 2, 2)).toBe(Tile.CoverLow);
+    expect(tileAt(map, 1, 3)).toBe(Tile.Hazard);
+    expect(tileAt(map, 1, 1)).toBe(Tile.Spawn);
+    expect(tileAt(map, 3, 1)).toBe(Tile.Pickup);
+  });
+
+  it("counts a cell outside the grid as a wall", () => {
+    const map = parseArenaText(SMALL, { source: "small" });
+    expect(tileAt(map, -1, 0)).toBe(Tile.Wall);
+    expect(tileAt(map, 0, 99)).toBe(Tile.Wall);
+    expect(inBounds(map, 4, 4)).toBe(true);
+    expect(inBounds(map, 5, 4)).toBe(false);
+  });
+
+  it("reads the header and removes it from the map", () => {
+    const map = parseArenaText(`name: Yard\nnotes: a test\n---\n${SMALL}`, { source: "yard" });
+    expect(map.name).toBe("Yard");
+    expect(map.height).toBe(5);
+  });
+
+  it("uses the source as the name when the header has none", () => {
+    expect(parseArenaText(SMALL, { source: "small" }).name).toBe("small");
+  });
+
+  it("removes the empty lines at the start and at the end", () => {
+    const map = parseArenaText(`\n\n${SMALL}\n\n`, { source: "small" });
+    expect(map.height).toBe(5);
+  });
+
+  it("numbers the slot ids per kind, in row-major order", () => {
+    const map = parseArenaText(["#######", "#SWAWH#", "#W...S#", "#######"].join("\n"), {
+      source: "slots",
+    });
+    expect(map.pickups.map((pickup) => pickup.slotId)).toEqual([
+      "weapon:0",
+      "armor:0",
+      "weapon:1",
+      "health:0",
+      "weapon:2",
+    ]);
+  });
+
+  it("gives the same result every time", () => {
+    expect(parseArenaText(SMALL, { source: "small" })).toEqual(
+      parseArenaText(SMALL, { source: "small" }),
+    );
+  });
+
+  it("rejects a ragged map", () => {
+    expect(() => parseArenaText("#####\n#S.S#\n####", { source: "bad" })).toThrow(ArenaParseError);
+    expect(() => parseArenaText("#####\n#S.S#\n####", { source: "bad" })).toThrow(/row 3 is 4/);
+  });
+
+  it("rejects an unknown glyph", () => {
+    expect(() => parseArenaText("#####\n#SZS#\n#####", { source: "bad" })).toThrow(/unknown glyph/);
+  });
+
+  it("rejects an empty map", () => {
+    expect(() => parseArenaText("   \n\n", { source: "bad" })).toThrow(/the map is empty/);
+    expect(() => parseArenaText("name: x\n---\n", { source: "bad" })).toThrow(/the map is empty/);
+  });
+
+  it("rejects a map with fewer than two spawns", () => {
+    expect(() => parseArenaText("#####\n#S..#\n#####", { source: "bad" })).toThrow(/spawn cells/);
+  });
+
+  it("rejects an unknown header key", () => {
+    expect(() => parseArenaText(`colour: red\n---\n${SMALL}`, { source: "bad" })).toThrow(
+      /unknown header key/,
+    );
+  });
+
+  it("rejects a header line with no colon", () => {
+    expect(() => parseArenaText(`broken\n---\n${SMALL}`, { source: "bad" })).toThrow(/has no ":"/);
+  });
+});
+
+describe("loadTestArena", () => {
+  beforeEach(() => {
+    clearArenaCache();
+  });
+
+  it("loads data/arenas/test-arena.txt", () => {
+    const map = loadTestArena();
+    expect(map.name).toBe("Proving Ground");
+    expect(map.source).toBe("data/arenas/test-arena.txt");
+    expect(map.width).toBe(60);
+    expect(map.height).toBe(30);
+    expect(map.tiles).toHaveLength(60 * 30);
+  });
+
+  it("caches the result", () => {
+    expect(loadTestArena()).toBe(loadTestArena());
+  });
+
+  it("gives one spawn per bot for two teams of three", () => {
+    expect(loadTestArena().spawns).toHaveLength(6);
+  });
+
+  it("holds one pickup of every kind", () => {
+    const kinds = new Set(loadTestArena().pickups.map((pickup) => pickup.kind));
+    expect([...kinds].sort()).toEqual(["ammo", "armor", "health", "powerup", "weapon"]);
+  });
+
+  it("gives every pickup a unique slot id", () => {
+    const { pickups } = loadTestArena();
+    expect(new Set(pickups.map((pickup) => pickup.slotId)).size).toBe(pickups.length);
+  });
+
+  it("has a wall on every edge", () => {
+    const map = loadTestArena();
+    for (let x = 0; x < map.width; x += 1) {
+      expect(tileAt(map, x, 0)).toBe(Tile.Wall);
+      expect(tileAt(map, x, map.height - 1)).toBe(Tile.Wall);
+    }
+    for (let y = 0; y < map.height; y += 1) {
+      expect(tileAt(map, 0, y)).toBe(Tile.Wall);
+      expect(tileAt(map, map.width - 1, y)).toBe(Tile.Wall);
+    }
+  });
+
+  it("connects every walkable cell", () => {
+    // Full arena validation arrives with M7. This test checks the M1 asset.
+    const map = loadTestArena();
+    expect(reachableCount(map)).toBe(walkableCount(map));
+  });
+
+  it("keeps the two spawn groups apart", () => {
+    const { spawns } = loadTestArena();
+    const distances = spawns.flatMap((a, i) =>
+      spawns.slice(i + 1).map((b) => Math.hypot(a.x - b.x, a.y - b.y)),
+    );
+    expect(Math.max(...distances)).toBeGreaterThan(40);
+  });
+});

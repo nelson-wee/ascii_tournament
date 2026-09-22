@@ -11,41 +11,81 @@
         --bg: #0d0f12;
         --fg: #c8d0d8;
         --dim: #6b7682;
+        --line: #212a33;
         --accent: #7fd6a0;
       }
+      * { box-sizing: border-box; }
       html, body {
         margin: 0;
         padding: 0;
+        height: 100%;
         background: var(--bg);
         color: var(--fg);
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        overflow: hidden;
       }
       #app {
-        box-sizing: border-box;
-        min-height: 100vh;
-        padding: 24px 16px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 12px;
-        max-width: 720px;
-        margin: 0 auto;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        height: 100dvh;
+        gap: 8px;
+        padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom))
+          max(8px, env(safe-area-inset-left));
       }
-      h1 { font-size: 1.4rem; margin: 0; color: var(--accent); letter-spacing: 0.08em; }
-      p { margin: 0; line-height: 1.6; }
-      .dim { color: var(--dim); }
-      pre {
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 16px;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 6px;
+      }
+      h1 {
         margin: 0;
+        font-size: 0.95rem;
+        letter-spacing: 0.12em;
+        color: var(--accent);
+      }
+      .dim { color: var(--dim); }
+      .meta { font-size: 0.75rem; }
+      #arena {
+        min-height: 0;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      footer {
+        border-top: 1px solid var(--line);
+        padding-top: 6px;
+        font-size: 0.72rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+        color: var(--dim);
+      }
+      footer b { font-weight: 400; color: var(--fg); }
+      .error {
+        margin: auto;
+        max-width: 40rem;
         padding: 12px;
-        border: 1px solid #222a33;
+        border: 1px solid #5a2b2b;
         border-radius: 6px;
-        overflow-x: auto;
-        font-size: 0.85rem;
+        color: #e0a0a0;
+        white-space: pre-wrap;
+        font-size: 0.8rem;
       }
     </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <header>
+        <h1>ASCII BOT SHOOTER</h1>
+        <span class="meta dim" id="meta"></span>
+      </header>
+      <main id="arena"></main>
+      <footer id="legend"></footer>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

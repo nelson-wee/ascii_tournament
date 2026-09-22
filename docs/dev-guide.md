@@ -147,6 +147,7 @@ The project root is the repository root.
 │   └── dev-guide.md               # this document
 ├── data/
 │   ├── tuning.json                # global numbers (tick rate, speeds, limits)
+│   ├── arenas/*.txt               # hand-made arena maps (M1 test arena)
 │   ├── archetypes/*.json          # weapon archetypes
 │   ├── weapon-traits.json         # weapon mutations
 │   ├── bot-traits.json            # bot traits
@@ -887,6 +888,33 @@ Notes:
 - Load a hand-made test arena from a text file.
 - Show it with the rot.js display.
 - Accept: the arena shows in the browser on desktop and on a phone.
+
+**M1 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `arena/types.ts` | `Tile`, `PickupPoint`, `PickupKind`, `ArenaMap`, and the helpers `cellIndex`, `inBounds`, `tileAt`, `isWalkable`. |
+| `arena/textArena.ts` | `parseArenaText(text, options)`, `ArenaParseError`. |
+| `arena/index.ts` | `loadTestArena()`, `clearArenaCache()`. |
+| `render/display.ts` | `ArenaDisplay` with `draw`, `fit`, `setMap`, `destroy`. Browser only. |
+| `render/theme.ts` | `TILE_STYLES`, `PICKUP_STYLES`, `DISPLAY_BG`. All values TBD. |
+
+Notes:
+
+- `ArenaMap` holds the parts of `Arena` (Section 6.2) that a map file gives:
+  `width`, `height`, `tiles`, `spawns`, and `pickups`, plus `name` and
+  `source`. The generator of M7 adds `seed`, `profile`, `rooms`, `links`, and
+  `metrics` on top of this type. The structure of Section 6.2 does not change.
+- Map file format: an optional `key: value` header (`name`, `notes`), then a
+  line with `---`, then the map. Glyphs: `#` wall, `.` floor, `,` low cover,
+  `^` hazard, `S` spawn, and `W` `A` `H` `U` `M` for a weapon, armor, health,
+  powerup, or ammo pickup. The parser gives each pickup a `slotId` of
+  `<kind>:<index>` in row-major order.
+- `PickupPoint.respawnTicks` is 0 for a map file. The respawn times arrive with
+  M8 (Section 7.12). TBD
+- The display calculates its font size from the size of its container, so one
+  arena fits a desktop screen and a phone screen. The target grid size per
+  device (Section 7.18) stays open until M7.
 
 ### M2 — Movement and navigation
 
