@@ -25,7 +25,8 @@
     "ai.hysteresisMargin",
     "ai.hazardAvoidBelowTolerance",
     "ai.teamSpacingCells",
-    "ai.actionBase"
+    "ai.actionBase",
+    "combat.targetSwitchMargin"
   ],
   "simulation": {
     "ticksPerSecond": 20,
@@ -50,7 +51,8 @@
     "distanceFalloff": 0.6,
     "movingTargetPenalty": 0.25,
     "minHitChance": 0.05,
-    "evasionAccuracyPenalty": 0.4
+    "evasionAccuracyPenalty": 0.4,
+    "targetSwitchMargin": 0.8
   },
   "ai": {
     "hysteresisMargin": 1.2,

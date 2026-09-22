@@ -79,6 +79,10 @@ notes: free text
 Every row must have the same width, and the map needs two spawn cells at
 minimum.
 
+The test arena has 180-degree rotational symmetry, so the two teams get the
+same arena. Section 7.2.1 of the dev guide says why this matters and how to
+check it.
+
 ## Deployment
 
 The workflow `.github/workflows/deploy.yml` builds the project and deploys it

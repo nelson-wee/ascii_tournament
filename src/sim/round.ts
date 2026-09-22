@@ -23,7 +23,13 @@ import { actionLabel, applyAction, decide, noteReachedPickup } from "../ai/utili
 import type { GameEvent } from "../core/events.js";
 import { respawn, tryFire } from "./combat.js";
 import { advanceBot } from "./movement.js";
-import { TEAM_IDS, type RoundOutcome, type SimState, type TeamId } from "./state.js";
+import {
+  TEAM_IDS,
+  botsInTickOrder,
+  type RoundOutcome,
+  type SimState,
+  type TeamId,
+} from "./state.js";
 
 /**
  * The AI decision step (Section 7.4, step 3).
@@ -32,7 +38,7 @@ import { TEAM_IDS, type RoundOutcome, type SimState, type TeamId } from "./state
  * action. The bot then turns the action into a movement intent.
  */
 function decideActions(state: SimState): void {
-  for (const bot of state.bots) {
+  for (const bot of botsInTickOrder(state)) {
     if (!bot.alive) continue;
     noteReachedPickup(state, bot);
     if (bot.decisionCooldownTicks > 0) {
@@ -125,8 +131,10 @@ export function step(state: SimState): void {
   if (state.outcome !== null) return;
   state.tick += 1;
 
+  const order = botsInTickOrder(state);
+
   // 1. Timers.
-  for (const bot of state.bots) {
+  for (const bot of order) {
     if (bot.fireCooldownTicks > 0) bot.fireCooldownTicks -= 1;
     if (!bot.alive && state.tick >= bot.respawnAtTick) respawn(state, bot);
   }
@@ -138,10 +146,10 @@ export function step(state: SimState): void {
   decideActions(state);
 
   // 5. Movement.
-  for (const bot of state.bots) advanceBot(state, bot);
+  for (const bot of order) advanceBot(state, bot);
 
   // 6 and 7. Combat, death, and the kill events.
-  for (const bot of state.bots) tryFire(state, bot);
+  for (const bot of order) tryFire(state, bot);
 
   // 10. End condition.
   enterSuddenDeathIfNeeded(state);

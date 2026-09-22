@@ -131,6 +131,7 @@ export interface SimConfig {
   actionBase: Readonly<Record<string, number>>;
   evasionLateralFactor: number;
   evasionAccuracyPenalty: number;
+  targetSwitchMargin: number;
   /** The kill announcement tiers (Section 7.17). */
   multiKillTiers: readonly { count: number; text: string }[];
   spreeTiers: readonly { count: number; text: string }[];
@@ -208,6 +209,7 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     actionBase: tuning.ai.actionBase,
     evasionLateralFactor: tuning.movement.evasionLateralFactor,
     evasionAccuracyPenalty: tuning.combat.evasionAccuracyPenalty,
+    targetSwitchMargin: tuning.combat.targetSwitchMargin,
     multiKillTiers: loadAnnouncements().multiKill,
     spreeTiers: loadAnnouncements().spree,
   };
@@ -236,6 +238,19 @@ export function posCell(pos: Vec2): Cell {
 /** The cell of a bot. The display shows the bot in this cell. */
 export function botCell(bot: BotState): Cell {
   return posCell(bot.pos);
+}
+
+/**
+ * The bots in the order of one tick.
+ *
+ * The order changes with every tick. A fixed order gives the first team a
+ * small advantage: in a shot at the same tick, the bot that fires first can
+ * kill the other before it fires, and the bot that moves first can take a
+ * cell that the other wanted. The order stays a function of the tick, so the
+ * simulation stays deterministic.
+ */
+export function botsInTickOrder(state: SimState): BotState[] {
+  return state.tick % 2 === 0 ? state.bots : [...state.bots].reverse();
 }
 
 /** The distance between two bots, in cells. */

@@ -68,6 +68,11 @@ export const TuningSchema = z
         minHitChance: unitRange,
         /** How much the evasion of a bot lowers its own accuracy. TBD */
         evasionAccuracyPenalty: unitRange,
+        /**
+         * A new target must be this much nearer than the current one, as a
+         * part of the current distance. 0.8 means 20 % nearer. TBD
+         */
+        targetSwitchMargin: unitRange,
       })
       .strict(),
     ai: z

@@ -161,7 +161,7 @@ try {
   });
 
   meta.textContent = [
-    `M3 — ${arena.name}`,
+    `M4 — ${arena.name}`,
     `${arena.width}×${arena.height}`,
     `${state.bots.length} bots`,
     `${config.ticksPerSecond} ticks/s`,

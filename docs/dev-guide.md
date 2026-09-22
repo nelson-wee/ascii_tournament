@@ -91,10 +91,6 @@ This document is a blueprint for Claude Code.
 
 - **Run length.** The number of opponent teams and matches per run. Set these from a target average run duration (TBD). The number of arenas per run (currently 4–5) depends on this. If matches are more than arenas, arenas repeat.
 - **Run structure:** ladder, league, or bracket.
-- Spawn fairness of the test arena. With the same tactics on both teams, the
-  south-east spawn group wins 68 % of 60 rounds. The batch harness (M5) must
-  measure this, and the arena metrics and the validation rules (M7) must stop
-  it. Do not tune the AI around it.
 - Role duplication (can a team use the same role two times). Default: yes.
 - Progression reset per run or across runs.
 - Meta-progression.
@@ -427,6 +423,74 @@ Validation rules (starting set, values TBD):
 
 The pre-match screen shows the metrics to the player in plain words (for example, "Long sightlines. Three chokepoints.").
 
+### 7.2.1 Symmetry, spawn fairness, and how to measure them
+
+This subsection holds what the work on the M1 test arena taught. It applies to
+the generator of M7 and to the batch harness of M5.
+
+**Why it matters.** A batch result measures the tactics only if the arena gives
+the two teams the same conditions. The first test arena was hand-made and not
+symmetric. With the same tactics on both teams, the south-east spawn group won
+68 % of 60 rounds. Every doctrine and role measurement on that arena would have
+carried the spawn advantage inside it.
+
+**Symmetry is the simple answer.** An arena with 180-degree rotational symmetry
+gives each team the same rooms, the same sightlines, and the same distances to
+every pickup point. Build it from one half: take the cells of the half, add the
+image of every cell under `(x, y) → (width − 1 − x, height − 1 − y)`, and the
+result is symmetric whatever shape the half has. A 60 × 30 grid has no fixed
+point under this map, so a "centre" item is always a pair.
+
+Mirror symmetry (left to right) also works, but rotational symmetry suits
+spawns at opposite corners, and it does not make a pair of rooms that are each
+other's reflection, which plays differently for a right-handed sightline.
+
+**Rules for a symmetric arena:**
+
+1. Place every spawn cell, every pickup point, every cover cell, and every
+   hazard cell in pairs. An odd count of any pickup kind means the arena is not
+   symmetric.
+2. Keep the spawn groups in the order that the teams read: the arena file
+   gives the first `teamSize` spawn cells to team A. Put one group in the top
+   half, so a row-major scan reads that group first.
+3. Check the symmetry with a test, not by eye. `tests/arena.test.ts` compares
+   every cell with its image.
+
+**Symmetry is not enough.** Two other faults give one team an advantage, and
+neither shows in the arena file:
+
+- **Tick order.** The simulation walked the bots in a fixed order, so team A
+  decided, moved, and fired before team B on every tick. In an exchange at the
+  same tick, the bot that fires first can kill the other before it fires. On
+  the symmetric arena this alone gave team A 55 % of 100 rounds. `botsInTickOrder`
+  now turns the order around on every second tick. The order stays a function
+  of the tick, so the simulation stays deterministic.
+- **A stall that looks like balance.** Before the fix of `selectTarget`, two or
+  three enemies at almost the same distance made the nearest one change on
+  every tick. The reaction timer started again with every change, so the bot
+  never fired. 6 % of rounds ended 0–0 after the full time limit. A batch that
+  counts only wins does not show this. **The batch harness must report the mean
+  kills per round and the number of rounds that reach the time limit.** A round
+  with no kill is a defect, not a draw.
+
+**How many rounds to trust.** A win rate from `n` rounds has a standard error of
+about `50 / √n` percent:
+
+| Rounds | Standard error | A result of 50 % ± this is normal |
+|---|---|---|
+| 100 | 5.0 % | 45 % – 55 % |
+| 400 | 2.5 % | 47.5 % – 52.5 % |
+| 1000 | 1.6 % | 48.4 % – 51.6 % |
+
+So a 100-round test cannot show a 5 % bias: the noise is the same size as the
+limit. Use 400 rounds or more before you call an arena or a doctrine unfair,
+and state the number of rounds with every win rate.
+
+**A test that separates the arena from the code.** To find out whether a bias
+comes from the arena or from the simulation, run the batch two times and give
+the spawn groups to the other teams the second time. A bias that follows the
+spawn position is the arena. A bias that stays with the team name is the code.
+
 ### 7.3 Weapon generation (`weapons/`)
 
 Purpose: generate readable procedural weapons with clear roles.
@@ -677,6 +741,9 @@ Outputs (to the terminal and to CSV files):
 - Weapon usage and kills by archetype.
 - Trait distribution in winning teams.
 - Average round length and match length.
+- Average kills per round, and the number of rounds that reach the time limit.
+  A round with few kills or no kill is a defect of the AI or of the arena, not
+  a close match (Section 7.2.1).
 - Average run duration (for the open run-length decision).
 
 Rule: if one doctrine wins in all arena profiles, report it as a balance failure.
@@ -917,6 +984,8 @@ Notes:
   `width`, `height`, `tiles`, `spawns`, and `pickups`, plus `name` and
   `source`. The generator of M7 adds `seed`, `profile`, `rooms`, `links`, and
   `metrics` on top of this type. The structure of Section 6.2 does not change.
+- The test arena has 180-degree rotational symmetry (Section 7.2.1). The first
+  version was not symmetric, and the batch results of M4 showed the fault.
 - Map file format: an optional `key: value` header (`name`, `notes`), then a
   line with `---`, then the map. Glyphs: `#` wall, `.` floor, `,` low cover,
   `^` hazard, `S` spawn, and `W` `A` `H` `U` `M` for a weapon, armor, health,
@@ -1053,9 +1122,10 @@ Notes:
 - `visitedSlotIds` makes a bot work a route over the pickup points. Without it
   the bot stops on the first point beside its spawn and the two teams never
   meet. M8 replaces the memory with the real respawn timers of Section 7.12.
-- **Finding for M5 and M7:** with the same tactics on both teams, the south-east
-  spawn group of the test arena wins 68 % of 60 rounds. This is a spawn fairness
-  fault of the arena, not of the AI (Section 2.3).
+- **Finding for M5 and M7 (now fixed):** with the same tactics on both teams,
+  the south-east spawn group of the first test arena won 68 % of 60 rounds. The
+  arena is now symmetric, and two faults of the simulation are fixed with it.
+  Section 7.2.1 holds the full record and the rules that follow from it.
 - **Finding for the tuning:** the classic spree counts (5, 10, 15, 20, 25) never
   happen in a 3v3 round that ends at 15 team kills. The counts are now 3, 5, 7,
   9, and 12, and the classic words stay. Over 15 rounds the game now announces

@@ -63,7 +63,18 @@ function critConditionMet(state: SimState, shooter: BotState, target: BotState):
   return false;
 }
 
-/** The live enemy that a bot aims at: the nearest one inside the weapon range. */
+/**
+ * The live enemy that a bot aims at.
+ *
+ * The bot keeps its current target while it can see it, it is alive, and it is
+ * inside the weapon range. It changes target only for an enemy that is clearly
+ * nearer (`targetSwitchMargin`).
+ *
+ * The margin is necessary. Two or three enemies at almost the same distance
+ * make the nearest one change on every tick. The reaction timer of `tryFire`
+ * starts again with every change, so the bot never fires. A round can then end
+ * with no kill at all.
+ */
 export function selectTarget(state: SimState, bot: BotState): BotState | null {
   let best: BotState | null = null;
   let bestDistance = Infinity;
@@ -74,6 +85,16 @@ export function selectTarget(state: SimState, bot: BotState): BotState | null {
     if (distance > bot.weapon.rangeMax || distance >= bestDistance) continue;
     best = enemy;
     bestDistance = distance;
+  }
+
+  if (bot.targetId === null) return best;
+  const current = findBot(state, bot.targetId);
+  if (!current?.alive || !bot.visibleEnemyIds.includes(current.id)) return best;
+  const currentDistance = distanceBetween(bot, current);
+  if (currentDistance > bot.weapon.rangeMax) return best;
+  // Keep the current target unless another one is clearly nearer.
+  if (best === null || bestDistance > currentDistance * state.config.targetSwitchMargin) {
+    return current;
   }
   return best;
 }

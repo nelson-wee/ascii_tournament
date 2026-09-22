@@ -198,6 +198,46 @@ describe("loadTestArena", () => {
     expect(reachableCount(map)).toBe(walkableCount(map));
   });
 
+  it("has 180-degree rotational symmetry", () => {
+    // Section 7.2.1: a symmetric arena gives the two teams the same arena, so
+    // a batch result measures the tactics and not the spawn position.
+    const map = loadTestArena();
+    for (let y = 0; y < map.height; y += 1) {
+      for (let x = 0; x < map.width; x += 1) {
+        const mirror = tileAt(map, map.width - 1 - x, map.height - 1 - y);
+        expect(tileAt(map, x, y), `cell ${x},${y} does not match its image`).toBe(mirror);
+      }
+    }
+  });
+
+  it("gives each team the same pickup points, by kind", () => {
+    const map = loadTestArena();
+    const byKind = new Map<string, number>();
+    for (const pickup of map.pickups) {
+      const mirror = map.pickups.find(
+        (other) =>
+          other.cell.x === map.width - 1 - pickup.cell.x &&
+          other.cell.y === map.height - 1 - pickup.cell.y,
+      );
+      expect(mirror?.kind, `${pickup.slotId} has no image`).toBe(pickup.kind);
+      byKind.set(pickup.kind, (byKind.get(pickup.kind) ?? 0) + 1);
+    }
+    for (const [kind, count] of byKind) {
+      expect(count % 2, `the arena has an odd number of ${kind} points`).toBe(0);
+    }
+  });
+
+  it("gives the two spawn groups the same shape", () => {
+    const map = loadTestArena();
+    const size = map.spawns.length / 2;
+    const teamA = map.spawns.slice(0, size);
+    const teamB = map.spawns.slice(size);
+    for (const spawn of teamA) {
+      const image = { x: map.width - 1 - spawn.x, y: map.height - 1 - spawn.y };
+      expect(teamB, `the spawn ${spawn.x},${spawn.y} has no image`).toContainEqual(image);
+    }
+  });
+
   it("keeps the two spawn groups apart", () => {
     const { spawns } = loadTestArena();
     const distances = spawns.flatMap((a, i) =>
