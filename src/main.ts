@@ -1,21 +1,31 @@
 /**
  * Browser entry point.
  *
- * Milestone M2 runs six bots (3v3) on the static test arena. The bots move to
- * random pickup points with A*. The speed controls drive the fixed tick loop.
- * Perception and combat arrive with Milestone M3.
+ * Milestone M3 runs one full round: six bots (3v3) see each other with FOV,
+ * shoot with the baseline weapon, die, and respawn. The round ends at the
+ * score limit or at the time limit. The side panel shows the score, the timer,
+ * and the kill feed.
  */
 import { loadTestArena } from "./arena/index.js";
 import { Tile } from "./arena/types.js";
 import { loadTuning } from "./core/data.js";
+import { killFeedLines } from "./report/killFeed.js";
 import { ArenaDisplay, type EntityGlyph } from "./render/display.js";
 import { SimRunner, type Speed } from "./render/runner.js";
 import { PICKUP_STYLES, TEAM_STYLES, TILE_STYLES } from "./render/theme.js";
-import { botCell, createSimState, simConfigFromTuning, step } from "./sim/index.js";
+import {
+  botCell,
+  createSimState,
+  simConfigFromTuning,
+  step,
+  TEAM_IDS,
+  type SimState,
+} from "./sim/index.js";
 import { createSpeedControls } from "./ui/speedControls.js";
 
 const INITIAL_SPEED: Speed = 1;
 const SEED = 1; // The run generator gives the seed from Milestone M11.
+const KILL_FEED_LINES = 8;
 
 function showError(error: unknown): void {
   const box = document.createElement("pre");
@@ -43,17 +53,36 @@ function buildLegend(): string {
     .join(" ");
 }
 
+/** mm:ss of the time that is left in the round. */
+function timeLeft(state: SimState): string {
+  const ticks = Math.max(0, state.config.timeLimitTicks - state.tick);
+  const seconds = Math.floor(ticks / state.config.ticksPerSecond);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function outcomeText(state: SimState): string {
+  const { outcome } = state;
+  if (outcome === null) return "";
+  const reason = outcome.reason === "scoreLimit" ? "score limit" : "time limit";
+  if (outcome.winnerTeamId === null) return `Round drawn — ${reason}`;
+  return `Team ${outcome.winnerTeamId} wins the round — ${reason}`;
+}
+
 try {
   const arenaHost = document.querySelector<HTMLElement>("#arena");
   const meta = document.querySelector<HTMLElement>("#meta");
   const legend = document.querySelector<HTMLElement>("#legend");
   const controls = document.querySelector<HTMLElement>("#controls");
   const statusHost = document.querySelector<HTMLElement>("#status");
-  if (!arenaHost || !meta || !legend || !controls || !statusHost) {
-    throw new Error("index.html is missing #arena, #meta, #legend, #controls, or #status");
+  const scoreHost = document.querySelector<HTMLElement>("#score");
+  const feedHost = document.querySelector<HTMLElement>("#feed");
+  if (!arenaHost || !meta || !legend || !controls || !statusHost || !scoreHost || !feedHost) {
+    throw new Error("index.html is missing one of the elements that main.ts needs");
   }
-  // A narrowed binding for the closures below.
+  // Narrowed bindings for the closures below.
   const statusEl: HTMLElement = statusHost;
+  const scoreEl: HTMLElement = scoreHost;
+  const feedEl: HTMLElement = feedHost;
 
   const tuning = loadTuning();
   const arena = loadTestArena();
@@ -62,36 +91,69 @@ try {
   const display = new ArenaDisplay(arenaHost, arena);
 
   function entities(): EntityGlyph[] {
-    return state.bots.map((bot) => ({
-      cell: botCell(bot),
-      style: TEAM_STYLES[bot.teamId] ?? TEAM_STYLES["A"]!,
-    }));
+    return state.bots
+      .filter((bot) => bot.alive)
+      .map((bot) => ({
+        cell: botCell(bot),
+        style: TEAM_STYLES[bot.teamId] ?? TEAM_STYLES["A"]!,
+      }));
   }
 
   function render(): void {
     display.setEntities(entities());
-    statusEl.textContent = `tick ${state.tick}`;
+
+    const [teamA, teamB] = TEAM_IDS;
+    scoreEl.innerHTML = [
+      `<span style="color:${TEAM_STYLES[teamA]!.fg}">A ${state.score[teamA]}</span>`,
+      `<span class="dim">—</span>`,
+      `<span style="color:${TEAM_STYLES[teamB]!.fg}">${state.score[teamB]} B</span>`,
+      `<span class="dim">to ${state.config.scoreLimit}</span>`,
+    ].join(" ");
+
+    feedEl.replaceChildren();
+    for (const line of killFeedLines(state.bus.log, KILL_FEED_LINES)) {
+      const item = document.createElement("li");
+      item.textContent = line;
+      feedEl.append(item);
+    }
+
+    statusEl.textContent =
+      state.outcome === null
+        ? `round ${state.roundNumber}  ·  ${timeLeft(state)} left  ·  tick ${state.tick}`
+        : outcomeText(state);
   }
 
   const runner = new SimRunner({
     ticksPerSecond: config.ticksPerSecond,
     initialSpeed: INITIAL_SPEED,
-    onTick: () => step(state),
+    onTick: () => {
+      step(state);
+      if (state.outcome !== null) {
+        runner.setSpeed(0);
+        speedControls.setEnabled(false);
+      }
+    },
     onRender: render,
   });
 
-  createSpeedControls({
+  const speedControls = createSpeedControls({
     container: controls,
     initialSpeed: INITIAL_SPEED,
     onSpeed: (speed) => runner.setSpeed(speed),
     onStep: () => runner.stepOnce(),
+    onSkip: () => {
+      runner.setSpeed(0);
+      // The time limit bounds this loop.
+      while (state.outcome === null) step(state);
+      speedControls.setEnabled(false);
+      render();
+    },
   });
 
   meta.textContent = [
-    `M2 — ${arena.name}`,
+    `M3 — ${arena.name}`,
     `${arena.width}×${arena.height}`,
     `${state.bots.length} bots`,
-    `${arena.pickups.length} pickups`,
     `${config.ticksPerSecond} ticks/s`,
   ].join("  ·  ");
   legend.innerHTML = buildLegend();

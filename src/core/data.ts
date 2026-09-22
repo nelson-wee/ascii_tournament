@@ -6,7 +6,9 @@
  * Every file passes through its zod schema before any system reads it.
  */
 import tuningJson from "../../data/tuning.json";
-import { TuningSchema, type Tuning } from "./schemas.js";
+import baselineWeaponJson from "../../data/weapons/baseline.json";
+import type { Weapon } from "../weapons/types.js";
+import { TuningSchema, WeaponSchema, type Tuning } from "./schemas.js";
 
 /** Thrown when a data file does not match its schema. */
 export class DataValidationError extends Error {
@@ -35,6 +37,7 @@ export function parseData<T>(
 }
 
 let tuningCache: Tuning | null = null;
+let baselineWeaponCache: Weapon | null = null;
 
 /** The global tuning numbers. The result is cached after the first call. */
 export function loadTuning(): Tuning {
@@ -42,7 +45,21 @@ export function loadTuning(): Tuning {
   return tuningCache;
 }
 
+/**
+ * The fixed baseline weapon (Section 7.3). It must stay a viable fallback.
+ * The generated weapons arrive with Milestone M6.
+ */
+export function loadBaselineWeapon(): Weapon {
+  baselineWeaponCache ??= parseData(
+    "data/weapons/baseline.json",
+    WeaponSchema,
+    baselineWeaponJson,
+  ) as Weapon;
+  return baselineWeaponCache;
+}
+
 /** Forget the cached data files. The tests use this. */
 export function clearDataCache(): void {
   tuningCache = null;
+  baselineWeaponCache = null;
 }

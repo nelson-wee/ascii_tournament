@@ -125,15 +125,17 @@ describe("step", () => {
   });
 
   it("never moves a bot more than its speed in one tick", () => {
-    // A jump of more than one step could cross a wall between two cells.
+    // A jump of more than one step could cross a wall between two cells. Only a
+    // respawn moves a bot to another place at once.
     const state = newState(7);
     const speed = state.config.moveSpeedPerTick;
     for (let tick = 0; tick < 1000; tick += 1) {
-      const before = state.bots.map((bot) => ({ ...bot.pos }));
+      const before = state.bots.map((bot) => ({ pos: { ...bot.pos }, alive: bot.alive }));
       step(state);
       for (const [index, bot] of state.bots.entries()) {
-        const start = before[index] as { x: number; y: number };
-        const moved = Math.hypot(bot.pos.x - start.x, bot.pos.y - start.y);
+        const start = before[index] as { pos: { x: number; y: number }; alive: boolean };
+        if (!start.alive && bot.alive) continue; // a respawn
+        const moved = Math.hypot(bot.pos.x - start.pos.x, bot.pos.y - start.pos.y);
         expect(moved, `${bot.id} jumped ${moved} cells`).toBeLessThanOrEqual(speed + 1e-9);
       }
     }
@@ -143,11 +145,13 @@ describe("step", () => {
     const state = newState(11);
     let previous = state.bots.map(botCell);
     for (let tick = 0; tick < 1000; tick += 1) {
+      const wasAlive = state.bots.map((bot) => bot.alive);
       step(state);
       const current = state.bots.map(botCell);
       for (const [index, cell] of current.entries()) {
         const before = previous[index] as Cell;
         if (before.x === cell.x && before.y === cell.y) continue;
+        if (!wasAlive[index] && state.bots[index]?.alive) continue; // a respawn
         expect(
           isStepLegal(state.map, before, cell),
           `${state.bots[index]?.id} made an illegal step at tick ${state.tick}`,

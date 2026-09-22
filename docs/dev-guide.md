@@ -74,6 +74,8 @@ This document is a blueprint for Claude Code.
 - **Match format:** best of 3 rounds. All rounds use the same arena and the same opponent team.
 - **Tactics between rounds:** the player can change tactics between rounds.
 - **Progression timing:** affinity collects during all rounds. Traits apply after the match, not during it.
+- **Collision:** an enemy bot blocks movement. A teammate does not.
+- **Round end:** a round ends when one team makes 15 kills, or after 3 simulated minutes (3600 ticks at 20 ticks per second).
 - **Pickups:** the spawn table is fixed for all rounds of a match. The spawn table can change in the next match.
 - **Arenas:** spawn points and pickup points are fixed per arena.
 - **Weapons per run:** 5 total. 1–2 are fixed baseline weapons. The other weapons are procedural.
@@ -88,10 +90,9 @@ This document is a blueprint for Claude Code.
 
 - **Run length.** The number of opponent teams and matches per run. Set these from a target average run duration (TBD). The number of arenas per run (currently 4–5) depends on this. If matches are more than arenas, arenas repeat.
 - **Run structure:** ladder, league, or bracket.
-- Bot-to-bot collision. Section 7.4 says "resolve collisions", and Section 7.5
-  names only walls. M2 blocks walls and lets two bots share a cell. Decide
-  before M4, because the utility AI needs to know if a teammate can block a
-  corridor.
+- A drawn round. A round at the time limit with an equal score has no winner.
+  Decide what a draw does to the best-of-3 count. M3 gives `winnerTeamId` the
+  value `null`. Decide before M8.
 - Role duplication (can a team use the same role two times). Default: yes.
 - Progression reset per run or across runs.
 - Meta-progression.
@@ -153,6 +154,7 @@ The project root is the repository root.
 │   ├── tuning.json                # global numbers (tick rate, speeds, limits)
 │   ├── arenas/*.txt               # hand-made arena maps (M1 test arena)
 │   ├── archetypes/*.json          # weapon archetypes
+│   ├── weapons/*.json             # fixed weapons (the M3 baseline weapon)
 │   ├── weapon-traits.json         # weapon mutations
 │   ├── bot-traits.json            # bot traits
 │   ├── roles.json                 # role presets
@@ -932,7 +934,7 @@ Notes:
 |---|---|
 | `ai/navigation.ts` | `findPath(map, from, to, options)`, `isStepLegal(map, a, b)`. |
 | `sim/state.ts` | `SimState`, `BotState`, `SimConfig`, `createSimState(options)`, `simConfigFromTuning()`, `cellCenter`, `posCell`, `botCell`, `TEAM_IDS`. |
-| `sim/movement.ts` | `advanceBot(map, bot)`. |
+| `sim/movement.ts` | `advanceBot(state, bot)`. M3 changed the first parameter from the map to the state, because an enemy bot blocks movement. |
 | `sim/round.ts` | `step(state)`, `stepMany(state, ticks)`. |
 | `render/runner.ts` | `SimRunner` with `start`, `stop`, `setSpeed`, `stepOnce`. `SPEEDS`. Browser only. |
 | `render/display.ts` | `setEntities(entities)` draws bots on top of the tiles. |
@@ -965,6 +967,39 @@ Notes:
 - Add kill events and a simple kill feed.
 - Add the round end condition.
 - Accept: bots see and shoot each other. A round ends at a score limit. The determinism test passes.
+
+**M3 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `ai/perception.ts` | `updatePerception(state)`, `canSee(state, viewer, other)`, `isUnaware(state, attacker, target)`, `blocksSight(map, x, y)`. |
+| `sim/combat.ts` | `tryFire(state, bot)`, `respawn(state, bot)`, `selectTarget(state, bot)`, `hitChance(state, shooter, target)`, `rangeBandOf(state, distance)`, `isInCover(state, bot)`. |
+| `sim/round.ts` | `runRound(state)`, `checkRoundEnd(state)`, `RoundResult`. |
+| `sim/state.ts` | `Attributes`, `RoundOutcome`, `defaultAttributes()`, `distanceBetween`, `enemyAt`, `teamSpawns`, `findBot`. |
+| `weapons/types.ts` | `Weapon`, `Archetype`, `Delivery`, `RangeBand`, `DpsProfile`. |
+| `core/data.ts` | `loadBaselineWeapon()`. |
+| `core/cellSet.ts` | `CellSet`, a set of cell indices with no allocation. |
+| `report/killFeed.ts` | `killFeedLine(event)`, `killFeedLines(events, limit)`. |
+| `ui/speedControls.ts` | The options now hold `onSkip`, and the control gives `setEnabled`. |
+
+Notes:
+
+- **Perception cost.** The visible cell set depends only on the cell of the bot
+  and on the walls, so perception calculates it again only after the bot
+  changes cell. This made a round 4.9 times faster (1698 ms to 348 ms), and the
+  results did not change. A system that makes a wall during a round must set
+  `fovCell` of every bot to `null`.
+- **Ammo.** M3 does not count ammo. The baseline weapon must stay a viable
+  fallback (Section 7.3), and the ammo pickups arrive with M8.
+- **"In cover"** in a `Kill` event means that the killer stands on a low cover
+  tile. TBD
+- **A draw.** `RoundOutcome.winnerTeamId` is `null` when the time limit ends a
+  round with an equal score. Section 6.6 gives `winnerTeamId` the type
+  `string`; the type is now `TeamId | null`.
+- Low cover does not block sight. TBD
+- The AI of M3 still moves to a random pickup point. It fires at the nearest
+  visible enemy inside the weapon range, after its reaction time. The utility
+  AI of M4 replaces this behavior.
 
 ### M4 — Utility AI and tactics
 

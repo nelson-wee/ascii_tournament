@@ -9,6 +9,8 @@ export interface SpeedControlsOptions {
   initialSpeed: Speed;
   onSpeed: (speed: Speed) => void;
   onStep: () => void;
+  /** Run the rest of the round at once (Section 7.18). */
+  onSkip: () => void;
 }
 
 const LABELS: Readonly<Record<Speed, string>> = {
@@ -20,6 +22,8 @@ const LABELS: Readonly<Record<Speed, string>> = {
 export interface SpeedControls {
   /** Show which speed is active. */
   setSpeed(speed: Speed): void;
+  /** Turn every button off at the end of a round. */
+  setEnabled(enabled: boolean): void;
 }
 
 export function createSpeedControls(options: SpeedControlsOptions): SpeedControls {
@@ -57,6 +61,23 @@ export function createSpeedControls(options: SpeedControlsOptions): SpeedControl
   });
   container.append(stepButton);
 
+  const skipButton = document.createElement("button");
+  skipButton.type = "button";
+  skipButton.textContent = "Skip";
+  skipButton.title = "Run to the end of the round";
+  skipButton.addEventListener("click", () => {
+    options.onSkip();
+    paint(0);
+  });
+  container.append(skipButton);
+
   paint(options.initialSpeed);
-  return { setSpeed: paint };
+  return {
+    setSpeed: paint,
+    setEnabled(enabled: boolean): void {
+      for (const button of [...buttons.values(), stepButton, skipButton]) {
+        button.disabled = !enabled;
+      }
+    },
+  };
 }

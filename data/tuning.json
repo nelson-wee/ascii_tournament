@@ -3,16 +3,50 @@
   "tbd": [
     "simulation.ticksPerSecond",
     "simulation.aiDecisionIntervalTicks",
-    "round.scoreLimit",
-    "round.timeLimitTicks",
-    "movement.moveSpeedCellsPerSecond"
+    "movement.moveSpeedCellsPerSecond",
+    "movement.repathAfterBlockedTicks",
+    "perception.sightRadiusCells",
+    "perception.memoryTicks",
+    "combat.healthMax",
+    "combat.respawnDelayTicks",
+    "combat.rangeBandCloseMax",
+    "combat.rangeBandMidMax",
+    "combat.multiKillWindowTicks",
+    "combat.critMultiplier",
+    "combat.distanceFalloff",
+    "combat.movingTargetPenalty",
+    "combat.minHitChance",
+    "botDefaults.accuracy",
+    "botDefaults.reactionTicks",
+    "botDefaults.awareness"
   ],
   "simulation": {
     "ticksPerSecond": 20,
     "aiDecisionIntervalTicks": 5
   },
   "movement": {
-    "moveSpeedCellsPerSecond": 4
+    "moveSpeedCellsPerSecond": 4,
+    "repathAfterBlockedTicks": 10
+  },
+  "perception": {
+    "sightRadiusCells": 20,
+    "memoryTicks": 60
+  },
+  "combat": {
+    "healthMax": 100,
+    "respawnDelayTicks": 60,
+    "rangeBandCloseMax": 8,
+    "rangeBandMidMax": 20,
+    "multiKillWindowTicks": 60,
+    "critMultiplier": 2,
+    "distanceFalloff": 0.6,
+    "movingTargetPenalty": 0.25,
+    "minHitChance": 0.05
+  },
+  "botDefaults": {
+    "accuracy": 0.75,
+    "reactionTicks": 6,
+    "awareness": 0.5
   },
   "match": {
     "teamSize": 3,

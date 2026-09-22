@@ -8,14 +8,15 @@ The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
 
 ## Status
 
-**Milestone M2 — movement and navigation.** Six bots (3v3) spawn on the test
-arena and move to random pickup points with A*. The fixed tick loop runs from
-the speed controls: pause, 1×, 4×, and one step. Perception and combat arrive
-with Milestone M3.
+**Milestone M3 — perception and baseline combat.** Six bots (3v3) see each
+other with FOV, shoot with the baseline weapon, die, and respawn. A round ends
+at 15 kills or after 3 simulated minutes. The side panel shows the score, the
+timer, and the kill feed. The utility AI arrives with Milestone M4.
 
 Earlier milestones gave the build, the seeded RNG, the data loader, the event
-bus, the tests, the GitHub Pages deployment (M0), and the arena map files with
-the rot.js display (M1).
+bus, the tests, the GitHub Pages deployment (M0), the arena map files with the
+rot.js display (M1), and A* movement with the tick loop and the speed controls
+(M2).
 
 ## Commands
 
