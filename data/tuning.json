@@ -31,7 +31,9 @@
     "perception.peripheralHalfAngleBaseDegrees",
     "perception.peripheralHalfAngleAwarenessDegrees",
     "perception.peripheralDelayTicks",
-    "perception.turnRateDegreesPerTick"
+    "perception.turnRateDegreesPerTick",
+    "combat.stationaryTicksForCrit",
+    "combat.dodgeRampTicks"
   ],
   "simulation": {
     "ticksPerSecond": 20,
@@ -63,7 +65,9 @@
     "movingTargetPenalty": 0.25,
     "minHitChance": 0.05,
     "evasionAccuracyPenalty": 0.4,
-    "targetSwitchMargin": 0.8
+    "targetSwitchMargin": 0.8,
+    "stationaryTicksForCrit": 10,
+    "dodgeRampTicks": 8
   },
   "ai": {
     "hysteresisMargin": 1.2,
@@ -88,7 +92,8 @@
   "match": {
     "teamSize": 3,
     "maxRounds": 3,
-    "roundWinsToWinMatch": 2
+    "roundWinsToWinMatch": 2,
+    "weaponsPerRun": 5
   },
   "round": {
     "scoreLimit": 15,

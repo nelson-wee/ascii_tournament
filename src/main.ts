@@ -9,6 +9,8 @@
 import { loadTestArena } from "./arena/index.js";
 import { Tile } from "./arena/types.js";
 import { loadTuning } from "./core/data.js";
+import { createRng, deriveSeed } from "./core/rng.js";
+import { generateWeaponSet } from "./weapons/generate.js";
 import { feedLines } from "./report/killFeed.js";
 import { ArenaDisplay, type EntityGlyph } from "./render/display.js";
 import { SimRunner, type Speed } from "./render/runner.js";
@@ -92,7 +94,12 @@ try {
   const tuning = loadTuning();
   const arena = loadTestArena();
   const config = simConfigFromTuning(tuning);
-  const state = createSimState({ map: arena, seed: SEED, config });
+  const weapons = generateWeaponSet(
+    createRng(deriveSeed(SEED, "weapons"), "weapons"),
+    config.weaponsPerRun,
+    { ticksPerSecond: config.ticksPerSecond },
+  );
+  const state = createSimState({ map: arena, seed: SEED, config, weapons });
   const display = new ArenaDisplay(arenaHost, arena);
 
   function entities(): EntityGlyph[] {
@@ -164,10 +171,11 @@ try {
   });
 
   meta.textContent = [
-    `M4 — ${arena.name}`,
+    `M6 — ${arena.name}`,
     `${arena.width}×${arena.height}`,
     `${state.bots.length} bots`,
     `${config.ticksPerSecond} ticks/s`,
+    weapons.map((weapon) => weapon.archetype).join("/"),
   ].join("  ·  ");
   legend.innerHTML = buildLegend(config.directionalVision);
 

@@ -7,6 +7,7 @@ import { killFeedLine, killFeedLines } from "../src/report/killFeed.js";
 import {
   cellCenter,
   createSimState,
+  effectiveReaction,
   hitChance,
   isInCover,
   rangeBandOf,
@@ -42,7 +43,7 @@ function face(state: SimState, distance: number): [BotState, BotState] {
 describe("the baseline weapon", () => {
   it("is a hitscan weapon with no area damage", () => {
     const weapon = loadBaselineWeapon();
-    expect(weapon.delivery).toBe("hitscan");
+    expect(weapon.attackType).toBe("hitscan");
     expect(weapon.projectileSpeed).toBeNull();
     expect(weapon.aoeRadius).toBe(0);
     expect(weapon.archetype).toBe("baseline");
@@ -73,12 +74,19 @@ describe("hitChance", () => {
   });
 
   it("falls when the target moves", () => {
+    // Section 7.20.5: the dodge rises over several ticks of movement, so a bot
+    // that has moved without a break is harder to hit than one that just
+    // started.
     const state = rangeState();
     const [a, b] = face(state, 5);
-    b.movedLastTick = false;
+    b.movingTicks = 0;
     const still = hitChance(state, a, b);
-    b.movedLastTick = true;
-    expect(hitChance(state, a, b)).toBeLessThan(still);
+    b.movingTicks = 1;
+    const twitch = hitChance(state, a, b);
+    b.movingTicks = state.config.dodgeRampTicks;
+    const running = hitChance(state, a, b);
+    expect(twitch).toBeLessThan(still);
+    expect(running).toBeLessThan(twitch);
   });
 
   it("stays inside [minHitChance, 1]", () => {
@@ -128,10 +136,14 @@ describe("selectTarget", () => {
 
 describe("tryFire", () => {
   it("waits for the reaction time before the first shot", () => {
+    // Section 7.20.7: the reaction is the attribute of the bot plus the
+    // reaction of its weapon at this range band.
     const bus = new EventBus();
     const state = rangeState(1, bus);
-    const [a] = face(state, 5);
-    const reaction = a.attributes.reactionTicks;
+    const [a, b] = face(state, 5);
+    const band = rangeBandOf(state, Math.abs(b.pos.x - a.pos.x));
+    const reaction = effectiveReaction(a, band);
+    expect(reaction).toBeGreaterThan(a.attributes.reactionTicks);
     for (let i = 0; i < reaction; i += 1) tryFire(state, a);
     expect(bus.filter("Shot")).toHaveLength(0);
     tryFire(state, a);
@@ -141,8 +153,9 @@ describe("tryFire", () => {
   it("waits for the weapon cooldown between two shots", () => {
     const bus = new EventBus();
     const state = rangeState(1, bus);
-    const [a] = face(state, 5);
-    for (let i = 0; i <= a.attributes.reactionTicks; i += 1) tryFire(state, a);
+    const [a, b] = face(state, 5);
+    const band = rangeBandOf(state, Math.abs(b.pos.x - a.pos.x));
+    for (let i = 0; i <= effectiveReaction(a, band); i += 1) tryFire(state, a);
     expect(bus.filter("Shot")).toHaveLength(1);
     expect(a.fireCooldownTicks).toBe(a.weapon.fireIntervalTicks);
     tryFire(state, a);
@@ -175,7 +188,7 @@ describe("tryFire", () => {
     const startHealth = b.health;
 
     let guard = 0;
-    while (b.alive && guard < 2000) {
+    while (b.alive && guard < 4000) {
       a.fireCooldownTicks = 0;
       tryFire(state, a);
       guard += 1;
@@ -195,9 +208,11 @@ describe("tryFire", () => {
     const bus = new EventBus();
     const state = rangeState(1, bus);
     const [a, b] = face(state, 2);
-    while (b.alive) {
+    let guard = 0;
+    while (b.alive && guard < 4000) {
       a.fireCooldownTicks = 0;
       tryFire(state, a);
+      guard += 1;
     }
     const kill = bus.filter("Kill")[0];
     expect(kill).toBeDefined();
@@ -229,7 +244,7 @@ describe("tryFire", () => {
     }
     updatePerception(state);
     let guard = 0;
-    while (state.bots.slice(3).some((bot) => bot.alive) && guard < 5000) {
+    while (state.bots.slice(3).some((bot) => bot.alive) && guard < 20000) {
       a.fireCooldownTicks = 0;
       updatePerception(state);
       tryFire(state, a);

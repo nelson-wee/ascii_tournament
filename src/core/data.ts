@@ -7,6 +7,7 @@
  */
 import announcementsJson from "../../data/announcements.json";
 import tacticsJson from "../../data/tactics.json";
+import weaponRolesJson from "../../data/weapon-roles.json";
 import tuningJson from "../../data/tuning.json";
 import baselineWeaponJson from "../../data/weapons/baseline.json";
 import type { Weapon } from "../weapons/types.js";
@@ -18,6 +19,8 @@ import {
   type Announcements,
   type Tactics,
   type Tuning,
+  type WeaponRoles,
+  WeaponRolesSchema,
 } from "./schemas.js";
 
 /** Thrown when a data file does not match its schema. */
@@ -50,6 +53,7 @@ let tuningCache: Tuning | null = null;
 let baselineWeaponCache: Weapon | null = null;
 let announcementsCache: Announcements | null = null;
 let tacticsCache: Tactics | null = null;
+let weaponRolesCache: WeaponRoles | null = null;
 
 /** The global tuning numbers. The result is cached after the first call. */
 export function loadTuning(): Tuning {
@@ -86,10 +90,17 @@ export function loadDefaultTactics(): Tactics {
   return tacticsCache;
 }
 
+/** The role traits and the attack types of the weapon generator (Section 7.20.2). */
+export function loadWeaponRoles(): WeaponRoles {
+  weaponRolesCache ??= parseData("data/weapon-roles.json", WeaponRolesSchema, weaponRolesJson);
+  return weaponRolesCache;
+}
+
 /** Forget the cached data files. The tests use this. */
 export function clearDataCache(): void {
   tuningCache = null;
   baselineWeaponCache = null;
   announcementsCache = null;
   tacticsCache = null;
+  weaponRolesCache = null;
 }

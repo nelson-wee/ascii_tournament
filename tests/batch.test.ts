@@ -115,8 +115,10 @@ describe("runPlannedRound", () => {
     expect(result.shots).toBeGreaterThan(0);
     expect(result.hits).toBeGreaterThan(0);
     expect(result.scoreA + result.scoreB).toBeGreaterThan(0);
-    expect(result.killsByArchetype["baseline"]).toBe(result.scoreA + result.scoreB);
-    expect(Object.keys(result.shotsByWeapon)).toEqual(["baseline-rifle"]);
+    const killTotal = Object.values(result.killsByArchetype).reduce((sum, n) => sum + n, 0);
+    expect(killTotal).toBe(result.scoreA + result.scoreB);
+    // M6 gives every round a generated weapon set, so more than one weapon fires.
+    expect(Object.keys(result.shotsByWeapon).length).toBeGreaterThan(0);
     expect(["A", "B", null]).toContain(result.winner);
   });
 

@@ -12,6 +12,8 @@ import type { ArenaMap } from "../arena/types.js";
 import type { Tactics } from "../core/schemas.js";
 import { EventBus } from "../core/events.js";
 import { deriveSeed } from "../core/rng.js";
+import { createRng, deriveSeed as derive } from "../core/rng.js";
+import { generateWeaponSet } from "../weapons/generate.js";
 import { createSimState, runRound, simConfigFromTuning, type SimConfig } from "../sim/index.js";
 import type { RoundRecord } from "./batchStats.js";
 
@@ -75,11 +77,21 @@ export function runPlannedRound(
     throw new Error(`The batch has no preset "${round.teamA}" or "${round.teamB}".`);
   }
 
+  // Every round of the batch gets its own weapon set, from the weapons stream
+  // (Section 7.1). Both teams hold the same set, so the batch measures the
+  // tactics and not the luck of a roll.
+  const weapons = generateWeaponSet(
+    createRng(derive(round.seed, "weapons"), "weapons"),
+    config.weaponsPerRun,
+    { ticksPerSecond: config.ticksPerSecond },
+  );
+
   const state = createSimState({
     map: round.arena.map,
     seed: round.seed,
     config,
     bus,
+    weapons,
     tactics: { A: teamATactics, B: teamBTactics },
   });
   const result = runRound(state);

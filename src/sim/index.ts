@@ -2,6 +2,10 @@
 export * from "./state.js";
 export { advanceBot } from "./movement.js";
 export {
+  critConditionMet,
+  currentBand,
+  dodgeOf,
+  effectiveReaction,
   hitChance,
   isInCover,
   rangeBandOf,
@@ -9,6 +13,18 @@ export {
   selectTarget,
   tryFire,
 } from "./combat.js";
+export { damageBot, applyDot } from "./damage.js";
+export {
+  applyAreaDamage,
+  applyConeDamage,
+  applyDots,
+  applyHazards,
+  applyLineDamage,
+  clearLine,
+  createHazard,
+  spawnProjectile,
+  updateProjectiles,
+} from "./attacks.js";
 export {
   checkRoundEnd,
   enterSuddenDeathIfNeeded,

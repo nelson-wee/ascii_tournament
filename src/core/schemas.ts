@@ -85,6 +85,10 @@ export const TuningSchema = z
         multiKillWindowTicks: positiveInt,
         /** The damage factor of a critical hit. TBD */
         critMultiplier: positiveNumber,
+        /** Ticks with no movement before a target counts as stationary. TBD */
+        stationaryTicksForCrit: positiveInt,
+        /** Ticks of movement before a bot gets its full dodge. TBD */
+        dodgeRampTicks: positiveInt,
         /** How much the hit chance falls across the full range of a weapon. TBD */
         distanceFalloff: unitRange,
         /** How much a moving target lowers the hit chance. TBD */
@@ -139,6 +143,8 @@ export const TuningSchema = z
         teamSize: positiveInt,
         /** Rounds per match. Locked at 3 (best of 3, Section 2.2). */
         maxRounds: positiveInt,
+        /** Weapons in a run. Locked at 5 (Section 2.2). */
+        weaponsPerRun: positiveInt,
         /** Round wins that win the match. */
         roundWinsToWinMatch: positiveInt,
       })
@@ -236,36 +242,141 @@ export const AnnouncementsSchema = z
 
 export type Announcements = z.infer<typeof AnnouncementsSchema>;
 
+const range = z.tuple([z.number(), z.number()]);
+const bandValues = z
+  .object({ close: z.number(), mid: z.number(), long: z.number() })
+  .strict();
+const bandRanges = z
+  .object({ close: range, mid: range, long: range })
+  .strict();
+
+const ATTACK_TYPE_NAMES = [
+  "hitscan",
+  "projectile",
+  "cone",
+  "burst",
+  "line",
+  "ricochet",
+  "tile",
+] as const;
+
+/** `data/weapon-roles.json`: the role traits and the attack types (7.20.2, 7.20.3). */
+export const WeaponRolesSchema = z
+  .object({
+    _notes: z.string().optional(),
+    roles: z.record(
+      z.enum(["precise", "assault", "sniper", "heavy"]),
+      z
+        .object({
+          damage: range,
+          fireIntervalTicks: range,
+          rangeMax: range,
+          ammoMax: range,
+          critChance: range,
+          critConditions: z.array(z.string()),
+          bandMultiplier: bandValues,
+          reactionByBand: bandRanges,
+          attackTypeWeights: z.record(z.enum(ATTACK_TYPE_NAMES), z.number().nonnegative()),
+          nameWords: z.array(z.string().min(1)).min(1),
+        })
+        .strict(),
+    ),
+    attackTypes: z.record(
+      z.enum(ATTACK_TYPE_NAMES),
+      z
+        .object({
+          bandMultiplier: bandValues,
+          reactionAdd: z.number().nonnegative(),
+          /**
+           * How often a shot of this type lands. An area type does not roll to
+           * hit, so it is near 1. A hitscan shot rolls against the accuracy of
+           * the bot and the dodge of the target, so it is lower. TBD
+           */
+          accuracyFactor: unitRange,
+          word: z.string().min(1),
+        })
+        .strict(),
+    ),
+    shape: z
+      .object({
+        projectileSpeed: range,
+        aoeRadius: range,
+        coneHalfAngleDegrees: range,
+        coneRangeFactor: unitRange,
+        ricochetBounces: range,
+        hazardTicks: range,
+        hazardRadius: range,
+        hazardDamagePerTick: range,
+        dotChance: unitRange,
+        dotDamage: range,
+        dotTicks: range,
+      })
+      .strict(),
+    value: z
+      .object({
+        _notes: z.string().optional(),
+        aoeTargetsPerRadius: z.number().nonnegative(),
+        aoeTargetsMax: z.number().nonnegative(),
+        coneTargetsPerRadian: z.number().nonnegative(),
+        coneTargetsMax: z.number().nonnegative(),
+        lineTargets: z.number().nonnegative(),
+        dotStackCap: positiveNumber,
+        hazardOccupancy: unitRange,
+      })
+      .strict(),
+    budget: z
+      .object({
+        target: positiveNumber,
+        tolerance: positiveNumber,
+        dpsWeight: z.number().nonnegative(),
+        rangeWeight: z.number().nonnegative(),
+        critWeight: z.number().nonnegative(),
+        lineWeight: z.number().nonnegative(),
+        ricochetWeight: z.number().nonnegative(),
+        reactionDiscount: z.number().nonnegative(),
+        ammoWeight: z.number().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type WeaponRoles = z.infer<typeof WeaponRolesSchema>;
+
 /** `data/weapons/*.json`: one weapon (Section 6.3). */
 export const WeaponSchema = z
   .object({
     id: z.string().min(1),
     name: z.string().min(1),
-    archetype: z.enum(["precision", "splash", "burst", "denial", "versatile", "baseline"]),
-    delivery: z.enum(["hitscan", "projectile"]),
+    archetype: z.enum([
+      "precision",
+      "assault",
+      "marksman",
+      "heavy",
+      "splash",
+      "denial",
+      "versatile",
+      "baseline",
+    ]),
+    role: z.enum(["precise", "assault", "sniper", "heavy"]).nullable(),
+    attackType: z.enum(ATTACK_TYPE_NAMES),
     damage: positiveNumber,
     fireIntervalTicks: positiveInt,
     rangeMax: positiveNumber,
     projectileSpeed: positiveNumber.nullable(),
     aoeRadius: z.number().nonnegative(),
+    coneHalfAngle: z.number().nonnegative(),
+    ricochetBounces: nonNegativeInt,
     dotDamage: z.number().nonnegative(),
     dotTicks: nonNegativeInt,
     hazardTicks: nonNegativeInt,
+    hazardRadius: z.number().nonnegative(),
+    hazardDamagePerTick: z.number().nonnegative(),
     critChance: unitRange,
     critConditions: z.array(z.string()),
     ammoMax: positiveInt,
     traits: z.array(z.string()),
-    dpsProfile: z
-      .object({
-        close: z.number().nonnegative(),
-        mid: z.number().nonnegative(),
-        long: z.number().nonnegative(),
-      })
-      .strict(),
+    reactionByBand: bandValues,
+    dpsProfile: bandValues,
     budgetUsed: z.number().nonnegative(),
   })
-  .strict()
-  .refine(
-    (weapon) => (weapon.delivery === "projectile") === (weapon.projectileSpeed !== null),
-    "a projectile weapon needs a projectileSpeed, and a hitscan weapon needs null",
-  );
+  .strict();

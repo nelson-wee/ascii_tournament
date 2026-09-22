@@ -1,0 +1,375 @@
+{
+  "_notes": "Weapon role traits (dev-guide Section 7.20.2). A range is [min, max]. Every number is a placeholder. TBD",
+  "roles": {
+    "precise": {
+      "damage": [
+        14,
+        24
+      ],
+      "fireIntervalTicks": [
+        8,
+        14
+      ],
+      "rangeMax": [
+        26,
+        40
+      ],
+      "ammoMax": [
+        20,
+        40
+      ],
+      "critChance": [
+        0.2,
+        0.4
+      ],
+      "critConditions": [
+        "targetStationary",
+        "targetUnaware"
+      ],
+      "bandMultiplier": {
+        "close": 1.0,
+        "mid": 1.0,
+        "long": 0.95
+      },
+      "reactionByBand": {
+        "close": [
+          3,
+          5
+        ],
+        "mid": [
+          2,
+          4
+        ],
+        "long": [
+          2,
+          4
+        ]
+      },
+      "attackTypeWeights": {
+        "hitscan": 10,
+        "projectile": 2,
+        "line": 4,
+        "cone": 0,
+        "burst": 0,
+        "ricochet": 1,
+        "tile": 0
+      },
+      "nameWords": [
+        "Lance",
+        "Needle",
+        "Eye",
+        "Thorn"
+      ]
+    },
+    "assault": {
+      "damage": [
+        9,
+        16
+      ],
+      "fireIntervalTicks": [
+        3,
+        6
+      ],
+      "rangeMax": [
+        14,
+        24
+      ],
+      "ammoMax": [
+        40,
+        90
+      ],
+      "critChance": [
+        0.03,
+        0.1
+      ],
+      "critConditions": [
+        "targetUnaware"
+      ],
+      "bandMultiplier": {
+        "close": 1.3,
+        "mid": 0.9,
+        "long": 0.45
+      },
+      "reactionByBand": {
+        "close": [
+          1,
+          3
+        ],
+        "mid": [
+          3,
+          5
+        ],
+        "long": [
+          6,
+          9
+        ]
+      },
+      "attackTypeWeights": {
+        "hitscan": 4,
+        "projectile": 3,
+        "line": 2,
+        "cone": 5,
+        "burst": 4,
+        "ricochet": 3,
+        "tile": 2
+      },
+      "nameWords": [
+        "Ripper",
+        "Chatter",
+        "Swarm",
+        "Rake"
+      ]
+    },
+    "sniper": {
+      "damage": [
+        26,
+        44
+      ],
+      "fireIntervalTicks": [
+        16,
+        28
+      ],
+      "rangeMax": [
+        38,
+        58
+      ],
+      "ammoMax": [
+        8,
+        18
+      ],
+      "critChance": [
+        0.12,
+        0.28
+      ],
+      "critConditions": [
+        "targetStationary"
+      ],
+      "bandMultiplier": {
+        "close": 0.5,
+        "mid": 0.95,
+        "long": 1.35
+      },
+      "reactionByBand": {
+        "close": [
+          7,
+          10
+        ],
+        "mid": [
+          4,
+          6
+        ],
+        "long": [
+          1,
+          3
+        ]
+      },
+      "attackTypeWeights": {
+        "hitscan": 8,
+        "projectile": 2,
+        "line": 5,
+        "cone": 0,
+        "burst": 1,
+        "ricochet": 1,
+        "tile": 0
+      },
+      "nameWords": [
+        "Reach",
+        "Longbore",
+        "Vigil",
+        "Spire"
+      ]
+    },
+    "heavy": {
+      "damage": [
+        22,
+        40
+      ],
+      "fireIntervalTicks": [
+        12,
+        22
+      ],
+      "rangeMax": [
+        18,
+        32
+      ],
+      "ammoMax": [
+        12,
+        28
+      ],
+      "critChance": [
+        0.02,
+        0.08
+      ],
+      "critConditions": [
+        "targetStationary"
+      ],
+      "bandMultiplier": {
+        "close": 1.2,
+        "mid": 1.05,
+        "long": 0.75
+      },
+      "reactionByBand": {
+        "close": [
+          6,
+          9
+        ],
+        "mid": [
+          6,
+          9
+        ],
+        "long": [
+          7,
+          11
+        ]
+      },
+      "attackTypeWeights": {
+        "hitscan": 1,
+        "projectile": 3,
+        "line": 3,
+        "cone": 4,
+        "burst": 6,
+        "ricochet": 3,
+        "tile": 5
+      },
+      "nameWords": [
+        "Maul",
+        "Anvil",
+        "Breaker",
+        "Cinder"
+      ]
+    }
+  },
+  "attackTypes": {
+    "hitscan": {
+      "bandMultiplier": {
+        "close": 1.0,
+        "mid": 1.0,
+        "long": 1.0
+      },
+      "reactionAdd": 0,
+      "word": "Rifle",
+      "accuracyFactor": 0.55
+    },
+    "projectile": {
+      "bandMultiplier": {
+        "close": 1.0,
+        "mid": 0.95,
+        "long": 0.85
+      },
+      "reactionAdd": 1,
+      "word": "Caster",
+      "accuracyFactor": 0.8
+    },
+    "cone": {
+      "bandMultiplier": {
+        "close": 1.15,
+        "mid": 0.45,
+        "long": 0.05
+      },
+      "reactionAdd": 0,
+      "word": "Spray",
+      "accuracyFactor": 1.0
+    },
+    "burst": {
+      "bandMultiplier": {
+        "close": 0.9,
+        "mid": 0.9,
+        "long": 0.8
+      },
+      "reactionAdd": 1,
+      "word": "Mortar",
+      "accuracyFactor": 0.9
+    },
+    "line": {
+      "bandMultiplier": {
+        "close": 1.0,
+        "mid": 1.0,
+        "long": 1.0
+      },
+      "reactionAdd": 1,
+      "word": "Beam",
+      "accuracyFactor": 0.55
+    },
+    "ricochet": {
+      "bandMultiplier": {
+        "close": 0.95,
+        "mid": 1.0,
+        "long": 0.9
+      },
+      "reactionAdd": 1,
+      "word": "Skipper",
+      "accuracyFactor": 0.75
+    },
+    "tile": {
+      "bandMultiplier": {
+        "close": 0.85,
+        "mid": 0.85,
+        "long": 0.85
+      },
+      "reactionAdd": 2,
+      "word": "Seeder",
+      "accuracyFactor": 0.85
+    }
+  },
+  "shape": {
+    "projectileSpeed": [
+      1.2,
+      2.6
+    ],
+    "aoeRadius": [
+      1.5,
+      3.2
+    ],
+    "coneHalfAngleDegrees": [
+      22,
+      40
+    ],
+    "coneRangeFactor": 0.45,
+    "ricochetBounces": [
+      1,
+      2
+    ],
+    "hazardTicks": [
+      40,
+      120
+    ],
+    "hazardRadius": [
+      1,
+      2
+    ],
+    "hazardDamagePerTick": [
+      0.8,
+      1.8
+    ],
+    "dotChance": 0.25,
+    "dotDamage": [
+      0.4,
+      1.2
+    ],
+    "dotTicks": [
+      15,
+      35
+    ]
+  },
+  "budget": {
+    "target": 100,
+    "tolerance": 12,
+    "dpsWeight": 1.0,
+    "rangeWeight": 0.35,
+    "critWeight": 22,
+    "lineWeight": 9,
+    "ricochetWeight": 4,
+    "reactionDiscount": 1.6,
+    "ammoWeight": 0.05
+  },
+  "value": {
+    "_notes": "How much a weapon is expected to gain from an area, a pierce, damage over time, and a hazard tile, and how often each attack type lands. The DPS profile carries all of these, so the budget does not charge for them twice. TBD",
+    "aoeTargetsPerRadius": 0.3,
+    "aoeTargetsMax": 1.0,
+    "coneTargetsPerRadian": 0.9,
+    "coneTargetsMax": 0.8,
+    "lineTargets": 0.4,
+    "dotStackCap": 2.5,
+    "hazardOccupancy": 0.06
+  }
+}

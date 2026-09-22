@@ -151,7 +151,7 @@ The project root is the repository root.
 ├── data/
 │   ├── tuning.json                # global numbers (tick rate, speeds, limits)
 │   ├── arenas/*.txt               # hand-made arena maps (M1 test arena)
-│   ├── archetypes/*.json          # weapon archetypes
+│   ├── weapon-roles.json          # role traits, attack types, power budget
 │   ├── weapons/*.json             # fixed weapons (the M3 baseline weapon)
 │   ├── tactics.json               # tactics presets
 │   ├── batch.json                 # batch harness configuration
@@ -498,6 +498,80 @@ and state the number of rounds with every win rate.
 comes from the arena or from the simulation, run the batch two times and give
 the spawn groups to the other teams the second time. A bias that follows the
 spawn position is the arena. A bias that stays with the team name is the code.
+
+#### 7.20.11 Measurement: what the weapons changed, and what they did not
+
+M6 was measured against the same 900 rounds, the same seed, and the same three
+presets as Section 7.20.10.
+
+| Preset | Before M6 | After M6 |
+|---|---|---|
+| anchor | 82.0 % ±1.6 | **74.2 % ±1.8** |
+| balanced | 27.0 % ±1.8 | **50.8 % ±2.0** |
+| aggressive | 41.0 % ±2.0 | **24.9 % ±1.8** |
+
+**The weapons did what Section 7.20.1 asked of them.** A bot that holds a
+position lost almost 8 points, which is four standard errors, and the middle
+preset went from a clear loser to even. Section 7.20.10 said that weapons alone
+could not bring `anchor` to 50 % before the pickups of M8, and that still holds.
+
+`aggressive` fell by 16 points. An area weapon punishes the bot that closes in,
+because the bot arrives inside the area. This is worth a second look when M8
+gives a reward for moving.
+
+**One target was missed: the kill share.** Section 7.20.9 asks that no archetype
+takes more than about half the kills. `splash` takes 80 %.
+
+Three configurations were measured while looking for the cause:
+
+| Model of an area weapon | `splash` share of kills |
+|---|---|
+| Area and damage over time inside the DPS profile | 73 % |
+| …plus a factor for "an area does not roll to hit" | 88 % |
+| …plus a higher estimate of how many bots an area touches | 95 % |
+
+**Every change that raised the modelled value of an area weapon raised its kill
+share, although each one lowered its damage.** That is the cause:
+
+1. The DPS profile has two readers that pull in opposite directions. The power
+   budget reads it as a cost, so a higher number gives the weapon less damage.
+   The AI reads it as the key for its choice (Section 7.8), so a higher number
+   makes the bot take the weapon more often. A better model of an area weapon
+   therefore makes a weaker weapon that the AI picks more.
+2. **The AI is winner-take-all.** A bot holds every weapon of the run and fires
+   the one with the highest DPS at the current band. The kill share of that one
+   weapon goes to almost 100 %, however near the others are in power. The kill
+   share measures which weapon has the top number, not whether the weapons are
+   balanced.
+
+**The kill share cannot be fixed by tuning.** It needs one of:
+
+- **Ammo, and pickups (M8).** A bot that runs a weapon dry must change to
+  another. A bot that does not hold every weapon must use what it found. This
+  is the answer that the design already plans.
+- **An AI that spreads its choice**, for example a weapon preference per bot
+  (Section 7.20.8 gives the player that control), or a rule that keeps a bot on
+  a weapon for a time.
+
+Until then, read the kill share as "which weapon had the top DPS number", and
+read the **budget** test as the real check on weapon balance: every generated
+weapon costs the same.
+
+**Two faults were found and fixed on the way.** Both are the same shape: a
+number that the budget charged for, and the AI could not see.
+
+1. **The baseline weapon beat the weapons that paid a full budget.** It was not
+   priced at all, so its 60 mean DPS sat above the generated median of 57. A
+   bot often chose the fallback over everything else. The DPS profile now holds
+   the expected damage, the generated median is 96, and the baseline is a
+   fallback again at 63 % of it. Section 7.3 asks for a viable fallback, not
+   the best weapon.
+2. **Damage over time cost up to 45 of the 100 budget points, and the AI could
+   not see any of it.** A weapon paid nearly half its budget for an effect that
+   did not appear in its DPS profile, so it looked weak and the AI passed it
+   over. One shot could also deliver 150 damage against 100 health. The damage
+   over time and the hazard tiles are now inside the DPS profile, the budget no
+   longer charges for them twice, and both are much smaller.
 
 ### 7.3 Weapon generation (`weapons/`)
 
@@ -1603,8 +1677,42 @@ preset to 50 %, because a pickup point gives nothing until M8.
   matchups stay at 50 %, and the `anchor` win rate falls (Section 7.20.9). It
   cannot reach 50 % before the pickups of M8.
 
+**M6 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `weapons/types.ts` | `RoleTrait`, `AttackType`, `Archetype`, `BandValues`, `Weapon`, `isProjectileType`, `bandOfDistance`. |
+| `weapons/generate.ts` | `generateWeaponSet(rng, count, options)`, `generateWeapon(rng, role, index, options)`, `archetypeOf(role, attackType)`, `costOf`, `fixedCost`, `dpsProfileOf`. |
+| `sim/damage.ts` | `damageBot(state, attacker, target, amount, context)`, `applyDot`, `rangeBandOf`, `isInCover`. Every source of damage ends here. |
+| `sim/attacks.ts` | `applyAreaDamage`, `applyConeDamage`, `applyLineDamage`, `spawnProjectile`, `updateProjectiles`, `createHazard`, `applyHazards`, `applyDots`, `clearLine`. |
+| `sim/combat.ts` | `effectiveReaction(bot, band)`, `currentBand`, `dodgeOf`, `critConditionMet`, plus the earlier entry points. |
+| `sim/state.ts` | `botsInTickOrder` now sorts by reaction speed. `Projectile`, `HazardCell`, `DotEffect`. |
+| `core/data.ts` | `loadWeaponRoles()`. |
+
+Notes:
+
+- **Section 6.3 changed.** `delivery` is now `attackType` with seven values.
+  The weapon carries `role`, `reactionByBand`, `coneHalfAngle`,
+  `ricochetBounces`, `hazardRadius`, and `hazardDamagePerTick`. The archetype
+  list lost `burst` (it is an attack type now) and gained `assault`,
+  `marksman`, and `heavy`.
+- **Section 7.3 changed.** The generator rolls a role trait and an attack type
+  and derives the archetype at the end (Section 7.20.4). The damage is solved,
+  not rolled: the generator picks the damage that puts the cost on the budget
+  target, and it rejects a draft whose damage would fall outside the range of
+  its role.
+- **The DPS profile is the expected damage.** It holds the area, the pierce of
+  a line, the damage over time, the hazard tiles, and how often the attack type
+  lands. The budget prices the same number, so the budget and the AI agree.
+  Section 7.20.11 says what happens when they do not.
+- **Every bot holds every weapon of the run.** This is a stand-in so that the
+  AI can select by DPS profile at all. The pickups of M8 decide who holds what.
+- Ammo is still not counted. It arrives with the ammo pickups of M8.
+- The measurement is in Section 7.20.11: `anchor` fell from 82.0 % to 74.2 %,
+  and the kill share target was missed for a reason that tuning cannot fix.
+
 The advanced tactics layer (Section 7.20.8) is designed but not scheduled. The
-field of view (Section 7.20.6) is built; see M5.5.
+field of view (Section 7.20.6) is built and switched off; see M5.5.
 
 ### M7 — Arena generation
 

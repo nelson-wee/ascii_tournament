@@ -7,6 +7,7 @@ import { announcementLine, feedLines } from "../src/report/killFeed.js";
 import {
   cellCenter,
   createSimState,
+  effectiveReaction,
   enterSuddenDeathIfNeeded,
   checkRoundEnd,
   step,
@@ -34,11 +35,11 @@ function forceKill(state: SimState, shooter: BotState, victim: BotState): void {
   victim.alive = true;
   updatePerception(state);
   shooter.targetId = victim.id;
-  shooter.aimTicks = shooter.attributes.reactionTicks;
   let guard = 0;
-  while (victim.alive && guard < 500) {
+  while (victim.alive && guard < 4000) {
     shooter.fireCooldownTicks = 0;
-    shooter.aimTicks = shooter.attributes.reactionTicks;
+    // Section 7.20.7: the weapon adds to the reaction of the bot.
+    shooter.aimTicks = effectiveReaction(shooter, "close");
     shooter.targetId = victim.id;
     tryFire(state, shooter);
     guard += 1;

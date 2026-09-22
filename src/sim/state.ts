@@ -10,6 +10,7 @@ import {
   loadBaselineWeapon,
   loadDefaultTactics,
   loadTuning,
+  loadWeaponRoles,
 } from "../core/data.js";
 import { CellSet } from "../core/cellSet.js";
 import { EventBus } from "../core/events.js";
@@ -37,6 +38,42 @@ export interface Attributes {
 export interface LastSeen {
   cell: Cell;
   tick: number;
+}
+
+/** Damage over time from a weapon (Section 7.6). */
+export interface DotEffect {
+  damagePerTick: number;
+  ticksLeft: number;
+  /** The bot that gets the kill if this ends the target. */
+  sourceId: string;
+  /** The weapon that made the effect. The reports read it. */
+  weaponId: string;
+  weaponArchetype: string;
+}
+
+/** A shot that crosses the arena (Section 7.20.3). */
+export interface Projectile {
+  id: number;
+  shooterId: string;
+  teamId: TeamId;
+  weapon: Weapon;
+  pos: Vec2;
+  /** Cells per tick. */
+  velocity: Vec2;
+  /** Cells that the shot can still cross. */
+  rangeLeft: number;
+  bouncesLeft: number;
+}
+
+/** A hazard tile that a weapon made (Section 7.6). */
+export interface HazardCell {
+  expiryTick: number;
+  damagePerTick: number;
+  ownerId: string;
+  teamId: TeamId;
+  /** The weapon that made the tile. The reports read it. */
+  weaponId: string;
+  weaponArchetype: string;
 }
 
 export interface BotState {
@@ -72,6 +109,10 @@ export interface BotState {
   blockedTicks: number;
   /** True if the bot changed position in the last tick. */
   movedLastTick: boolean;
+  /** Ticks that the bot has not moved. The crit of Section 7.20.5 reads it. */
+  stationaryTicks: number;
+  /** Ticks that the bot has moved without a break. The dodge reads it. */
+  movingTicks: number;
 
   /** The action that the utility AI selected (Section 7.8). */
   action: Action;
@@ -120,11 +161,14 @@ export interface BotState {
   multiKillCount: number;
   /** Kills of this bot with no death between them (a killing spree). */
   spreeCount: number;
+  /** Damage over time on this bot (Section 7.6). */
+  dots: DotEffect[];
 }
 
 export interface SimConfig {
   ticksPerSecond: number;
   teamSize: number;
+  weaponsPerRun: number;
   moveSpeedPerTick: number;
   repathAfterBlockedTicks: number;
   sightRadiusCells: number;
@@ -141,6 +185,9 @@ export interface SimConfig {
   rangeBandMidMax: number;
   multiKillWindowTicks: number;
   critMultiplier: number;
+  stationaryTicksForCrit: number;
+  dodgeRampTicks: number;
+  coneRangeFactor: number;
   distanceFalloff: number;
   movingTargetPenalty: number;
   minHitChance: number;
@@ -186,6 +233,12 @@ export interface SimState {
   score: Record<TeamId, number>;
   /** The result of the round, or `null` while the round runs. */
   outcome: RoundOutcome | null;
+  /** The shots that are crossing the arena. */
+  projectiles: Projectile[];
+  /** The next projectile id. It keeps the ids stable and deterministic. */
+  nextProjectileId: number;
+  /** The hazard tiles, by cell index. */
+  hazards: Map<number, HazardCell>;
   rng: Rng;
   bus: EventBus;
 }
@@ -197,8 +250,12 @@ export interface CreateSimStateOptions {
   roundNumber?: number;
   config?: SimConfig;
   bus?: EventBus;
-  /** The weapon of every bot. M3 gives all bots the baseline weapon. */
-  weapon?: Weapon;
+  /**
+   * The weapons that every bot holds. M6 gives all bots the full set of the
+   * run, so that the AI can select by DPS profile. The pickups of M8 decide
+   * who holds what.
+   */
+  weapons?: readonly Weapon[];
   attributes?: Attributes;
   /** The tactics of every bot, or of one team. */
   tactics?: Tactics | Partial<Record<TeamId, Tactics>>;
@@ -209,6 +266,7 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
   return {
     ticksPerSecond: tuning.simulation.ticksPerSecond,
     teamSize: tuning.match.teamSize,
+    weaponsPerRun: tuning.match.weaponsPerRun,
     moveSpeedPerTick: tuning.movement.moveSpeedCellsPerSecond / tuning.simulation.ticksPerSecond,
     repathAfterBlockedTicks: tuning.movement.repathAfterBlockedTicks,
     sightRadiusCells: tuning.perception.sightRadiusCells,
@@ -226,6 +284,9 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     rangeBandMidMax: tuning.combat.rangeBandMidMax,
     multiKillWindowTicks: tuning.combat.multiKillWindowTicks,
     critMultiplier: tuning.combat.critMultiplier,
+    stationaryTicksForCrit: tuning.combat.stationaryTicksForCrit,
+    dodgeRampTicks: tuning.combat.dodgeRampTicks,
+    coneRangeFactor: loadWeaponRoles().shape.coneRangeFactor,
     distanceFalloff: tuning.combat.distanceFalloff,
     movingTargetPenalty: tuning.combat.movingTargetPenalty,
     minHitChance: tuning.combat.minHitChance,
@@ -271,16 +332,45 @@ export function botCell(bot: BotState): Cell {
 }
 
 /**
- * The bots in the order of one tick.
+ * The bots in the order of one tick (Section 7.20.7).
  *
- * The order changes with every tick. A fixed order gives the first team a
- * small advantage: in a shot at the same tick, the bot that fires first can
- * kill the other before it fires, and the bot that moves first can take a
- * cell that the other wanted. The order stays a function of the tick, so the
- * simulation stays deterministic.
+ * A bot acts in the order of its reaction speed: its own reaction attribute
+ * plus the reaction of its weapon at the band that it is working at. A bot
+ * with a fast reaction and a light weapon acts before a bot with a slow
+ * reaction and a heavy weapon. This is the cost of the highest damage.
+ *
+ * Two bots with the same reaction need a tie-break that does not favour one
+ * team. The parity of the tick gives it. The whole order stays a function of
+ * the state, so the simulation stays deterministic.
+ *
+ * The check that this stays fair is in Section 7.2.1: a preset against itself
+ * must win half of its rounds.
  */
 export function botsInTickOrder(state: SimState): BotState[] {
-  return state.tick % 2 === 0 ? state.bots : [...state.bots].reverse();
+  const order = state.tick % 2 === 0 ? state.bots.slice() : state.bots.slice().reverse();
+  return order
+    .map((bot, index) => ({ bot, index, reaction: reactionOf(state, bot) }))
+    .sort((a, b) => a.reaction - b.reaction || a.index - b.index)
+    .map((entry) => entry.bot);
+}
+
+/**
+ * The reaction of a bot this tick, in ticks.
+ * `sim/combat.ts` holds the same calculation for the aim delay.
+ */
+function reactionOf(state: SimState, bot: BotState): number {
+  const target = bot.targetId === null ? null : findBot(state, bot.targetId);
+  let band = bot.tactics.preferredRange;
+  if (target?.alive) {
+    const distance = distanceBetween(bot, target);
+    band =
+      distance <= state.config.rangeBandCloseMax
+        ? "close"
+        : distance <= state.config.rangeBandMidMax
+          ? "mid"
+          : "long";
+  }
+  return bot.attributes.reactionTicks + bot.weapon.reactionByBand[band];
 }
 
 /** An angle folded into the range -pi to pi. */
@@ -351,7 +441,7 @@ interface MakeBotOptions {
   config: SimConfig;
   attributes: Attributes;
   tactics: Tactics;
-  weapon: Weapon;
+  weapons: readonly Weapon[];
   cellCount: number;
   facing: number;
 }
@@ -372,6 +462,8 @@ function makeBot(options: MakeBotOptions): BotState {
     visitedSlotIds: [],
     blockedTicks: 0,
     movedLastTick: false,
+    stationaryTicks: 0,
+    movingTicks: 0,
     action: { kind: "Idle" },
     actionScore: 0,
     // The bots decide on different ticks, so that the work spreads evenly.
@@ -379,8 +471,8 @@ function makeBot(options: MakeBotOptions): BotState {
     alive: true,
     health: config.healthMax,
     respawnAtTick: 0,
-    weapons: [options.weapon],
-    weapon: options.weapon,
+    weapons: [...options.weapons],
+    weapon: options.weapons[0] as Weapon,
     fireCooldownTicks: 0,
     targetId: null,
     aimTicks: 0,
@@ -393,6 +485,7 @@ function makeBot(options: MakeBotOptions): BotState {
     lastKillTick: -Infinity,
     multiKillCount: 0,
     spreeCount: 0,
+    dots: [],
   };
 }
 
@@ -409,7 +502,8 @@ export function createSimState(options: CreateSimStateOptions): SimState {
   const config = options.config ?? simConfigFromTuning();
   const bus = options.bus ?? new EventBus();
   const rng = createRng(seed, "sim");
-  const weapon = options.weapon ?? loadBaselineWeapon();
+  const weapons = options.weapons ?? [loadBaselineWeapon()];
+  if (weapons.length === 0) throw new Error("A round needs one weapon minimum.");
   const attributes = options.attributes ?? defaultAttributes();
   const tacticsOption = options.tactics ?? loadDefaultTactics();
   const tacticsFor = (teamId: TeamId): Tactics =>
@@ -437,7 +531,7 @@ export function createSimState(options: CreateSimStateOptions): SimState {
           config,
           attributes: { ...attributes },
           tactics: { ...tacticsFor(teamId) },
-          weapon,
+          weapons,
           cellCount: map.width * map.height,
           // A bot starts by looking at the middle of the arena.
           facing: Math.atan2(map.height / 2 - (spawn.y + 0.5), map.width / 2 - (spawn.x + 0.5)),
@@ -456,6 +550,9 @@ export function createSimState(options: CreateSimStateOptions): SimState {
     bots,
     score: { A: 0, B: 0 },
     outcome: null,
+    projectiles: [],
+    nextProjectileId: 1,
+    hazards: new Map<number, HazardCell>(),
     rng,
     bus,
   };

@@ -6,13 +6,13 @@
  *
  * Tick order of Section 7.4. A step of a later milestone is marked:
  *
- *   1. Timers          — respawn and the weapon cooldown. DoT, hazards, and
- *                        pickup timers arrive with M6 and M8.
+ *   1. Timers          — respawn, the weapon cooldown, damage over time, and
+ *                        the hazard tiles. The pickup timers arrive with M8.
  *   2. Perception      — FOV, visible enemies, memory
  *   3. AI decision     — the utility AI of Section 7.8
  *   4. AI action       — movement intent and fire intent
  *   5. Movement        — apply movement, resolve collisions
- *   6. Combat          — hitscan shots. Projectiles and area damage: M6.
+ *   6. Combat          — the seven attack types of Section 7.20.3
  *   7. Death, respawn
  *   8. Pickups         — M8
  *   9. Events
@@ -21,6 +21,7 @@
 import { updatePerception } from "../ai/perception.js";
 import { actionLabel, applyAction, decide, noteReachedPickup } from "../ai/utility.js";
 import type { GameEvent } from "../core/events.js";
+import { applyDots, applyHazards, updateProjectiles } from "./attacks.js";
 import { respawn, tryFire } from "./combat.js";
 import { advanceBot } from "./movement.js";
 import {
@@ -138,6 +139,8 @@ export function step(state: SimState): void {
     if (bot.fireCooldownTicks > 0) bot.fireCooldownTicks -= 1;
     if (!bot.alive && state.tick >= bot.respawnAtTick) respawn(state, bot);
   }
+  applyDots(state);
+  applyHazards(state);
 
   // 2. Perception.
   updatePerception(state);
@@ -146,9 +149,21 @@ export function step(state: SimState): void {
   decideActions(state);
 
   // 5. Movement.
-  for (const bot of order) advanceBot(state, bot);
+  for (const bot of order) {
+    advanceBot(state, bot);
+    // The crit of Section 7.20.5 reads the first counter, the dodge the second.
+    if (bot.movedLastTick) {
+      bot.movingTicks += 1;
+      bot.stationaryTicks = 0;
+    } else {
+      bot.stationaryTicks += 1;
+      bot.movingTicks = 0;
+    }
+  }
 
-  // 6 and 7. Combat, death, and the kill events.
+  // 6 and 7. Combat, death, and the kill events. The shots that are already
+  // in the air move before the new ones leave.
+  updateProjectiles(state);
   for (const bot of order) tryFire(state, bot);
 
   // 10. End condition.

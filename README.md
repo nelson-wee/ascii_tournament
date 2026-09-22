@@ -8,6 +8,15 @@ The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
 
 ## Status
 
+**Milestone M6 — weapon generation.** A run gets five weapons: one fixed
+baseline and four generated from a role trait (precise, assault, sniper, heavy)
+and one of seven attack types (hitscan, projectile, cone, burst, line, ricochet,
+tile). Every generated weapon costs the same power budget, and its archetype is
+a label that the generator derives at the end. Combat gained area damage,
+projectiles, hazard tiles, damage over time, a crit against a target that stands
+still, a dodge for one that moves, and an order of fire that comes from the
+reaction speed of the bot and its weapon.
+
 **Milestone M5.5 — directional vision (off).** A bot can have a facing, a narrow
 focus arc where it can fire, a wide peripheral arc where it only notices, and a
 turn rate. The batch says the change did not move the balance, and Section
