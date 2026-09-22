@@ -226,6 +226,10 @@ interface Arena {
 
 ### 6.3 Weapon
 
+> **Section 7.20 changes this interface.** `delivery` becomes `attackType` with
+> seven values, the weapon gains a role trait and a reaction per range band, and
+> the archetype list changes: `burst` goes, `assault` and `marksman` arrive.
+
 ```ts
 type Archetype = "precision" | "splash" | "burst" | "denial" | "versatile" | "baseline";
 
@@ -273,6 +277,9 @@ interface Tactics {           // what the player TELLS the bot (0.0–1.0 unless
 }
 
 type Role = "overwatch" | "tank" | "skirmisher";
+
+// Section 7.20.8 adds an optional advanced layer beside Tactics. Its first
+// setting is the weapon priority of the run.  // TBD
 
 interface Bot {
   id: string;
@@ -496,6 +503,10 @@ spawn position is the arena. A bias that stays with the team name is the code.
 
 Purpose: generate readable procedural weapons with clear roles.
 
+> **Section 7.20 changes this section.** A weapon now starts from a role trait
+> and an attack type, and the archetype becomes a label that the generator
+> derives at the end. Read Section 7.20 before you build M6.
+
 Entry point: `generateWeaponSet(rng, count = 5): Weapon[]`
 
 Steps:
@@ -536,6 +547,10 @@ Rules:
 
 **Round.** Entry point: `runRound(state, config, rng): RoundResult`
 
+> **Section 7.20.7 changes the order of the bots inside a tick.** A bot acts in
+> the order of its reaction speed, which is its own reaction attribute plus the
+> reaction of its weapon at the current range.
+
 Tick order (each tick):
 
 1. Update timers (respawns, DoT, hazards, pickups).
@@ -561,6 +576,10 @@ For the browser, the round loop must also support step-by-step execution (`step(
 
 ### 7.6 Combat (`sim/combat.ts`)
 
+> **Section 7.20.5 adds two rules:** a `precise` weapon crits a target that
+> stands still, and a target that moves gets a dodge. Section 7.20.3 adds five
+> attack types beside hitscan and projectile.
+
 - Hitscan: check line of sight at fire time. Roll hit from accuracy, distance, and target movement.
 - Projectile: move each tick at `projectileSpeed`. Check collision with walls and bots.
 - Area damage: apply damage in `aoeRadius`. Walls block area damage.
@@ -570,6 +589,10 @@ For the browser, the round loop must also support step-by-step execution (`step(
 - Trait modifiers apply here (for example, `shellShocked` reduces area damage taken).
 
 ### 7.7 Perception (`ai/perception.ts`)
+
+> **Section 7.20.6 changes this section.** Today a bot sees through 360
+> degrees. It gets a facing, a narrow focus arc, and a wide peripheral arc, so
+> that a flank works and the `awareness` attribute gets its first use.
 
 - Use rot.js `FOV.PreciseShadowcasting`.
 - Each bot has a list of visible enemies and a short memory of last-seen positions.
@@ -823,6 +846,244 @@ A team theme can bias the bot name style (for example, Sponsor teams prefer Desi
 - The generator rejects a result that matches the blocklist, then tries again (maximum 20 tries).
 - All word lists are data. The expander has no words in code.
 - The player can type a team name. The generator can suggest one.
+
+### 7.20 Design notes for M6: weapons, reaction order, and vision
+
+These notes come from the first 1000-round batch (Milestone M5). They set the
+direction of M6 and of the combat and perception changes that go with it.
+Nothing here is built yet. Numbers are placeholders. TBD
+
+#### 7.20.1 The problem to solve
+
+The batch found one fault above all others: **a bot that holds a position wins**.
+The `anchor` preset won 81.1 % of its rounds, and it beat the `aggressive`
+preset 100 % of the time. The cause is simple. A bot that holds a sightline
+sees the other bot first, fires first, and never crosses open ground. Team
+deathmatch gives the moving team nothing in return.
+
+Four changes answer this, and M6 is the milestone that carries them:
+
+1. Weapons that punish a bot which does not move (Section 7.20.4).
+2. A crit against a target that stands still, and a dodge for a target that
+   moves (Section 7.20.5).
+3. A field of view with a front and a side, so that a flank works
+   (Section 7.20.6).
+4. An order of fire that comes from a reaction speed, not from the order of a
+   list (Section 7.20.7).
+
+The `cautious` preset is removed from `data/batch.json`. It won 19.1 % and it
+made rounds stall. The default presets are now `balanced`, `aggressive`, and
+`anchor`.
+
+#### 7.20.2 Weapon role traits
+
+A generated weapon gets exactly one **role trait**. The trait sets the shape of
+the weapon: its DPS across the range bands, its reaction speed, and how often it
+takes a special attack type.
+
+| Role trait | DPS | Reaction | Range | Special attack types |
+|---|---|---|---|---|
+| `precise` | Medium | Medium | Even | Low chance. It is the crit weapon: it uses the `targetStationary` crit condition. |
+| `assault` | High at close range | Fast at close range | Penalty at long range | High chance |
+| `sniper` | High at long range | Fast at long range | Penalty at close range | Low chance |
+| `heavy` | Highest | Slow at every range | Even | High chance |
+
+The role trait is not the same thing as `Weapon.traits` of Section 6.3. That
+field holds the weapon mutations of Section 7.3, which are small changes on top
+of a finished weapon. The mutations arrive later.
+
+**Open question.** M6 gives one role trait per weapon, because the label of the
+weapon must stay readable for the player. Two traits on one weapon (for example
+a precise sniper) may be worth a later pass.
+
+#### 7.20.3 Attack types
+
+`Weapon.delivery` of Section 6.3 holds `hitscan` or `projectile`. It becomes
+`Weapon.attackType` and holds one of seven values. **This changes Section 6.3.**
+
+| Attack type | Behavior |
+|---|---|
+| `hitscan` | The shot arrives at once. Line of sight decides the hit. |
+| `projectile` | The shot crosses the arena at `projectileSpeed`. A wall or a bot stops it. |
+| `cone` | Area damage in a cone in front of the shooter. High damage at close range. It fades to nothing at long range. |
+| `burst` | Area damage at the point of impact. |
+| `line` | The shot passes through every bot on its line, up to `rangeMax`. |
+| `ricochet` | A projectile that turns off a wall, or off the first bot that it hits. |
+| `tile` | Damage, plus hazard tiles at the point of impact (Section 7.6). |
+
+`cone`, `burst`, `line`, `ricochet`, and `tile` are the **special** types. The
+role trait sets how often the generator takes one.
+
+**Why this answers the camping problem.** Every special type hits an area or a
+line, not one cell. A bot that holds one cell is the easiest target for all of
+them. `tile` takes the cell away for a time, and `cone` and `burst` hit the bot
+behind the cover as well.
+
+#### 7.20.4 Archetypes become a label, not an input
+
+Section 7.3 rolls an archetype first and then rolls stats inside the ranges of
+that archetype. The new order is the opposite: the generator rolls a role trait
+and an attack type, prices the result, and **then** labels it. The label is for
+the player, for the reports, and for the `weaponRolePref` tactic. The AI still
+reads only the DPS profile (Section 7.8).
+
+Generation order:
+
+1. Roll the role trait.
+2. Roll the attack type, with the weights of that trait.
+3. Roll the stats inside the ranges of the trait, shaped by the attack type.
+4. Calculate the DPS profile at close, mid, and long range.
+5. Price every attribute and scale the weapon to fit the power budget.
+6. Derive the archetype label.
+
+The label comes from the first rule that matches, from the top:
+
+| Label | Rule |
+|---|---|
+| `baseline` | The fixed fallback weapon. |
+| `denial` | Attack type `tile`. |
+| `splash` | Attack type `cone` or `burst`. |
+| `marksman` | Role trait `sniper`. |
+| `assault` | Role trait `assault`. |
+| `precision` | Role trait `precise`. |
+| `versatile` | Nothing above matches. |
+
+**This changes Section 6.3.** The archetype `burst` is gone, because `burst` is
+now an attack type and the weapon that uses it is `splash`. The archetype
+`assault` and the archetype `marksman` are new.
+
+**The power budget must price the new attributes.** An attack type that hits an
+area is worth more than one that hits a cell. A slow reaction is worth less. A
+DPS profile that is high in every band is worth more than one with a hole in it.
+
+#### 7.20.5 Combat: stand still and you get hit harder
+
+Two changes to Section 7.6. Both push a bot to keep moving.
+
+- **A crit against a target that stands still.** The crit condition
+  `targetStationary` of Section 6.3 exists in the engine but no weapon uses it.
+  A `precise` weapon uses it, and its crit chance against a target that stands
+  still is high. A bot that holds a sightline is the target this is made for.
+  The engine counts "stationary" as some number of ticks with no movement, not
+  one tick, so that a step does not turn the crit off and on. TBD
+- **A dodge for a target that moves.** `combat.movingTargetPenalty` already
+  lowers the hit chance against a target that moved in the last tick. It
+  becomes a dodge value that rises with how far the bot moved over the last few
+  ticks, and the `evasion` tactic adds to it. The cost of evasion stays: it
+  lowers the accuracy of the bot that evades.
+
+Together these make the choice real. Stand still and shoot straight, and a
+precise weapon crits you. Move and be hard to hit, and your own shots miss more.
+
+#### 7.20.6 A field of view with a front and a side
+
+**Today every bot sees through 360 degrees.** `ai/perception.ts` asks rot.js for
+every cell inside the sight radius and asks no question about which way the bot
+faces. A bot behind another bot is as visible as a bot in front of it, so a
+flank gives nothing, and the `awareness` attribute of Section 6.4 has no work.
+
+The change: a bot gets a **facing**, and its vision has two arcs.
+
+| Arc | Width | What the bot gets |
+|---|---|---|
+| Focus | Narrow, in front | Full detection. The bot can fire. |
+| Peripheral | Wide, to the sides | It knows that an enemy is there, after a delay, and its reaction is slower. |
+| Behind | The rest | Nothing. |
+
+Rules to settle when this is built:
+
+- The `awareness` attribute sets the width of the peripheral arc, or the delay
+  before a peripheral contact becomes a full one. This gives the attribute of
+  Section 6.4 its first use.
+- A bot faces the enemy that it aims at. With no target it faces the way it
+  moves. A turn rate (a limit on how fast a bot turns) would make a flank
+  stronger still, and is an open question.
+- "Target unaware" of Section 6.8 becomes a real event: a bot behind another
+  bot cannot be seen at all. Expect the crit rate to rise, and re-tune.
+
+**Cost.** Low. The set of cells that a bot can see depends on its cell and on
+the walls, not on its facing, so the cache of Section 7.7 stays valid. The arc
+test is one angle comparison per enemy, and there are five enemies.
+
+**Risk.** Fewer contacts means slower rounds, and the batch already reports
+22.5 % of rounds reaching the time limit. Watch the mean kills per round
+(Section 7.2.1) when this lands. The memory of a last seen position and the
+`Chase` action are what keep a round moving.
+
+#### 7.20.7 Reaction order: the tick order becomes a mechanic
+
+Today the simulation walks the bots in a fixed list and turns that list around
+on every second tick, so that no team fires first every time (Section 7.2.1).
+The order carries no meaning.
+
+The change: **a bot acts in the order of its reaction speed.**
+
+```
+effectiveReaction(bot) = bot.attributes.reactionTicks
+                       + weapon.reactionByBand[band of the current target]
+```
+
+The bots of a tick sort by this value, lowest first. A bot with a fast reaction
+and a light weapon fires before a bot with a slow reaction and a heavy weapon.
+This is the cost of the highest damage: a `heavy` weapon hits hardest and acts
+last.
+
+`Weapon` gets `reactionByBand: { close, mid, long }`, which is also what gives
+`assault` a fast reaction at close range and `sniper` a fast reaction at long
+range (Section 7.20.2). The same value sets the aim delay before the first shot,
+so one number covers both.
+
+**Is it feasible? Yes.**
+
+- **Cost.** A sort of six values per tick. It does not show against the cost of
+  perception and pathfinding.
+- **Determinism.** The order stays a function of the state, so one seed still
+  gives one result. Two bots with the same reaction need a tie-break that does
+  not favour one team: use the parity of the tick, as the current order does.
+- **The guard is already in place.** A preset against itself must win 50 % of
+  its rounds (Section 7.2.1). If the tie-break favours team A, the mirror
+  matchup shows it at once. Do not remove that check.
+- **It replaces `botsInTickOrder`**, and it is a better answer than the parity
+  rule, because the order now means something in the game instead of only
+  removing a fault.
+
+#### 7.20.8 An advanced tactics layer
+
+The eight fields of `Tactics` (Section 6.4) are the orders that every player
+gives. An **advanced layer** holds the settings that a player who wants finer
+control can set. It is optional: a team with no advanced settings plays as it
+does today.
+
+The first advanced setting is the **weapon priority of the run**. A run has five
+weapons (Section 2.2), and the player knows them before the match. The priority
+is an ordered list of the weapons of that run, and it biases the weapon choice
+of a bot on top of the DPS profile.
+
+**This does not break the rule of Section 7.8** that says the AI must never
+refer to a weapon by id. The rule stops the AI code from knowing the weapons of
+a run. A priority list is player data that the AI reads as a weight, in the same
+way that it reads `aggression`. The AI still asks the DPS profile which weapon
+does the most damage at this range, and the priority moves the answer.
+
+Rules for the layer:
+
+- Every advanced setting must have a cost and a benefit, the same as a tactic
+  (Section 7.8). A weapon priority that ignores the DPS profile gives away
+  damage.
+- The layer must stay optional. The batch harness must be able to run with an
+  empty advanced layer, so that its result measures the basic tactics.
+- More settings belong here later: focus fire per target kind, the order of
+  pickup points, the rule for when to break a hold.
+
+#### 7.20.9 What to watch in the batch after M6
+
+| Signal | Today | What to want |
+|---|---|---|
+| `anchor` win rate | 81.1 % | Near 50 % against the other presets |
+| Rounds that reach the time limit | 22.5 % | Lower |
+| Rounds with very few kills | 139 of 1000 | Near zero |
+| Mirror matchup of every preset | 48–54 % | Stays at 50 % |
+| Kills by archetype | One weapon | No archetype above about half the kills |
 
 ---
 
@@ -1217,12 +1478,30 @@ What the first batch says:
 Do not tune these numbers before M6 and M8 change them again. The value of the
 batch here is the method and the numbers to compare against later.
 
+**After this batch** the `cautious` preset was removed from `data/batch.json`.
+It won 19.1 % and it stalled rounds. The default presets are `balanced`,
+`aggressive`, and `anchor`. Section 7.20 holds the design that answers the two
+failures above.
+
 ### M6 — Weapon generation
 
-- Implement archetypes, budget, weapon traits, and DPS profiles.
+Section 7.20 holds the design of this milestone. Read it first.
+
+- Implement the role traits, the seven attack types, the power budget, and the
+  DPS profiles. Derive the archetype label (Section 7.20.2 to 7.20.4).
 - Add projectile, area damage, DoT, hazard, and crit conditions.
+- Add the crit against a target that stands still and the dodge for a target
+  that moves (Section 7.20.5).
+- Give each weapon a reaction per range band, and make the bots act in the
+  order of their reaction speed (Section 7.20.7).
 - Connect AI weapon selection to DPS profiles.
-- Accept: weapon budget tests pass. Bots switch weapons by range.
+- Accept: weapon budget tests pass. Bots switch weapons by range. The batch of
+  M5 shows the `anchor` preset near 50 %, and the mirror matchups stay at 50 %
+  (Section 7.20.9).
+
+The field of view with a focus arc and a peripheral arc (Section 7.20.6) and
+the advanced tactics layer (Section 7.20.8) are designed but not scheduled.
+Decide whether they go in M6 or in a milestone of their own.
 
 ### M7 — Arena generation
 

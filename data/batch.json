@@ -1,8 +1,10 @@
 {
-  "_notes": "The default batch. A tactics preset stands in for a doctrine (M11), and an arena file stands in for an arena profile (M7). Every number is a placeholder. TBD",
+  "_notes": "The default batch. A tactics preset stands in for a doctrine (M11), and an arena file stands in for an arena profile (M7). The cautious preset was removed after the first 1000-round batch: it won 19.1 % and it stalled rounds. Every number is a placeholder. TBD",
   "rounds": 1000,
   "seed": 20260922,
-  "arenas": ["data/arenas/test-arena.txt"],
+  "arenas": [
+    "data/arenas/test-arena.txt"
+  ],
   "presets": {
     "balanced": {
       "aggression": 0.5,
@@ -23,16 +25,6 @@
       "holdPosition": 0.1,
       "evasion": 0.2,
       "hazardTolerance": 0.7
-    },
-    "cautious": {
-      "aggression": 0.2,
-      "retreatThreshold": 0.5,
-      "preferredRange": "long",
-      "weaponRolePref": null,
-      "itemControl": 0.7,
-      "holdPosition": 0.3,
-      "evasion": 0.6,
-      "hazardTolerance": 0.1
     },
     "anchor": {
       "aggression": 0.5,
