@@ -44,8 +44,69 @@ describe("isStepLegal", () => {
   });
 });
 
+/**
+ * An independent reference: Dijkstra with a plain list. It is slow, but it is
+ * simple enough to trust, so it can check the cost of the A* result.
+ */
+function referenceCost(map: ReturnType<typeof loadTestArena>, from: Cell, to: Cell): number {
+  const width = map.width;
+  const best = new Map<number, number>();
+  const index = (c: Cell): number => c.y * width + c.x;
+  best.set(index(from), 0);
+  const open = [from];
+  while (open.length > 0) {
+    // Take the cell with the lowest cost.
+    let pick = 0;
+    for (let i = 1; i < open.length; i += 1) {
+      if ((best.get(index(open[i]!)) ?? Infinity) < (best.get(index(open[pick]!)) ?? Infinity)) pick = i;
+    }
+    const cell = open.splice(pick, 1)[0] as Cell;
+    const cost = best.get(index(cell)) ?? Infinity;
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        if (dx === 0 && dy === 0) continue;
+        const next = { x: cell.x + dx, y: cell.y + dy };
+        if (!isStepLegal(map, cell, next)) continue;
+        const step = dx !== 0 && dy !== 0 ? Math.SQRT2 : 1;
+        const candidate = cost + step;
+        if (candidate < (best.get(index(next)) ?? Infinity) - 1e-9) {
+          best.set(index(next), candidate);
+          open.push(next);
+        }
+      }
+    }
+  }
+  return best.get(index(to)) ?? Infinity;
+}
+
+/** The cost of a path, with a diagonal step at the square root of two. */
+function pathCost(path: Cell[]): number {
+  let total = 0;
+  for (let i = 1; i < path.length; i += 1) {
+    const a = path[i - 1] as Cell;
+    const b = path[i] as Cell;
+    total += a.x !== b.x && a.y !== b.y ? Math.SQRT2 : 1;
+  }
+  return total;
+}
+
 describe("findPath", () => {
   const map = loadTestArena();
+
+  it("gives a path of the lowest cost", () => {
+    // The A* is hand-written, so an independent search checks its result.
+    const targets = [
+      [map.spawns[0]!, map.spawns[5]!],
+      [map.spawns[0]!, map.pickups[0]!.cell],
+      [map.spawns[3]!, map.pickups[6]!.cell],
+      [map.pickups[1]!.cell, map.pickups[9]!.cell],
+    ] as [Cell, Cell][];
+    for (const [from, to] of targets) {
+      const path = findPath(map, from, to);
+      expect(path, `no path from ${from.x},${from.y}`).not.toBeNull();
+      expect(pathCost(path as Cell[])).toBeCloseTo(referenceCost(map, from, to), 6);
+    }
+  });
 
   it("finds a path between two pickup points", () => {
     const [first, second] = map.pickups;

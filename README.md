@@ -8,6 +8,11 @@ The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
 
 ## Status
 
+**Milestone M5 — headless batch harness.** `npm run batch` runs rounds in Node
+with no display and prints a win-rate table, the round end reasons, the weapon
+use, and any balance failure. It writes three CSV files. Weapon generation
+arrives with Milestone M6.
+
 **Milestone M4 — utility AI and tactics.** Each bot gives a score to every
 action (engage, chase, retreat, seek a pickup, hold, reposition, switch weapon,
 follow) and takes the highest. The tactics of the player are the weights. A
@@ -32,6 +37,7 @@ and FOV, the baseline weapon, and the round end condition (M3).
 | `npm run test:watch` | Run the tests and watch for changes. |
 | `npm run typecheck` | Typecheck only. |
 | `npm run lint` | Run ESLint. |
+| `npm run batch` | Run the headless batch harness (see below). |
 
 ## Rules for the code
 
@@ -52,6 +58,25 @@ These rules come from Sections 4 and 13 of the dev guide.
 
 The ESLint configuration and the test `tests/boundary.test.ts` check rules 1
 and 4 automatically.
+
+## The batch harness
+
+`npm run batch` runs rounds with no display and reports the balance.
+
+```
+npm run batch                                # data/batch.json, 1000 rounds
+npm run batch -- --rounds 200 --seed 7
+npm run batch -- --config my-batch.json --out results --quiet
+```
+
+It prints a win-rate matrix (tactics preset × arena), the matchup table, the
+round end reasons, the kills by weapon archetype, the weapon use, and any
+balance failure. Every win rate carries its standard error, because a win rate
+from few rounds says little (Section 7.2.1 of the dev guide).
+
+It writes `rounds.csv`, `matchups.csv`, and `presets.csv` into the output
+folder. With `--fail-on-balance` the command ends with a non-zero exit code
+when it finds a balance failure, so a workflow can use it as a gate.
 
 ## Arena map files
 

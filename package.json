@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "ASCII Bot Shooter — an indirect-control ASCII team shooter tournament.",
+  "description": "ASCII Bot Shooter \u2014 an indirect-control ASCII team shooter tournament.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "batch": "tsx src/cli/batch.ts"
   },
   "dependencies": {
     "rot-js": "^2.2.1",

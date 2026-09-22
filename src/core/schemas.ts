@@ -163,6 +163,26 @@ export const TacticsFileSchema = z
   .object({ _notes: z.string().optional(), default: TacticsSchema })
   .strict();
 
+/**
+ * `data/batch.json`: the configuration of the batch harness (Section 7.16).
+ *
+ * `presets` stands in for the doctrines of M11, and `arenas` stands in for the
+ * arena profiles of M7.
+ */
+export const BatchConfigSchema = z
+  .object({
+    _notes: z.string().optional(),
+    rounds: positiveInt,
+    seed: z.number().int(),
+    arenas: z.array(z.string().min(1)).min(1),
+    presets: z.record(z.string().min(1), TacticsSchema),
+    outDir: z.string().min(1),
+  })
+  .strict()
+  .refine((value) => Object.keys(value.presets).length > 0, "batch.json needs one preset minimum");
+
+export type BatchConfig = z.infer<typeof BatchConfigSchema>;
+
 /** One entry of an announcement table. */
 const AnnouncementTierSchema = z
   .object({ count: positiveInt, text: z.string().min(1) })

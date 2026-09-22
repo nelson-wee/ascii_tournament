@@ -1,13 +1,21 @@
 /**
  * Navigation (dev-guide Section 7.10).
  *
- * Milestone M2 gives plain shortest paths. The danger cost of the influence
- * map (`danger × (1 − hazardTolerance)`) and the cached Dijkstra distance
- * fields arrive with their own milestones.
+ * The A* of rot.js keeps its open list in a plain array and searches it in a
+ * straight line, so one path across the test arena costs about 1.8 ms. The
+ * batch harness of M5 runs millions of paths, so this module has its own A*:
+ *
+ * - A binary heap for the open list.
+ * - Typed arrays for the scores, with a generation stamp instead of a clear.
+ * - The diagonal corner rule inside the neighbour step, so a path never cuts
+ *   the corner of a wall and no repair step is necessary.
+ * - A cost per cell, which the influence maps of Section 7.9 need at M8.
+ *
+ * Milestone M4 gives plain shortest paths plus a yes-or-no rule for hazard
+ * tiles. The danger cost `danger × (1 − hazardTolerance)` arrives with M8.
  */
-import { Path } from "rot-js";
-import type { Cell } from "../core/types.js";
 import { Tile, isWalkable, tileAt, type ArenaMap } from "../arena/types.js";
+import type { Cell } from "../core/types.js";
 
 /** 4 = cardinal steps only. 8 = cardinal and diagonal steps. */
 export type Topology = 4 | 8;
@@ -18,11 +26,24 @@ export interface FindPathOptions {
    * Treat a hazard tile as a wall.
    *
    * The `hazardTolerance` tactic controls this value. It is the simple form of
-   * the path cost `danger × (1 − hazardTolerance)` of Section 7.10. The full
-   * cost needs the influence maps of Section 7.9, which arrive with M8.
+   * the path cost `danger × (1 − hazardTolerance)` of Section 7.10.
    */
   avoidHazard?: boolean;
 }
+
+const SQRT2 = Math.SQRT2;
+
+/** The eight steps, cardinal first. */
+const DIRECTIONS: readonly (readonly [number, number])[] = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+];
 
 /**
  * True if a bot can step from `a` to `b`.
@@ -40,62 +61,170 @@ export function isStepLegal(map: ArenaMap, a: Cell, b: Cell): boolean {
   return isWalkable(tileAt(map, b.x, a.y)) && isWalkable(tileAt(map, a.x, b.y));
 }
 
+/** Work memory of one arena. The search reuses it, so it allocates nothing. */
+class PathScratch {
+  readonly gScore: Float64Array;
+  readonly cameFrom: Int32Array;
+  readonly seen: Uint32Array;
+  readonly closed: Uint32Array;
+  /** The heap holds cell indices. A cell can enter it more than one time. */
+  readonly heapCell: Int32Array;
+  readonly heapCost: Float64Array;
+  heapSize = 0;
+  generation = 0;
+
+  constructor(cells: number) {
+    this.gScore = new Float64Array(cells);
+    this.cameFrom = new Int32Array(cells);
+    this.seen = new Uint32Array(cells);
+    this.closed = new Uint32Array(cells);
+    this.heapCell = new Int32Array(cells * DIRECTIONS.length + 1);
+    this.heapCost = new Float64Array(cells * DIRECTIONS.length + 1);
+  }
+
+  start(): void {
+    this.heapSize = 0;
+    this.generation += 1;
+    if (this.generation === 0xffffffff) {
+      this.seen.fill(0);
+      this.closed.fill(0);
+      this.generation = 1;
+    }
+  }
+
+  push(cell: number, cost: number): void {
+    let index = this.heapSize;
+    this.heapSize += 1;
+    this.heapCell[index] = cell;
+    this.heapCost[index] = cost;
+    while (index > 0) {
+      const parent = (index - 1) >> 1;
+      if ((this.heapCost[parent] as number) <= cost) break;
+      this.heapCell[index] = this.heapCell[parent] as number;
+      this.heapCost[index] = this.heapCost[parent] as number;
+      this.heapCell[parent] = cell;
+      this.heapCost[parent] = cost;
+      index = parent;
+    }
+  }
+
+  /** The cell with the lowest cost, or -1 if the heap is empty. */
+  pop(): number {
+    if (this.heapSize === 0) return -1;
+    const top = this.heapCell[0] as number;
+    this.heapSize -= 1;
+    if (this.heapSize === 0) return top;
+
+    const cell = this.heapCell[this.heapSize] as number;
+    const cost = this.heapCost[this.heapSize] as number;
+    let index = 0;
+    for (;;) {
+      const left = index * 2 + 1;
+      if (left >= this.heapSize) break;
+      const right = left + 1;
+      const child =
+        right < this.heapSize && (this.heapCost[right] as number) < (this.heapCost[left] as number)
+          ? right
+          : left;
+      if ((this.heapCost[child] as number) >= cost) break;
+      this.heapCell[index] = this.heapCell[child] as number;
+      this.heapCost[index] = this.heapCost[child] as number;
+      index = child;
+    }
+    this.heapCell[index] = cell;
+    this.heapCost[index] = cost;
+    return top;
+  }
+}
+
+const scratchByMap = new WeakMap<ArenaMap, PathScratch>();
+
+function scratchFor(map: ArenaMap): PathScratch {
+  let scratch = scratchByMap.get(map);
+  if (scratch === undefined) {
+    scratch = new PathScratch(map.width * map.height);
+    scratchByMap.set(map, scratch);
+  }
+  return scratch;
+}
+
 /** True if a bot with these options can cross the cell. */
 function passable(map: ArenaMap, x: number, y: number, avoidHazard: boolean): boolean {
-  const tile = tileAt(map, x, y);
+  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
+  const tile = (map.tiles[y * map.width + x] ?? Tile.Wall) as Tile;
   if (!isWalkable(tile)) return false;
   return !(avoidHazard && tile === Tile.Hazard);
 }
 
-/** Compute the raw rot.js path. The result holds `from` first and `to` last. */
-function computeRaw(
+/** The octile distance. It is the exact cost over an empty grid. */
+function heuristic(dx: number, dy: number, topology: Topology): number {
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  if (topology === 4) return ax + ay;
+  return ax + ay + (SQRT2 - 2) * Math.min(ax, ay);
+}
+
+/** The shortest path, or `null`. The result holds `from` first and `to` last. */
+function search(
   map: ArenaMap,
   from: Cell,
   to: Cell,
   topology: Topology,
   avoidHazard: boolean,
-): Cell[] {
-  const astar = new Path.AStar(
-    to.x,
-    to.y,
-    (x, y) => passable(map, x, y, avoidHazard),
-    { topology },
-  );
-  const path: Cell[] = [];
-  astar.compute(from.x, from.y, (x, y) => path.push({ x, y }));
-  return path;
-}
+): Cell[] | null {
+  const { width } = map;
+  const scratch = scratchFor(map);
+  scratch.start();
 
-/**
- * Repair the corner cuts of a diagonal path.
- *
- * A diagonal step with one free neighbour becomes two cardinal steps. A
- * diagonal step with no free neighbour cannot be repaired, and the function
- * reports the failure.
- */
-function repairCorners(map: ArenaMap, path: Cell[]): Cell[] | null {
-  const repaired: Cell[] = [];
-  for (const [index, cell] of path.entries()) {
-    if (index === 0) {
-      repaired.push(cell);
-      continue;
+  const startIndex = from.y * width + from.x;
+  const goalIndex = to.y * width + to.x;
+  const generation = scratch.generation;
+  const steps = topology === 4 ? 4 : DIRECTIONS.length;
+
+  scratch.gScore[startIndex] = 0;
+  scratch.cameFrom[startIndex] = -1;
+  scratch.seen[startIndex] = generation;
+  scratch.push(startIndex, heuristic(to.x - from.x, to.y - from.y, topology));
+
+  for (;;) {
+    const current = scratch.pop();
+    if (current < 0) return null;
+    if (scratch.closed[current] === generation) continue;
+    scratch.closed[current] = generation;
+    if (current === goalIndex) break;
+
+    const x = current % width;
+    const y = (current - x) / width;
+    const g = scratch.gScore[current] as number;
+
+    for (let i = 0; i < steps; i += 1) {
+      const [dx, dy] = DIRECTIONS[i] as readonly [number, number];
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!passable(map, nx, ny, avoidHazard)) continue;
+      // The corner rule: a diagonal step needs both shared neighbours.
+      if (dx !== 0 && dy !== 0) {
+        if (!passable(map, nx, y, avoidHazard) || !passable(map, x, ny, avoidHazard)) continue;
+      }
+      const next = ny * width + nx;
+      if (scratch.closed[next] === generation) continue;
+
+      const cost = g + (dx !== 0 && dy !== 0 ? SQRT2 : 1);
+      if (scratch.seen[next] === generation && cost >= (scratch.gScore[next] as number)) continue;
+      scratch.seen[next] = generation;
+      scratch.gScore[next] = cost;
+      scratch.cameFrom[next] = current;
+      scratch.push(next, cost + heuristic(to.x - nx, to.y - ny, topology));
     }
-    const previous = repaired[repaired.length - 1] as Cell;
-    if (isStepLegal(map, previous, cell)) {
-      repaired.push(cell);
-      continue;
-    }
-    const sideA = { x: cell.x, y: previous.y };
-    const sideB = { x: previous.x, y: cell.y };
-    const detour = isWalkable(tileAt(map, sideA.x, sideA.y))
-      ? sideA
-      : isWalkable(tileAt(map, sideB.x, sideB.y))
-        ? sideB
-        : null;
-    if (detour === null) return null;
-    repaired.push(detour, cell);
   }
-  return repaired;
+
+  const path: Cell[] = [];
+  for (let cell = goalIndex; cell >= 0; cell = scratch.cameFrom[cell] as number) {
+    const x = cell % width;
+    path.push({ x, y: (cell - x) / width });
+  }
+  path.reverse();
+  return path;
 }
 
 /**
@@ -110,27 +239,21 @@ export function findPath(
 ): Cell[] | null {
   const topology = options.topology ?? 8;
   let avoidHazard = options.avoidHazard ?? false;
-  if (!isWalkable(tileAt(map, from.x, from.y))) return null;
-  if (!isWalkable(tileAt(map, to.x, to.y))) return null;
+  if (!passable(map, from.x, from.y, false)) return null;
+  if (!passable(map, to.x, to.y, false)) return null;
+  if (from.x === to.x && from.y === to.y) return [{ x: from.x, y: from.y }];
+
   // A bot that stands on a hazard tile, or that must reach one, still needs a
   // path. The avoidance applies only when it can help.
-  if (avoidHazard && (tileAt(map, from.x, from.y) === Tile.Hazard || tileAt(map, to.x, to.y) === Tile.Hazard)) {
+  if (
+    avoidHazard &&
+    (tileAt(map, from.x, from.y) === Tile.Hazard || tileAt(map, to.x, to.y) === Tile.Hazard)
+  ) {
     avoidHazard = false;
   }
 
-  let raw = computeRaw(map, from, to, topology, avoidHazard);
-  if (raw.length === 0 && avoidHazard) {
-    // The hazard tiles cut the arena in two. Cross them.
-    avoidHazard = false;
-    raw = computeRaw(map, from, to, topology, avoidHazard);
-  }
-  if (raw.length === 0) return null;
-  if (topology === 4) return raw;
-
-  const repaired = repairCorners(map, raw);
-  if (repaired !== null) return repaired;
-
-  // A diagonal gap between two walls. Cardinal steps always avoid it.
-  const cardinal = computeRaw(map, from, to, 4, avoidHazard);
-  return cardinal.length === 0 ? null : cardinal;
+  const path = search(map, from, to, topology, avoidHazard);
+  if (path !== null) return path;
+  // The hazard tiles cut the arena in two. Cross them.
+  return avoidHazard ? search(map, from, to, topology, false) : null;
 }

@@ -51,6 +51,8 @@ export interface BotState {
   moveSpeedPerTick: number;
   /** The cells that are left of the current path. The first is the next one. */
   path: Cell[];
+  /** The cell that the current path ends on. It stops a needless new search. */
+  pathGoal: Cell | null;
   /** The `slotId` of the pickup point that the bot moves to. */
   goalSlotId: string | null;
   /**
@@ -305,6 +307,7 @@ function makeBot(options: MakeBotOptions): BotState {
     pos: cellCenter(options.spawn),
     moveSpeedPerTick: config.moveSpeedPerTick,
     path: [],
+    pathGoal: null,
     goalSlotId: null,
     visitedSlotIds: [],
     blockedTicks: 0,

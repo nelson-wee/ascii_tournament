@@ -358,12 +358,21 @@ export function decide(state: SimState, bot: BotState): ScoredAction {
 // From an action to a movement intent
 // ---------------------------------------------------------------------------
 
-/** Set the path of a bot to a cell. Returns false if no path exists. */
+/**
+ * Set the path of a bot to a cell. Returns false if no path exists.
+ *
+ * A bot decides every few ticks, but its goal cell is often the same as on the
+ * last decision. The function then keeps the path that the bot already walks.
+ * A new search is the most expensive step of a tick.
+ */
 function pathTo(state: SimState, bot: BotState, to: Cell): boolean {
+  if (bot.path.length > 0 && bot.pathGoal?.x === to.x && bot.pathGoal.y === to.y) return true;
+
   const avoidHazard = bot.tactics.hazardTolerance < state.config.hazardAvoidBelowTolerance;
   const path = findPath(state.map, botCell(bot), to, { avoidHazard });
   if (path === null || path.length < 2) return false;
   bot.path = path.slice(1);
+  bot.pathGoal = { x: to.x, y: to.y };
   return true;
 }
 

@@ -1,0 +1,137 @@
+/**
+ * The batch runner (dev-guide Section 7.16).
+ *
+ * It runs rounds with no display and makes one `RoundRecord` per round. It has
+ * no file input and no file output, so the tests and the CLI both use it.
+ *
+ * Determinism: the seed of a round comes from the batch seed and the name of
+ * the matchup, so a round always gives the same result, whatever the order of
+ * the rounds.
+ */
+import type { ArenaMap } from "../arena/types.js";
+import type { Tactics } from "../core/schemas.js";
+import { EventBus } from "../core/events.js";
+import { deriveSeed } from "../core/rng.js";
+import { createSimState, runRound, simConfigFromTuning, type SimConfig } from "../sim/index.js";
+import type { RoundRecord } from "./batchStats.js";
+
+export interface BatchArena {
+  /** The name that the report shows. It stands in for an arena profile. */
+  name: string;
+  map: ArenaMap;
+}
+
+export interface BatchPlanOptions {
+  arenas: readonly BatchArena[];
+  presets: Readonly<Record<string, Tactics>>;
+  rounds: number;
+  seed: number;
+}
+
+export interface PlannedRound {
+  arena: BatchArena;
+  teamA: string;
+  teamB: string;
+  seed: number;
+  index: number;
+}
+
+/**
+ * Spread the rounds over every arena and every pair of presets.
+ *
+ * Each preset plays as team A and as team B against every preset, itself
+ * included. This cancels any side that is left over, and the mirror matchup
+ * shows whether a preset is even against itself.
+ */
+export function planRounds(options: BatchPlanOptions): PlannedRound[] {
+  const presetNames = Object.keys(options.presets).sort();
+  const cells: { arena: BatchArena; teamA: string; teamB: string }[] = [];
+  for (const arena of options.arenas) {
+    for (const teamA of presetNames) {
+      for (const teamB of presetNames) cells.push({ arena, teamA, teamB });
+    }
+  }
+  if (cells.length === 0) return [];
+
+  const planned: PlannedRound[] = [];
+  for (let index = 0; index < options.rounds; index += 1) {
+    const cell = cells[index % cells.length] as (typeof cells)[number];
+    const label = `${cell.arena.name}|${cell.teamA}|${cell.teamB}|${Math.floor(index / cells.length)}`;
+    planned.push({ ...cell, seed: deriveSeed(options.seed, label), index });
+  }
+  return planned;
+}
+
+/** Run one planned round and make its record. */
+export function runPlannedRound(
+  round: PlannedRound,
+  presets: Readonly<Record<string, Tactics>>,
+  config: SimConfig = simConfigFromTuning(),
+): RoundRecord {
+  const bus = new EventBus();
+  const teamATactics = presets[round.teamA];
+  const teamBTactics = presets[round.teamB];
+  if (!teamATactics || !teamBTactics) {
+    throw new Error(`The batch has no preset "${round.teamA}" or "${round.teamB}".`);
+  }
+
+  const state = createSimState({
+    map: round.arena.map,
+    seed: round.seed,
+    config,
+    bus,
+    tactics: { A: teamATactics, B: teamBTactics },
+  });
+  const result = runRound(state);
+
+  const killsByArchetype: Record<string, number> = {};
+  const shotsByWeapon: Record<string, number> = {};
+  let shots = 0;
+  let hits = 0;
+  for (const event of bus.log) {
+    if (event.type === "Shot") {
+      shots += 1;
+      const weapon = String(event.data["weaponId"] ?? "unknown");
+      shotsByWeapon[weapon] = (shotsByWeapon[weapon] ?? 0) + 1;
+    } else if (event.type === "Hit") {
+      hits += 1;
+    } else if (event.type === "Kill") {
+      const archetype = String(event.data["weaponArchetype"] ?? "unknown");
+      killsByArchetype[archetype] = (killsByArchetype[archetype] ?? 0) + 1;
+    }
+  }
+
+  return {
+    seed: round.seed,
+    arena: round.arena.name,
+    teamA: round.teamA,
+    teamB: round.teamB,
+    winner: result.outcome.winnerTeamId,
+    reason: result.outcome.reason,
+    ticks: result.outcome.ticks,
+    scoreA: result.outcome.score.A,
+    scoreB: result.outcome.score.B,
+    shots,
+    hits,
+    killsByArchetype,
+    shotsByWeapon,
+  };
+}
+
+export interface RunBatchOptions extends BatchPlanOptions {
+  config?: SimConfig | undefined;
+  /** Called after each round. The CLI shows progress with it. */
+  onProgress?: ((done: number, total: number) => void) | undefined;
+}
+
+/** Run a full batch. */
+export function runBatch(options: RunBatchOptions): RoundRecord[] {
+  const config = options.config ?? simConfigFromTuning();
+  const planned = planRounds(options);
+  const records: RoundRecord[] = [];
+  for (const round of planned) {
+    records.push(runPlannedRound(round, options.presets, config));
+    options.onProgress?.(records.length, planned.length);
+  }
+  return records;
+}

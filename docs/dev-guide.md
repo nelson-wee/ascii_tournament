@@ -154,6 +154,7 @@ The project root is the repository root.
 │   ├── archetypes/*.json          # weapon archetypes
 │   ├── weapons/*.json             # fixed weapons (the M3 baseline weapon)
 │   ├── tactics.json               # tactics presets
+│   ├── batch.json                 # batch harness configuration
 │   ├── announcements.json         # kill announcement tables
 │   ├── weapon-traits.json         # weapon mutations
 │   ├── bot-traits.json            # bot traits
@@ -1018,9 +1019,9 @@ Notes:
 Notes:
 
 - A diagonal step needs both of its shared neighbours to be free. Without this
-  rule A* cuts the corner of a wall. `findPath` repairs a corner cut with one
-  cardinal detour cell, and it falls back to a cardinal path (topology 4) if a
-  diagonal gap has no free neighbour.
+  rule A* cuts the corner of a wall. M2 repaired a corner cut after the search;
+  M5 replaced the A* of rot.js with this project's own, which holds the rule
+  inside the neighbour step.
 - `BotState` holds only what movement needs: `id`, `teamId`, `pos`,
   `moveSpeedPerTick`, `path`, and `goalSlotId`. Health, weapons, and the score
   arrive with M3. The `Attributes` and `Tactics` of Sections 6.4 arrive with
@@ -1136,6 +1137,85 @@ Notes:
 - Run rounds in Node with no display.
 - Output a simple win-rate table and a CSV file.
 - Accept: 1,000 rounds run headless. The table shows in the terminal.
+
+**M5 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `cli/batch.ts` | `npm run batch -- [--config file] [--rounds n] [--seed n] [--out dir] [--quiet]`. Node only. |
+| `report/batchRunner.ts` | `planRounds(options)`, `runPlannedRound(round, presets, config)`, `runBatch(options)`. |
+| `report/batchStats.ts` | `summarize(records, options)`, `winRate(record)`, `standardError(record)`. Types `RoundRecord`, `BatchSummary`, `WinRecord`. |
+| `report/batchTables.ts` | `formatReport(summary)`, `roundsCsv(records)`, `matchupsCsv(summary)`, `presetsCsv(summary)`. |
+| `core/schemas.ts` | `BatchConfigSchema`, type `BatchConfig`. |
+| `ai/navigation.ts` | The A* is now this project's own. The public interface did not change. |
+
+Notes:
+
+- **A stand-in for a doctrine and for an arena profile.** A doctrine
+  (Section 6.5) arrives with M11, and an arena profile (Section 7.2) arrives
+  with M7. The harness uses a named tactics preset and the name of an arena
+  file in their place. The matrix and the CSV columns keep the same shape, so
+  M7 and M11 only change what fills them.
+- **Every matchup runs in both directions.** Each preset plays as team A and as
+  team B against every preset, itself included. This cancels any side advantage
+  that is left over, and the mirror matchup (a preset against itself) must give
+  50 %, which is a check on the arena and on the simulation.
+- **The seed of a round** comes from the batch seed and the name of the
+  matchup, so the result of a round does not depend on the order of the rounds.
+  A test runs a batch forwards and backwards and compares the records.
+- **Every win rate carries its standard error**, per Section 7.2.1.
+- The batch writes `rounds.csv` (one row per round), `matchups.csv`, and
+  `presets.csv` into the output folder.
+- The report names what it cannot measure yet: the trait distribution (M10),
+  the match length (M8), and the run duration (M11).
+- With `--fail-on-balance` the CLI ends with a non-zero exit code when it finds
+  a balance failure, so a workflow can use it as a gate. The report is the
+  product, so the gate is off by default.
+
+**Speed.** The harness must run thousands of rounds, so two changes came with
+this milestone:
+
+| Change | Effect |
+|---|---|
+| This project's own A* with a binary heap, typed arrays, and a generation stamp, in place of the A* of rot.js | One path across the test arena: 1.83 ms to 0.19 ms |
+| A bot keeps its path when its goal cell did not change | One round: 496 ms to about 200 ms |
+
+The A* of rot.js keeps its open list in a plain array and searches it in a
+straight line. The new one also holds the diagonal corner rule inside the
+neighbour step, so the repair step of M2 is gone, and it takes a cost per cell,
+which the influence maps of M8 need. A test compares its result with an
+independent search, so the path stays the shortest one.
+
+**The first batch: 1000 rounds, 4 presets, 1 arena, 192 s.**
+
+| Preset | Win rate | `holdPosition` | `aggression` |
+|---|---|---|---|
+| anchor | 81.1 % ±1.7 | 0.8 | 0.5 |
+| aggressive | 55.4 % ±2.2 | 0.1 | 0.9 |
+| balanced | 44.2 % ±2.2 | 0.2 | 0.5 |
+| cautious | 19.1 % ±1.8 | 0.3 | 0.2 |
+
+What the first batch says:
+
+1. **The mirror matchups are even.** A preset against itself gives 54.0 %,
+   50.0 %, 48.4 %, and 49.2 %, each with a standard error of 6.3 %. The arena
+   and the tick order are therefore fair, and the win rates above measure the
+   tactics. Keep this check in every batch.
+2. **`holdPosition` is too strong.** The `anchor` preset beats `aggressive`
+   100 % of the time and `balanced` 98.4 % of the time. A bot that holds a
+   sightline shoots a bot that crosses open ground. Team deathmatch gives the
+   moving team nothing in return. This is a balance failure under the rule of
+   this section. It is a tuning question for the AI weights (M4) and for the
+   counters that arrive with the influence maps and the roles (M8), not a
+   fault of the harness.
+3. **A passive preset stalls the round.** 22.5 % of rounds reached the time
+   limit, and 139 rounds made fewer than half the score limit in kills. A bot
+   that retreats does not fire, and no bot can heal before the pickups of M8,
+   so a damaged bot leaves the round. Read this together with point 2: the
+   same rule that makes holding strong makes a round slow.
+
+Do not tune these numbers before M6 and M8 change them again. The value of the
+batch here is the method and the numbers to compare against later.
 
 ### M6 — Weapon generation
 
