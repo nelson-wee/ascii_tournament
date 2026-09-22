@@ -1,0 +1,48 @@
+/**
+ * Data loading (dev-guide Sections 3 and 4.5).
+ *
+ * The data files are JSON. Vite and Node both import JSON directly, so the
+ * same loader works in the browser, in the tests, and in the batch harness.
+ * Every file passes through its zod schema before any system reads it.
+ */
+import tuningJson from "../../data/tuning.json";
+import { TuningSchema, type Tuning } from "./schemas.js";
+
+/** Thrown when a data file does not match its schema. */
+export class DataValidationError extends Error {
+  constructor(
+    readonly file: string,
+    readonly issues: string[],
+  ) {
+    super(`Invalid data file "${file}":\n  ${issues.join("\n  ")}`);
+    this.name = "DataValidationError";
+  }
+}
+
+/** Parse a value with a schema, or throw a `DataValidationError`. */
+export function parseData<T>(
+  file: string,
+  schema: { safeParse: (value: unknown) => { success: boolean; data?: T; error?: unknown } },
+  value: unknown,
+): T {
+  const result = schema.safeParse(value);
+  if (result.success && result.data !== undefined) return result.data;
+  const error = result.error as { issues?: { path: (string | number)[]; message: string }[] };
+  const issues = (error.issues ?? []).map(
+    (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+  );
+  throw new DataValidationError(file, issues.length > 0 ? issues : ["unknown validation error"]);
+}
+
+let tuningCache: Tuning | null = null;
+
+/** The global tuning numbers. The result is cached after the first call. */
+export function loadTuning(): Tuning {
+  tuningCache ??= parseData("data/tuning.json", TuningSchema, tuningJson);
+  return tuningCache;
+}
+
+/** Forget the cached data files. The tests use this. */
+export function clearDataCache(): void {
+  tuningCache = null;
+}

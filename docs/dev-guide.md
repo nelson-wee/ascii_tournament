@@ -14,7 +14,8 @@ This document is a blueprint for Claude Code.
 2. Implement the milestones in Section 11 in order.
 3. Do not implement a feature before its milestone.
 4. Keep the interfaces in Section 7 stable. If an interface must change, update this document in the same commit.
-5. Mark each placeholder value with the comment `// TBD`.
+5. Mark each placeholder value with the comment `// TBD`. A JSON data file cannot hold a
+   comment, so the file lists the key of each placeholder value in its `tbd` array.
 6. Put all tunable numbers in data files (Section 9), not in code.
 
 ---
@@ -130,12 +131,16 @@ This document is a blueprint for Claude Code.
 
 ## 5. Directory layout
 
+The project root is the repository root.
+
 ```
-bot-shooter/
+./
 ├── README.md
 ├── package.json
+├── package-lock.json
 ├── tsconfig.json
-├── vite.config.ts
+├── vite.config.ts                 # build and test configuration
+├── eslint.config.js               # module boundary rules (Section 4.1)
 ├── index.html
 ├── .github/workflows/deploy.yml   # build and deploy to GitHub Pages
 ├── docs/
@@ -153,7 +158,7 @@ bot-shooter/
 │       ├── nicknames.json         # epithet tables, linked to traits
 │       └── blocklist.json
 ├── src/
-│   ├── core/                      # rng, types, events, data loading, schemas
+│   ├── core/                      # rng.ts, types.ts, events.ts, schemas.ts, data.ts
 │   ├── arena/                     # generation, metrics, validation, pickups
 │   ├── weapons/                   # generation, budget, dps profile
 │   ├── sim/                       # round loop, match, movement, combat, pickups
@@ -855,6 +860,27 @@ Each milestone has a goal and acceptance criteria. Complete one milestone before
 - Implement `core/rng.ts`, data loading with zod schemas, and the event bus.
 - Add the GitHub Actions workflow that deploys to GitHub Pages.
 - Accept: `npm test` passes. A test loads `tuning.json`. The GitHub Pages URL shows a placeholder page.
+
+**M0 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `core/rng.ts` | `createRngStreams(seed)`, `createRng(seed, label)`, `deriveSeed(seed, label)`, `RNG_STREAM_NAMES`. An `Rng` gives `next`, `int`, `float`, `bool`, `pick`, `shuffle`, `fork`, `getState`, `setState`. |
+| `core/events.ts` | `EventBus` with `emit`, `on`, `onAny`, `off`, `filter`, `log`, `clearLog`, `reset`. `GAME_EVENT_TYPES` holds the types of Section 6.8. |
+| `core/schemas.ts` | `TuningSchema`, type `Tuning`. |
+| `core/data.ts` | `loadTuning()`, `parseData(file, schema, value)`, `clearDataCache()`, `DataValidationError`. |
+| `core/types.ts` | `Cell`, `Vec2`. |
+
+Notes:
+
+- The `data` field of `GameEvent` is an open record. Each system sets the shape
+  of its own event data at its milestone. The `Kill` context of Section 6.8
+  arrives with M3.
+- `eslint.config.js` and `tests/boundary.test.ts` check Section 4.1 (no browser
+  API and no `render/`, `ui/`, or `main.ts` import in simulation code) and
+  Section 3 (no `Math.random()`, no global `ROT.RNG`).
+- The deploy workflow sets `BASE_PATH` to `/<repository name>/`, because GitHub
+  Pages serves the project from a sub-path.
 
 ### M1 — Static arena and display
 
