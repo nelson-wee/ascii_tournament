@@ -267,7 +267,9 @@ interface Attributes {        // what the bot IS
 
 interface Tactics {           // what the player TELLS the bot (0.0–1.0 unless stated)
   aggression: number;
-  retreatThreshold: number;
+  // `retreatThreshold` was removed after M8. A bot no longer leaves a fight to
+  // heal: it takes health and armor only when it has no enemy to engage
+  // (Section 7.20.17).
   preferredRange: "close" | "mid" | "long";
   weaponRolePref: Archetype | null;
   itemControl: number;
@@ -903,6 +905,91 @@ score limit.
   worth 28 points. A bot that breaks contact must gain something for it — a
   heal, a re-arm, a regroup — and that is a mechanic, not a number.
 
+#### 7.20.17 The arena decides the contest, and a weapon choice costs something
+
+Four changes, from the reading of Section 7.20.16.
+
+**1. A contested point is an arena acceptance rule, not a placement trick.**
+Section 7.20.16 answered an unfair weapon point by mirroring it. That is a
+patch: the real answer is that **an arena must offer ground that both teams
+reach together**. `checkArenaFairness` is the rule, and the generator of M7 must
+pass it:
+
+1. A power-up point sits in a **conflict zone** — both teams reach it inside
+   `CONTESTED_STEPS` of each other. A power-up is the item worth a fight, so an
+   arena that hides one in a corner turns item control into a chore.
+2. At least one weapon point sits in a conflict zone, so the **prize weapon** of
+   a run has fair ground to stand on.
+3. Every pickup point has a partner of its own kind under the half turn of
+   Section 7.2.1.
+
+The placement then follows from the arena instead of working around it: a point
+in a conflict zone holds **its own** weapon, and only a point that one team
+reaches first is mirrored with the point it faces. The test arena now puts both
+power-ups and one pair of weapon points on the line where both teams arrive in
+34 steps, so a run offers every weapon it generated.
+
+**2. `retreatThreshold` is gone, and healing is for between fights.** It was a
+cost with no benefit worth 28 points of win rate (Section 7.20.16), and the
+answer was not to pay it back. Section 2.1 asks for fast combat, so a bot no
+longer leaves a fight to heal:
+
+- **A bot takes health or armor only when it has no enemy to engage.**
+- **A weapon, its ammo, and a power-up stay contestable under fire.** They are
+  what a fight over ground is about, and they are what the arena should make
+  people fight for.
+- The `Retreat` action is removed. Aggression now has its cost inside the fight:
+  a bold bot presses, it cannot heal while it presses, and it dies for it.
+
+This is also what brought item control back under control. The tactic no longer
+buys a safe heal in the middle of a fight, so its spread fell from **36 points
+to 20** without any change to its weight.
+
+**3. A weapon swap costs firing ticks.** Section 7.20.16 made equipping a rule,
+which fixed a bot that never re-armed and also made the choice of weapon free.
+A free choice means the best weapon is always in hand, and every tactic about
+weapons means nothing.
+
+- **Out of a fight the swap is free.** This is where a role and a doctrine arm a
+  bot, and where `weaponRolePref` — the tournament weapon priority of
+  Section 7.20.8 — does its work.
+- **Inside a fight the swap costs `combat.weaponSwapTicks`** of firing, and the
+  bot takes it only when the extra damage over `combat.weaponSwapPayoffTicks`
+  beats the shots it gives up. Firing a weapon that is merely good is now
+  sometimes right.
+
+`weaponRolePref` became a real choice the moment the swap had a price:
+`assault` 61.9 %, `marksman` 54.2 %, `splash` 54.2 %, no preference 51.3 %,
+`precision` 50.8 % over 700 rounds. A player who names the right weapon for the
+run wins 11 points more than one who names the wrong one.
+
+**The state after all four (1080 rounds).**
+
+| Measurement | Before | After |
+|---|---|---|
+| `aggressive` | 46.6 % ±1.8 | 53.1 % ±1.8 |
+| `anchor` | 46.1 % ±1.9 | **40.9 % ±1.8** |
+| `balanced` | 57.4 % ±1.9 | 55.8 % ±1.9 |
+| mean ticks per round | 2043 | **1916** |
+| `itemControl` spread | 36 pts | **20 pts** |
+| `weaponRolePref` spread | not measurable | **11 pts** |
+| baseline kill share | 25.1 % | 30.2 % |
+
+Rounds are faster, which is what Section 2.1 asks for. Two costs came with it,
+and both are stated rather than hidden:
+
+- **`anchor` fell to 40.9 %.** The preset that holds ground lost the most from
+  the healing rule, because holding ground was how it stayed alive. It is still
+  inside the 60 % balance rule of Section 7.16, and it is the number to watch.
+- **The baseline took 30.2 % of the kills**, up from 25.1 %. A swap with a price
+  means a bot that is caught holding the baseline keeps firing it. That is the
+  point of the change, and 30 % is the top of what Section 7.3 can call a
+  fallback. If it rises again, lower `combat.weaponSwapTicks` before anything
+  else.
+- **Aggression 0.9 now loses about 10 points to aggression 0.3.** Its cost — no
+  healing in a fight — landed harder than its benefit. The next lever is the
+  benefit, not the cost: a bold bot should gain more than a shorter aim delay.
+
 ### 7.3 Weapon generation (`weapons/`)
 
 Purpose: generate readable procedural weapons with clear roles.
@@ -1012,7 +1099,6 @@ Actions (starting set):
 
 - `Engage(target)`
 - `Chase(target)`
-- `Retreat`
 - `SeekPickup(pickup)`
 - `HoldPosition(cell)`
 - `Reposition(rangeBand)`
@@ -1084,7 +1170,7 @@ Each role has a tactics preset and role behaviors.
 | Role | Tactics preset | Role behaviors |
 |---|---|---|
 | Overwatch | Long range, hold position, precision preference | Holds a sightline over a contested pickup |
-| Tank | High aggression, high retreat threshold, item control | Takes armor first. Leads pushes into rooms. Holds an area and its pickups (Anchor) |
+| Tank | High aggression, high hazard nerve, item control | Takes armor first. Leads pushes into rooms. Holds an area and its pickups (Anchor) |
 | Skirmisher | Mid range, evasion, versatile preference, roam | Follows the team. Trades kills. Uses side routes to attack engaged enemies (Flanker) |
 
 The player can change the tactics after the role applies its preset.
@@ -1179,8 +1265,8 @@ Starting trait list (placeholders):
 | eagleEye | precision kills at long range | −accuracy at close range | +crit at long range |
 | ambusher | kills on unaware targets | less time holding position | +crit on unaware targets |
 | shellShocked | deaths to area damage | avoids open rooms | −area damage taken |
-| reckless | deaths at low health in fights | ignores retreat threshold | +damage at low health |
-| timid | deaths soon after engaging | retreats early | +evasion |
+| reckless | deaths at low health in fights | seeks health less often | +damage at low health |
+| timid | deaths soon after engaging | seeks health more often | +evasion |
 | tunnelVision | deaths from flanks | −awareness of flanks | +damage to current target |
 | grudgeBearer | killed by the same rival N times | leaves position to hunt the rival | +damage against the rival |
 | rivalHunter | kills on a rival N times | overconfident against the rival (less cover) | +accuracy against the rival |
@@ -1962,22 +2048,20 @@ Notes:
 
   | Tactic | Benefit | Cost |
   |---|---|---|
-  | `aggression` | Raises `Engage` and `Chase` | Lowers `Retreat`, so the bot fights at low health |
-  | `retreatThreshold` | The bot leaves a lost fight | It gives ground and makes no kills |
+  | `aggression` | Raises `Engage` and `Chase`, and shortens the aim delay | The bot presses instead of walking to its best band, and it cannot heal in a fight |
   | `preferredRange` | `Reposition` holds the band of the weapon | The bot moves instead of firing |
-  | `weaponRolePref` | A bias in the weapon choice | It can take a weapon with a lower DPS |
+  | `weaponRolePref` | A bias in the weapon choice, and a swap costs firing ticks, so the choice sticks | It can take a weapon with a lower DPS |
   | `itemControl` | Raises `SeekPickup` | The bot crosses the open arena |
-  | `holdPosition` | Raises `HoldPosition`, lowers `SeekPickup` and `Follow` | The bot takes no items |
+  | `holdPosition` | Raises `HoldPosition`, lowers a `SeekPickup` that is far away | The bot takes no distant items |
   | `evasion` | The bot is harder to hit | It lowers the accuracy of the bot itself |
   | `hazardTolerance` | A short path through a hazard | A long path around it |
-
-- A bot that retreats does not fire. This gives the aggression tactic a real
-  cost. TBD
 - `hazardTolerance` is a yes-or-no rule in M4: a bot below the threshold treats
   a hazard tile as a wall. The path cost `danger × (1 − hazardTolerance)` of
   Section 7.10 needs the influence maps of M8.
-- `SwitchWeapon` reads the DPS profile of `bot.weapons`. M4 gives every bot one
-  baseline weapon, so the action never wins. M6 and M8 fill the list.
+- `equipBestWeapon` reads the DPS profile of `bot.weapons`. It is a rule, not an
+  action. A swap out of a fight is free, and a swap inside one costs
+  `combat.weaponSwapTicks` of firing, so it must pay for itself
+  (Section 7.20.17).
 - `visitedSlotIds` makes a bot work a route over the pickup points. Without it
   the bot stops on the first point beside its spawn and the two teams never
   meet. M8 replaces the memory with the real respawn timers of Section 7.12.
@@ -2165,6 +2249,15 @@ field of view (Section 7.20.6) is built and switched off; see M5.5.
 - Decide the arena size for desktop and phone.
 - Implement the macro graph, both fill methods, loop addition, metrics, validation, and pickup placement.
 - Accept: arena validation tests pass. The pre-match screen shows metrics.
+- Accept: **every generated arena passes `checkArenaFairness`** (Section 7.2.1
+  and Section 7.20.17). A power-up point and at least one weapon point sit in a
+  conflict zone, and every pickup point has a partner of its own kind. An arena
+  that breaks these gives one team a free run at the items that decide the
+  round, and every measurement taken on it carries that bias.
+- Watch: the band shares of `data/weapon-roles.json` are measured on one
+  hand-made arena. A larger generated arena fires at other distances, and the
+  power budget reads those shares, so measure them again and re-tune
+  `value.bandShare` and `budget.rangeValueCapCells`.
 
 ### M8 — Teams, roles, matches, and pickups
 

@@ -8,7 +8,6 @@
   "presets": {
     "balanced": {
       "aggression": 0.5,
-      "retreatThreshold": 0.3,
       "preferredRange": "mid",
       "weaponRolePref": null,
       "itemControl": 0.5,
@@ -18,7 +17,6 @@
     },
     "aggressive": {
       "aggression": 0.9,
-      "retreatThreshold": 0.15,
       "preferredRange": "close",
       "weaponRolePref": null,
       "itemControl": 0.3,
@@ -28,7 +26,6 @@
     },
     "anchor": {
       "aggression": 0.5,
-      "retreatThreshold": 0.25,
       "preferredRange": "mid",
       "weaponRolePref": null,
       "itemControl": 0.4,

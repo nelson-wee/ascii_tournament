@@ -2,7 +2,13 @@
  * Pickups, power-ups, and the spawn table (dev-guide Section 7.12, M8).
  */
 import { describe, expect, it } from "vitest";
-import { cellIndex, loadTestArena, parseArenaText, pickupEvenness } from "../src/arena/index.js";
+import {
+  cellIndex,
+  isContested,
+  loadTestArena,
+  parseArenaText,
+  pickupEvenness,
+} from "../src/arena/index.js";
 import { loadPickups } from "../src/core/data.js";
 import { EventBus } from "../src/core/events.js";
 import { createRng } from "../src/core/rng.js";
@@ -382,15 +388,17 @@ describe("the weapon economy", () => {
 });
 
 describe("rollSpawnTable placement", () => {
-  it("gives the two points that face each other the same weapon", () => {
-    // Section 7.2.1: no single weapon point of a symmetric arena is even, so
-    // one weapon per point hands the stronger weapon to one side.
+  it("mirrors a weapon point that one team reaches first", () => {
+    // Section 7.2.1: a point outside a conflict zone belongs to the nearer
+    // team, so the only fair answer is the same weapon at the same distance.
     const map = loadTestArena();
     const weapons = generateWeaponSet(createRng(5, "weapons"), 5, { ticksPerSecond: 20 });
     const table = rollSpawnTable(map, weapons, createRng(5, "weapons"));
+    const evenness = pickupEvenness(map);
     const points = map.pickups.filter((point) => point.kind === "weapon");
 
     for (const point of points) {
+      if (isContested(evenness, point.slotId)) continue;
       const image = { x: map.width - 1 - point.cell.x, y: map.height - 1 - point.cell.y };
       const partner = points.find(
         (other) => other.cell.x === image.x && other.cell.y === image.y,
@@ -400,7 +408,23 @@ describe("rollSpawnTable placement", () => {
     }
   });
 
-  it("never offers the baseline weapon, and does not repeat a weapon across pairs", () => {
+  it("lets a weapon point in a conflict zone hold its own weapon", () => {
+    // Both teams arrive together, so the point is fair on its own and the run
+    // can offer more of what it generated.
+    const map = loadTestArena();
+    const evenness = pickupEvenness(map);
+    const contested = map.pickups.filter(
+      (point) => point.kind === "weapon" && isContested(evenness, point.slotId),
+    );
+    expect(contested.length).toBeGreaterThan(1);
+
+    const weapons = generateWeaponSet(createRng(11, "weapons"), 5, { ticksPerSecond: 20 });
+    const table = rollSpawnTable(map, weapons, createRng(11, "weapons"));
+    const offered = contested.map((point) => table.slots[point.slotId]);
+    expect(new Set(offered).size).toBe(offered.length);
+  });
+
+  it("never offers the baseline weapon, and offers every weapon it can", () => {
     const map = loadTestArena();
     const weapons = generateWeaponSet(createRng(5, "weapons"), 5, { ticksPerSecond: 20 });
     const table = rollSpawnTable(map, weapons, createRng(5, "weapons"));
@@ -408,8 +432,7 @@ describe("rollSpawnTable placement", () => {
       .filter((point) => point.kind === "weapon")
       .map((point) => table.slots[point.slotId]);
     expect(placed).not.toContain(weapons[0]!.id);
-    // Four points make two pairs, so two different weapons are on the map.
-    expect(new Set(placed).size).toBe(placed.length / 2);
+    expect(new Set(placed).size).toBe(weapons.length - 1);
   });
 
   it("puts the best weapon on the most contested pair", () => {
@@ -477,11 +500,13 @@ describe("the spawn table is symmetric", () => {
     }
   });
 
-  it("gives both teams the same offer on every facing pair", () => {
+  it("gives both teams the same offer on every point that one team owns", () => {
     const map = loadTestArena();
+    const evenness = pickupEvenness(map);
     const weapons = generateWeaponSet(createRng(3, "weapons"), 5, { ticksPerSecond: 20 });
     const table = rollSpawnTable(map, weapons, createRng(3, "weapons"));
     for (const point of map.pickups) {
+      if (isContested(evenness, point.slotId)) continue;
       const image = { x: map.width - 1 - point.cell.x, y: map.height - 1 - point.cell.y };
       const partner = map.pickups.find(
         (other) => other.cell.x === image.x && other.cell.y === image.y,

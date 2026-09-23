@@ -18,7 +18,6 @@ import type { Archetype, RangeBand } from "../weapons/types.js";
 /** Every tactics value that the screen shows, in the order it shows them. */
 const SLIDERS: readonly { key: keyof Tactics; label: string; help: string }[] = [
   { key: "aggression", label: "aggression", help: "press the fight, fight at low health" },
-  { key: "retreatThreshold", label: "retreat at", help: "the health that sends a bot home" },
   { key: "itemControl", label: "item control", help: "cross the arena for a pickup" },
   { key: "holdPosition", label: "hold position", help: "keep a sightline, take no items" },
   { key: "evasion", label: "evasion", help: "dodge more, aim worse" },

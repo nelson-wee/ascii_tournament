@@ -72,3 +72,79 @@ export function pickupEvenness(map: ArenaMap, teamSize = 3): Map<string, number>
   }
   return evenness;
 }
+
+/**
+ * How near to even a point must be to count as contested, in steps.
+ *
+ * A point inside this is a **conflict zone**: both teams arrive at about the
+ * same moment, so the item on it is fought over instead of collected. A point
+ * outside it belongs to whichever team is nearer. TBD
+ */
+export const CONTESTED_STEPS = 2;
+
+/** True if both teams reach the point at about the same moment. */
+export function isContested(
+  evenness: ReadonlyMap<string, number>,
+  slotId: string,
+  steps = CONTESTED_STEPS,
+): boolean {
+  const value = evenness.get(slotId);
+  return value !== undefined && Number.isFinite(value) && value <= steps;
+}
+
+/** What `checkArenaFairness` found. */
+export interface ArenaFairness {
+  /** The evenness of every pickup point, by slot id. */
+  evenness: Map<string, number>;
+  /** The slot ids that sit in a conflict zone. */
+  contested: string[];
+  /** One line per rule that the arena breaks. Empty means it passes. */
+  failures: string[];
+}
+
+/**
+ * Check the fairness rules that an arena must pass (Sections 7.2 and 7.2.1).
+ *
+ * These are acceptance criteria for the generator of M7, and a hand-made arena
+ * should pass them too:
+ *
+ * 1. **A power-up point is in a conflict zone.** A power-up is the item worth
+ *    a fight, so it must not belong to one team. An arena that hides its
+ *    power-ups in a corner gives the near team a free run and turns item
+ *    control into a chore instead of a contest.
+ * 2. **At least one weapon point per team-pair is in a conflict zone**, so the
+ *    prize weapon of a run has fair ground to stand on. Without one, the
+ *    strongest weapon of the run is a head start for whoever is nearer.
+ * 3. **Every pickup point has a partner** under the half turn of Section 7.2.1,
+ *    so the two teams face the same arena.
+ */
+export function checkArenaFairness(map: ArenaMap, teamSize = 3): ArenaFairness {
+  const evenness = pickupEvenness(map, teamSize);
+  const contested = [...evenness.entries()]
+    .filter(([slotId]) => isContested(evenness, slotId))
+    .map(([slotId]) => slotId)
+    .sort();
+  const failures: string[] = [];
+
+  const powerups = map.pickups.filter((point) => point.kind === "powerup");
+  if (powerups.length > 0 && !powerups.some((point) => isContested(evenness, point.slotId))) {
+    failures.push("no power-up point is in a conflict zone");
+  }
+
+  const weapons = map.pickups.filter((point) => point.kind === "weapon");
+  if (weapons.length > 0 && !weapons.some((point) => isContested(evenness, point.slotId))) {
+    failures.push("no weapon point is in a conflict zone, so the prize weapon has no fair ground");
+  }
+
+  for (const point of map.pickups) {
+    const image = { x: map.width - 1 - point.cell.x, y: map.height - 1 - point.cell.y };
+    const partner = map.pickups.find(
+      (other) => other.cell.x === image.x && other.cell.y === image.y,
+    );
+    if (!partner || partner.kind !== point.kind) {
+      failures.push(`the point ${point.slotId} has no partner of its own kind`);
+    }
+  }
+
+  return { evenness, contested, failures };
+}

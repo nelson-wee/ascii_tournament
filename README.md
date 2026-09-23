@@ -19,9 +19,20 @@ way the arena fires in them, a projectile leads a moving target and carries its
 critical hit, and the AI aims an area weapon at the enemy that lines up two. A
 pickup point shows its glyph only while it holds its item.
 
-The three tactics presets now sit inside 11 points of each other for the first
-time (aggressive 46.6 %, anchor 46.1 %, balanced 57.4 % over 1080 rounds), and
-no archetype takes more than a quarter of the kills.
+A second pass made the arena decide the contest and gave a weapon choice a
+price. An arena must now pass `checkArenaFairness`: a power-up and at least one
+weapon point sit on ground that both teams reach together, which is an
+acceptance rule for the generator of Milestone M7. The `retreatThreshold` tactic
+is gone — a bot takes health or armour only when it has no enemy to engage,
+while weapons, ammo and power-ups stay worth fighting for — and a weapon swap
+costs firing ticks inside a fight but nothing outside one, so a team arms itself
+by its role and its doctrine before contact.
+
+Over 1080 rounds: aggressive 53.1 %, anchor 40.9 %, balanced 55.8 %, no balance
+failure, and every round reaches the score limit. The tournament weapon priority
+is now worth 11 points of win rate, and item control fell from a 36-point spread
+to 20. [`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md) holds the
+measurements and the questions that are still open.
 [`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md) holds the
 measurements and the two balance questions that are still open.
 

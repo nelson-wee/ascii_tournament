@@ -98,6 +98,20 @@ export const TuningSchema = z
         /** How much the evasion of a bot lowers its own accuracy. TBD */
         evasionAccuracyPenalty: unitRange,
         /**
+         * Ticks that a bot cannot fire after it changes weapon. A swap that
+         * costs nothing makes the choice of weapon free, so a bot always holds
+         * the best one and the tactics that pick a weapon mean nothing. With a
+         * cost, firing a weapon that is merely good is sometimes right
+         * (Section 7.20.17). TBD
+         */
+        weaponSwapTicks: nonNegativeInt,
+        /**
+         * How long a bot expects an engagement to last, in ticks. It decides
+         * whether a swap pays for itself: a long fight is worth changing for,
+         * a short one is not. TBD
+         */
+        weaponSwapPayoffTicks: positiveInt,
+        /**
          * A new target must be this much nearer than the current one, as a
          * part of the current distance. 0.8 means 20 % nearer. TBD
          */
@@ -142,6 +156,14 @@ export const TuningSchema = z
          */
         preferredRangeBias: z.number().min(0),
         /**
+         * How much the `weaponRolePref` tactic raises the weapon it names. It
+         * is the tournament weapon priority of Section 7.20.8, and it is what a
+         * player sets to give a role its own weapon. A swap costs firing ticks
+         * (`combat.weaponSwapTicks`), so a bot armed by its doctrine out of the
+         * fight keeps that weapon in it (Section 7.20.17). TBD
+         */
+        weaponRolePrefBonus: z.number().min(0),
+        /**
          * How much the danger of a pickup point lowers its worth. Item control
          * won 19 points of win rate and never turned over, because a run
          * across the arena cost nothing (Section 4 of the M8 weapon analysis).
@@ -165,7 +187,6 @@ export const TuningSchema = z
           .object({
             engage: positiveNumber,
             chase: positiveNumber,
-            retreat: positiveNumber,
             seekPickup: positiveNumber,
             holdPosition: positiveNumber,
             reposition: positiveNumber,
@@ -237,7 +258,6 @@ export type Tuning = z.infer<typeof TuningSchema>;
 export const TacticsSchema = z
   .object({
     aggression: unitRange,
-    retreatThreshold: unitRange,
     preferredRange: z.enum(["close", "mid", "long"]),
     weaponRolePref: z
       .enum([

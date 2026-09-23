@@ -26,7 +26,6 @@ import {
   botCell,
   distanceBetween,
   findBot,
-  teamSpawns,
   type BotState,
   type SimState,
 } from "../sim/state.js";
@@ -38,7 +37,6 @@ import { findPath } from "./navigation.js";
 export type Action =
   | { kind: "Engage"; targetId: string }
   | { kind: "Chase"; targetId: string }
-  | { kind: "Retreat" }
   | { kind: "SeekPickup"; slotId: string }
   | { kind: "HoldPosition"; cell: Cell }
   | { kind: "Reposition"; band: RangeBand }
@@ -183,9 +181,10 @@ export function bestWeaponAt(state: SimState, bot: BotState, distance: number): 
     // An empty weapon is not a choice. The magazine is a real limit.
     if (!hasAmmo(bot, weapon)) continue;
     let value = weapon.dpsProfile[band];
-    // The weapon role preference is a bias, not a rule.
+    // The weapon role preference is a bias, not a rule. It is the tournament
+    // weapon priority that a player sets (Section 7.20.8).
     if (bot.tactics.weaponRolePref !== null && weapon.archetype === bot.tactics.weaponRolePref) {
-      value *= 1.25;
+      value *= 1 + state.config.weaponRolePrefBonus;
     }
     if (value > bestValue) {
       best = weapon;
@@ -223,7 +222,7 @@ export function bestWeaponOverall(state: SimState, bot: BotState): Weapon {
         weapon.dpsProfile[band] * share[band] * (band === bot.tactics.preferredRange ? 1 + bias : 1);
     }
     if (bot.tactics.weaponRolePref !== null && weapon.archetype === bot.tactics.weaponRolePref) {
-      value *= 1.25;
+      value *= 1 + state.config.weaponRolePrefBonus;
     }
     if (value > bestValue) {
       best = weapon;
@@ -276,10 +275,22 @@ function nearness(state: SimState, from: Cell, to: Cell): number {
  * work a route over the arena. Without it the bot steps between the two points
  * beside its spawn and never meets the other team.
  */
+/**
+ * The kinds of pickup that a bot leaves alone while it has an enemy to fight.
+ *
+ * Health and armor are for between fights. A bot that breaks off to heal in the
+ * middle of a fight makes the round slow and the combat careful, which is the
+ * opposite of what Section 2.1 asks for. A weapon, its ammo, and a power-up are
+ * worth taking under fire, so they stay contestable: they are what a fight over
+ * ground is about (Section 7.12).
+ */
+const BETWEEN_FIGHT_KINDS: ReadonlySet<string> = new Set(["health", "armor"]);
+
 function pickupTarget(
   state: SimState,
   bot: BotState,
   from: Cell,
+  hasTarget: boolean,
 ): { slotId: string; value: number; nearness: number } | null {
   // Hold the current goal while the bot is still on the way and the point is
   // still worth something.
@@ -288,6 +299,7 @@ function pickupTarget(
     const current = state.pickups.find((pickup) => pickup.point.slotId === committed);
     if (
       current &&
+      !(hasTarget && BETWEEN_FIGHT_KINDS.has(current.point.kind)) &&
       (current.point.cell.x !== from.x || current.point.cell.y !== from.y) &&
       pickupValue(state, bot, current) > 0
     ) {
@@ -306,6 +318,7 @@ function pickupTarget(
   for (const pickup of state.pickups) {
     const point = pickup.point;
     if (point.cell.x === from.x && point.cell.y === from.y) continue;
+    if (hasTarget && BETWEEN_FIGHT_KINDS.has(point.kind)) continue;
     const worth = pickupValue(state, bot, pickup);
     if (worth <= 0) continue;
     const near = nearness(state, from, point.cell);
@@ -449,13 +462,6 @@ export function scoreActions(state: SimState, bot: BotState): ScoredAction[] {
       // the band where its weapon is strongest.
       Math.max(0.1, 1 - tactics.aggression * state.config.aggressionRepositionDiscount),
     );
-
-    // Retreat: the health fell under the retreat threshold.
-    // Benefit: the bot lives. Cost: it gives ground and makes no kills.
-    if (tactics.retreatThreshold > 0 && health < tactics.retreatThreshold) {
-      const urgency = (tactics.retreatThreshold - health) / tactics.retreatThreshold;
-      push({ kind: "Retreat" }, (base["retreat"] ?? 1) * urgency, 1.5 - tactics.aggression);
-    }
   } else {
     // Chase a remembered enemy.
     let bestId: string | null = null;
@@ -478,7 +484,7 @@ export function scoreActions(state: SimState, bot: BotState): ScoredAction[] {
   // Benefit of item control: health, armor, ammo, and the power-ups. Cost: the
   // bot crosses the open arena instead of holding its ground.
   const from = botCell(bot);
-  const target = pickupTarget(state, bot, from);
+  const target = pickupTarget(state, bot, from, enemy !== null);
   if (target !== null) {
     // `holdPosition` suppresses a run across the arena, but not the item at the
     // feet of the bot. A bot that camps a point still takes what lands on it,
@@ -563,11 +569,48 @@ export function equipBestWeapon(state: SimState, bot: BotState): void {
     ? bestWeaponAt(state, bot, distanceBetween(bot, enemy))
     : bestWeaponOverall(state, bot);
   if (better.id === bot.weapon.id) return;
-  bot.weapon = better;
+
+  // Out of a fight the swap is free: this is where a bot picks the weapon its
+  // role and its doctrine want, and where the preference of Section 6.4 does
+  // its work.
+  if (!enemy) {
+    swapTo(state, bot, better, 0);
+    return;
+  }
+
+  // In a fight the swap costs firing ticks, so it must pay for itself. A bot
+  // with a target already in its sights loses the shot it was about to take,
+  // and it fires the sub-optimal weapon instead when the gain is small. Without
+  // a cost the best weapon is always in hand and the weapon tactics mean
+  // nothing (Section 7.20.17).
+  const band = bandOf(state, distanceBetween(bot, enemy));
+  const now = bot.weapon.dpsProfile[band];
+  const then = better.dpsProfile[band];
+  if (then <= now) return;
+
+  const swapTicks = state.config.weaponSwapTicks;
+  // What the swap costs: the damage the held weapon would have done while the
+  // bot changes over. What it gains: the extra damage of the new weapon over
+  // the rest of the engagement.
+  const cost = now * (swapTicks / state.config.ticksPerSecond);
+  const gain = (then - now) * (state.config.weaponSwapPayoffTicks / state.config.ticksPerSecond);
+  if (gain <= cost) return;
+
+  swapTo(state, bot, better, swapTicks);
+}
+
+/** Put a weapon in the hands of the bot, and pay for the change. */
+function swapTo(state: SimState, bot: BotState, weapon: Weapon, swapTicks: number): void {
+  bot.weapon = weapon;
+  if (swapTicks > 0) {
+    bot.fireCooldownTicks = Math.max(bot.fireCooldownTicks, swapTicks);
+    bot.aimTicks = 0;
+  }
   state.bus.emit("DecisionChanged", state.tick, state.roundNumber, {
     botId: bot.id,
-    weaponId: better.id,
+    weaponId: weapon.id,
     reason: "weapon",
+    swapTicks,
   });
 }
 
@@ -643,21 +686,6 @@ export function applyAction(state: SimState, bot: BotState, action: Action): voi
         ? botCell(target)
         : (bot.lastSeen.get(action.targetId)?.cell ?? null);
       if (goal === null || !pathTo(state, bot, goal)) bot.path = [];
-      return;
-    }
-    case "Retreat": {
-      // Move to the nearest spawn cell of the team, away from the fight.
-      const spawns = teamSpawns(state, bot.teamId);
-      const from = botCell(bot);
-      const sorted = [...spawns].sort(
-        (a, b) =>
-          Math.abs(a.x - from.x) + Math.abs(a.y - from.y) -
-          (Math.abs(b.x - from.x) + Math.abs(b.y - from.y)),
-      );
-      for (const cell of sorted) {
-        if (pathTo(state, bot, cell)) return;
-      }
-      bot.path = [];
       return;
     }
     case "SeekPickup": {

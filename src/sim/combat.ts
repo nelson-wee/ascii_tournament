@@ -239,14 +239,6 @@ function releaseShot(state: SimState, bot: BotState, target: BotState): void {
 export function tryFire(state: SimState, bot: BotState): void {
   if (!bot.alive) return;
   if (bot.fireCooldownTicks > 0) return;
-  // A bot that retreats breaks contact. It does not fire. This gives the
-  // aggression tactic a cost and a benefit. TBD
-  if (bot.action.kind === "Retreat") {
-    bot.targetId = null;
-    bot.aimTicks = 0;
-    return;
-  }
-
   const target = selectTarget(state, bot);
   if (!target) {
     // The aim falls away, it does not vanish. A bot that walks behind a pillar

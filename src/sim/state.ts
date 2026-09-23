@@ -222,6 +222,7 @@ export interface SimConfig {
   holdBlindShare: number;
   holdSuppressesPickup: number;
   preferredRangeBias: number;
+  weaponRolePrefBonus: number;
   pickupRiskWeight: number;
   aggressionReactionDiscount: number;
   aggressionRepositionDiscount: number;
@@ -249,6 +250,8 @@ export interface SimConfig {
   actionBase: Readonly<Record<string, number>>;
   evasionLateralFactor: number;
   evasionAccuracyPenalty: number;
+  weaponSwapTicks: number;
+  weaponSwapPayoffTicks: number;
   targetSwitchMargin: number;
   /** The kill announcement tiers (Section 7.17). */
   multiKillTiers: readonly { count: number; text: string }[];
@@ -366,6 +369,7 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     holdBlindShare: tuning.ai.holdBlindShare,
     holdSuppressesPickup: tuning.ai.holdSuppressesPickup,
     preferredRangeBias: tuning.ai.preferredRangeBias,
+    weaponRolePrefBonus: tuning.ai.weaponRolePrefBonus,
     pickupRiskWeight: tuning.ai.pickupRiskWeight,
     aggressionReactionDiscount: tuning.ai.aggressionReactionDiscount,
     aggressionRepositionDiscount: tuning.ai.aggressionRepositionDiscount,
@@ -393,6 +397,8 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     actionBase: tuning.ai.actionBase,
     evasionLateralFactor: tuning.movement.evasionLateralFactor,
     evasionAccuracyPenalty: tuning.combat.evasionAccuracyPenalty,
+    weaponSwapTicks: tuning.combat.weaponSwapTicks,
+    weaponSwapPayoffTicks: tuning.combat.weaponSwapPayoffTicks,
     targetSwitchMargin: tuning.combat.targetSwitchMargin,
     multiKillTiers: loadAnnouncements().multiKill,
     spreeTiers: loadAnnouncements().spree,

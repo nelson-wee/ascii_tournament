@@ -27,6 +27,8 @@
     "ai.teamSpacingCells",
     "ai.actionBase",
     "combat.targetSwitchMargin",
+    "combat.weaponSwapTicks",
+    "combat.weaponSwapPayoffTicks",
     "perception.focusHalfAngleDegrees",
     "perception.peripheralHalfAngleBaseDegrees",
     "perception.peripheralHalfAngleAwarenessDegrees",
@@ -40,6 +42,7 @@
     "ai.holdBlindShare",
     "ai.holdSuppressesPickup",
     "ai.preferredRangeBias",
+    "ai.weaponRolePrefBonus",
     "ai.pickupRiskWeight",
     "ai.aggressionReactionDiscount",
     "ai.aggressionRepositionDiscount",
@@ -75,6 +78,8 @@
     "movingTargetPenalty": 0.25,
     "minHitChance": 0.05,
     "evasionAccuracyPenalty": 0.4,
+    "weaponSwapTicks": 14,
+    "weaponSwapPayoffTicks": 90,
     "targetSwitchMargin": 0.8,
     "stationaryTicksForCrit": 10,
     "dodgeRampTicks": 8
@@ -86,7 +91,6 @@
     "actionBase": {
       "engage": 1.0,
       "chase": 0.55,
-      "retreat": 1.1,
       "seekPickup": 0.8,
       "holdPosition": 0.5,
       "reposition": 0.7,
@@ -98,6 +102,7 @@
     "holdBlindShare": 0.1,
     "holdSuppressesPickup": 0.6,
     "preferredRangeBias": 0.25,
+    "weaponRolePrefBonus": 0.6,
     "pickupRiskWeight": 0.15,
     "aggressionReactionDiscount": 0.35,
     "aggressionRepositionDiscount": 0.6

@@ -500,7 +500,36 @@ choice, `hazardTolerance` from dead to a 24-point axis, `holdPosition` from a
 21-point penalty to 20 with a flat shoulder, and `preferredRange` from a
 20-point trap to 9 points of preference.
 
-### 5.3 Two open questions, stated and not hidden
+### 5.3 A second pass: the arena, the healing, and the swap
+
+Four more changes landed after the first pass, from the reading in Section 5.4
+and from a review of the results. Section 7.20.17 of the dev guide holds them in
+full.
+
+| Change | Why | Result |
+|---|---|---|
+| A contested point is an **arena acceptance rule** (`checkArenaFairness`) | Mirroring an unfair point is a patch; the arena should offer fair ground | The test arena puts both power-ups and one weapon pair on the line where both teams arrive in 34 steps, and a contested point now holds its own weapon |
+| `retreatThreshold` removed; **health and armor only when no enemy is in sight** | It was a 28-point cost with no benefit, and Section 2.1 asks for fast combat | Mean round 2043 → **1916 ticks**; `itemControl` spread 36 → **20 points** |
+| A weapon swap costs firing ticks, free out of a fight | A free swap makes every weapon tactic meaningless | `weaponRolePref` became an **11-point** choice |
+| `weaponRolePrefBonus` raised to 0.6 | The tournament weapon priority must be worth naming | `assault` 61.9 %, none 51.3 %, `precision` 50.8 % |
+
+Weapons, ammo and power-ups stay contestable under fire. Health and armor do
+not. That one line is what took item control from a mandatory tax back to a
+strong preference: the tactic no longer buys a safe heal in the middle of a
+fight.
+
+**What it cost.** `anchor` fell from 46.1 % to 40.9 %: the preset that holds
+ground lost the most from the healing rule, because holding ground was how it
+stayed alive. The baseline weapon rose from 25.1 % to 30.2 % of kills, because a
+bot caught holding it now keeps firing it instead of swapping for free. Both are
+inside their limits and both are the intended shape of the change, but both are
+the numbers to watch next.
+
+**Aggression is still not paying.** At 0.9 it now loses about 10 points to 0.3.
+Its cost — no healing while it presses — landed harder than its benefit, the
+shorter aim delay. The next lever is the benefit.
+
+### 5.4 Two open questions, stated and not hidden
 
 **1. `itemControl` is now structural, not tunable.** Gating the weapons behind
 pickup points is what made the arena matter, and it also made item control the
@@ -519,13 +548,13 @@ pricing the rich one, and it is now a small term. Letting a camper take the item
 at its own feet, and only suppressing the run across the arena, is what brought
 `anchor` from 34.6 % back to 46.1 %.
 
-**2. `retreatThreshold` is still a cost with no benefit.** Never retreating is
-worth 28 points. A bot that retreats does not fire and gives ground, and nothing
-pays it back. The counter is a mechanic, not a number: a bot that breaks contact
-should heal, re-arm, or rejoin its team with an advantage. That is progression
-(M10) or a real cover rule, not a weight.
+**2. `retreatThreshold` is gone.** It was worth 28 points in one direction, and
+nothing paid it back. Rather than invent a reward for giving ground, the tactic
+was removed: a bot takes health and armor only when it has no enemy to engage
+(Section 5.3). Its replacement question is smaller and better shaped — does a
+bold bot gain enough from shooting first to pay for never healing?
 
-### 5.4 What still needs a measurement after M7
+### 5.5 What still needs a measurement after M7
 
 - The band shares in `data/weapon-roles.json` are measured on one hand-made
   arena. A generated arena will fire in different bands, and the budget reads
