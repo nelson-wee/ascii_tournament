@@ -272,9 +272,27 @@ export function tryFire(state: SimState, bot: BotState): void {
     weaponId: bot.weapon.id,
     attackType: bot.weapon.attackType,
     rangeBand: band,
+    visual: shotVisual(bot.weapon),
   });
   releaseShot(state, bot, target);
   if (bot.weapon.id === fired.id) spendAmmo(state, bot);
+}
+
+/**
+ * The shape of a shot, for the display (Section 7.18).
+ *
+ * The display picks a visual from these four numbers: a cone opens a wedge, a
+ * blast makes a rocket, a speed sets how long a tracer takes to cross. They
+ * ride on the event because events are the record (Section 4.6): the display
+ * must not read the weapon list of the simulation to know what it just saw.
+ */
+function shotVisual(weapon: Weapon): Readonly<Record<string, number | null>> {
+  return {
+    projectileSpeed: weapon.projectileSpeed,
+    aoeRadius: weapon.aoeRadius,
+    coneHalfAngle: weapon.coneHalfAngle,
+    rangeMax: weapon.rangeMax,
+  };
 }
 
 /**
@@ -315,6 +333,7 @@ function tryIntercept(state: SimState, bot: BotState): boolean {
     weaponId: bot.weapon.id,
     attackType: bot.weapon.attackType,
     rangeBand: band,
+    visual: shotVisual(bot.weapon),
   });
   // A shot in the air is a small target, and the bot is not one: the hit
   // chance falls with the distance alone.

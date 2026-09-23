@@ -13,10 +13,20 @@
 export const SPEEDS = [0, 1, 4] as const;
 export type Speed = (typeof SPEEDS)[number];
 
+/** What one animation frame gives the display. */
+export interface Frame {
+  /** Monotonic ms. The hazard and pickup animation reads it. */
+  now: number;
+  /** Ms since the last frame. The VFX layer ages its effects by it. */
+  dt: number;
+  /** How far the frame is through the current tick, 0 to 1. */
+  interp: number;
+}
+
 export interface SimRunnerOptions {
   ticksPerSecond: number;
   onTick: () => void;
-  onRender: () => void;
+  onRender: (frame: Frame) => void;
   /** The highest number of ticks in one frame. It stops a slow tab from freezing. */
   maxTicksPerFrame?: number;
   initialSpeed?: Speed;
@@ -45,10 +55,24 @@ export class SimRunner {
     this.lastTime = 0;
   }
 
+  /**
+   * How far the display is through the current tick, 0 to 1.
+   *
+   * The simulation steps at a fixed rate and the display draws at the rate of
+   * the screen. Without this share a bot steps from cell to cell and the eye
+   * reads a stall, not a run (Section 7.18).
+   */
+  get interp(): number {
+    return Math.max(0, Math.min(1, this.accumulator));
+  }
+
   /** Run one tick. Use it while the simulation is paused. */
   stepOnce(): void {
     this.options.onTick();
-    this.options.onRender();
+    // One tick of display time, so the effects of the tick age by one tick.
+    const dt = 1000 / this.options.ticksPerSecond;
+    this.lastTime = performance.now();
+    this.options.onRender({ now: this.lastTime, dt, interp: this.interp });
   }
 
   start(): void {
@@ -82,6 +106,6 @@ export class SimRunner {
       if (ticks >= this.maxTicksPerFrame) this.accumulator = 0;
     }
 
-    this.options.onRender();
+    this.options.onRender({ now: time, dt: elapsedSeconds * 1000, interp: this.interp });
   }
 }

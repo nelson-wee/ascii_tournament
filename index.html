@@ -3,23 +3,32 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230d0f12'/%3E%3Ctext x='16' y='23' font-family='monospace' font-size='22' fill='%237fd6a0' text-anchor='middle'%3E%40%3C/text%3E%3C/svg%3E" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2305060d'/%3E%3Ctext x='16' y='23' font-family='monospace' font-size='22' fill='%236ef7ff' text-anchor='middle'%3E%40%3C/text%3E%3C/svg%3E" />
     <title>ASCII Bot Shooter</title>
     <style>
+      /* The neon look of Section 7.18. The arena carries a palette of its
+         own, from the seed of the run; the page chrome holds still around it,
+         so the eye reads the arena and not the frame. */
       :root {
         color-scheme: dark;
-        --bg: #0d0f12;
-        --fg: #c8d0d8;
-        --dim: #6b7682;
-        --line: #212a33;
-        --accent: #7fd6a0;
+        --bg: #05060d;
+        --panel: #090c18;
+        --fg: #cdd6f4;
+        --dim: #6b7694;
+        --line: #1b2440;
+        --accent: #6ef7ff;
+        --accent-dim: #2a6b7a;
+        --neon-a: #4de3ff;
+        --neon-b: #ff3d8f;
       }
       * { box-sizing: border-box; }
       html, body {
         margin: 0;
         padding: 0;
         height: 100%;
-        background: var(--bg);
+        background:
+          radial-gradient(120% 90% at 50% 0%, #0c1030 0%, rgba(5, 6, 13, 0) 60%),
+          var(--bg);
         color: var(--fg);
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         overflow: hidden;
@@ -45,6 +54,9 @@
         font-size: 0.95rem;
         letter-spacing: 0.12em;
         color: var(--accent);
+        /* Glow on the page chrome is a text shadow. The arena uses the canvas
+           shadow instead: a CSS blur over a full canvas is not cheap. */
+        text-shadow: 0 0 10px rgba(110, 247, 255, 0.55);
       }
       .dim { color: var(--dim); }
       .meta { font-size: 0.75rem; }
@@ -61,6 +73,24 @@
         display: flex;
         align-items: center;
         justify-content: center;
+      }
+      /* The two canvases of Section 7.18: the grid below, the effects above.
+         They hold the same pixel size and the same cell grid. Only the top one
+         takes the shake of a blast. */
+      .neon-stage {
+        position: relative;
+        line-height: 0;
+        border-radius: 4px;
+        overflow: hidden;
+        box-shadow:
+          0 0 0 1px var(--line),
+          0 0 34px rgba(80, 120, 255, 0.16);
+      }
+      .neon-stage canvas { display: block; }
+      .neon-vfx {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
       }
       #panel {
         min-width: 0;
@@ -82,8 +112,8 @@
       #feed li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #feed li + li { margin-top: 1px; }
       #feed li:last-child { color: var(--fg); }
-      #feed li.announce { color: #d9c15a; }
-      #feed li.spreeEnded { color: #d96a7a; }
+      #feed li.announce { color: #ffd166; }
+      #feed li.spreeEnded { color: #ff6a8a; }
       #feed li.suddenDeath { color: var(--accent); letter-spacing: 0.1em; }
       #status.urgent { color: var(--accent); }
       /* A wide screen puts the panel beside the arena (Section 7.18). */
@@ -126,17 +156,21 @@
         font: inherit;
         font-size: 0.8rem;
         color: var(--fg);
-        background: #161c22;
+        background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 5px;
         cursor: pointer;
       }
-      #controls button:hover:not(:disabled) { border-color: #38444f; }
+      #controls button:hover:not(:disabled):not([aria-pressed="true"]) {
+        border-color: var(--accent-dim);
+        color: var(--accent);
+      }
       #controls button:disabled { opacity: 0.4; cursor: default; }
       #controls button[aria-pressed="true"] {
         color: var(--bg);
         background: var(--accent);
         border-color: var(--accent);
+        box-shadow: 0 0 14px rgba(110, 247, 255, 0.4);
       }
       #status { font-size: 0.78rem; color: var(--dim); }
       /* A short screen (a phone in landscape) gives the arena more height. */
@@ -162,15 +196,17 @@
         flex-direction: column;
         gap: 8px;
         padding: 12px;
-        background: rgba(13, 15, 18, 0.97);
+        background: rgba(5, 6, 13, 0.96);
         border: 1px solid var(--line);
         border-radius: 6px;
+        box-shadow: inset 0 0 60px rgba(80, 120, 255, 0.08);
       }
       .screen h2 {
         margin: 0;
         font-size: 0.9rem;
         letter-spacing: 0.08em;
         color: var(--accent);
+        text-shadow: 0 0 10px rgba(110, 247, 255, 0.45);
       }
       .screen p { margin: 0; font-size: 0.72rem; }
       .tactics {
@@ -198,7 +234,7 @@
         font-size: 0.74rem;
         min-height: 32px;
         color: var(--fg);
-        background: #161c22;
+        background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 5px;
         padding: 0 6px;
@@ -224,12 +260,15 @@
         font-size: 0.76rem;
         text-align: left;
         color: var(--fg);
-        background: #161c22;
+        background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 5px;
         cursor: pointer;
       }
-      .screen .choice:hover { border-color: var(--accent); }
+      .screen .choice:hover {
+        border-color: var(--accent);
+        box-shadow: 0 0 12px rgba(110, 247, 255, 0.18);
+      }
       .screen .start {
         align-self: flex-start;
         min-height: 40px;
@@ -241,6 +280,7 @@
         border: 1px solid var(--accent);
         border-radius: 5px;
         cursor: pointer;
+        box-shadow: 0 0 16px rgba(110, 247, 255, 0.35);
       }
       .error {
         margin: auto;

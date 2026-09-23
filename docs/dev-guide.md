@@ -175,7 +175,7 @@ The project root is the repository root.
 │   ├── meta/                      # run, championship, saves, migrations
 │   ├── names/                     # grammar expander and name generators
 │   ├── report/                    # stats, reports, kill feed text
-│   ├── render/                    # rot.js display, speed control (browser only)
+│   ├── render/                    # canvas display, weapon VFX, speed control (browser only)
 │   ├── ui/                        # screens and menus (browser only)
 │   ├── main.ts                    # browser entry point
 │   └── cli/
@@ -1584,15 +1584,119 @@ start.
 
 ### 7.18 Display (`render/`)
 
-- rot.js `Display` on a canvas.
-- Arena on one screen. Target size TBD: approximately 100×40 for desktop, approximately 60×30 for phones in landscape. Decide before Milestone M7.
-- Team colors. Short projectile trails. Flash on the hitscan target cell.
+The arena draws on **two canvases**, one on the other, at the same pixel size
+and on the same cell grid:
+
+| Canvas | What it holds | Class |
+|---|---|---|
+| grid (below) | walls, floor, hazards, pickups, shots in the air, bots | `NeonGrid` |
+| vfx (above) | tracers, beams, blasts, sparks, gore | `VfxLayer` |
+
+One animation frame drives both: the grid first, the effects on top. Only the
+VFX canvas takes the shake of a blast. A shake of the grid too reads as a
+broken display, not as a blast.
+
+- Arena on one screen. 60×30 is the size that the generator makes (Section 7.7).
+  The stage takes the largest cell that the container holds, so the same arena
+  fills a desktop screen and a phone screen.
 - Side panel: kill feed, score, round number, timer.
 - A pickup point draws its glyph only while it holds its item. An empty point
   draws the floor, so a viewer can read the arena (Section 7.20.15).
 - Speed controls: pause, 1×, 4×, skip to end of round.
 - Touch-friendly controls for phones.
-- Debug views (toggle): danger map, control map, bot decisions.
+- Debug views (toggle): danger map, control map, bot decisions. TBD
+
+#### 7.18.1 The one coordinate contract
+
+    px = cellX * cellW + cellW / 2      // the centre of a glyph
+    py = cellY * cellH + cellH / 2
+
+`cellW` and `cellH` are in **device pixels** and both canvases take them from
+`NeonStage`. The VFX layer takes **fractional** cell coordinates, so a shot can
+sit between two cells.
+
+The simulation puts the centre of cell `(x, y)` at `(x + 0.5, y + 0.5)`
+(Section 7.5). `SimArenaView` takes the half cell off, because the display puts
+a glyph at the centre of its own cell. That one conversion lives in
+`render/arenaView.ts` and nowhere else.
+
+#### 7.18.2 The adapters
+
+The grid and the VFX layer import nothing from the simulation. They read two
+narrow interfaces, and `render/arenaView.ts` is what fills them:
+
+| Interface | What it gives |
+|---|---|
+| `ArenaView` | `width`, `height`, `tileAt(x, y)`, `pickups()`, `bots()`, `shots()`, `interp` |
+| a position resolver | the cell of a bot id, or of a shot that is in the air |
+
+`interp` is what makes the bots glide. The simulation steps 20 times a second
+and the display draws at the rate of the screen. A bot that is drawn on its
+cell alone steps and waits, and the eye reads a stall. `SimRunner.interp` gives
+the share of the tick that has run, and the grid draws the bot between the cell
+that it held at the start of the tick and its cell now. A jump of more than two
+cells is a respawn, not a step, so the bot does not glide across the arena.
+
+#### 7.18.3 Attack type to visual family
+
+The effect of a shot comes from a table, with a **tracer fallback**, so a new
+attack type draws something and does not throw:
+
+| Attack type | Family | What a viewer sees |
+|---|---|---|
+| `hitscan`, `line` | beam | a line of `═` that snaps bright and decays slowly |
+| `projectile`, `burst`, `ricochet` | tracer | a `•` head with three `:` behind it |
+| `tile` | rocket | a `●` with a hot and cooled trail, then a blast and embers |
+| `cone` | cone | pellets across the half angle, plus a wedge that fades out |
+| anything else | tracer | the fallback |
+
+A weapon with `aoeRadius` above 1.5 becomes a rocket, whatever its attack type
+says. The four numbers that the visual reads — `projectileSpeed`, `aoeRadius`,
+`coneHalfAngle`, `rangeMax` — ride on the `Shot` event as `visual`, because
+events are the record (Section 4.6): the display must not read the weapon list
+of the simulation to know what it just saw.
+
+| Event | Call |
+|---|---|
+| `Shot` | `vfx.shot({ from, to, attackType, weapon, color })` |
+| `Hit` | `vfx.spark(cellOfTarget, damage)` |
+| `Death` | `vfx.death(cell, teamColor)` |
+| `Spawn` | `vfx.spawnIn(cell, teamColor)` |
+
+#### 7.18.4 The rules of the neon look
+
+1. Glow is `shadowColor` plus `shadowBlur` on `fillText`. It is never a blur
+   filter: a CSS blur over a full canvas is not cheap, and a canvas shadow on
+   text is.
+2. **Budget the glow.** Walls are most of the glyphs and get no glow at all.
+   Only a wall cell with a neighbour that is not a wall is drawn lit
+   (`wallLit`, alpha 0.95); the mass inside a block is `wall` at alpha 0.32.
+   That one rule is what makes the map read as neon tube and not as a grey
+   wash, and it holds the cost of a frame flat.
+3. Bloom belongs to a thing that moves: a bot, a pickup, a hazard, a shot.
+   Ground that does not move does not glow.
+4. Two ambient passes end the grid draw: a radial haze from the palette over
+   the centre, then a vignette at the corners. Scanlines go between them.
+5. The floor grain is `·` at alpha 0.55. Below this the arena reads as empty;
+   above it, the floor takes attention away from the bots.
+6. One `intensity` scalar (`0.55` restrained, `1` punchy, `1.7` maximalist)
+   multiplies the particle counts and the blur. Ship `1`.
+7. Set `shadowBlur` back to 0 after each group that glows. A shadow that is
+   left on for the bulk wall pass is the fastest way to lose the frame rate.
+8. Never push into the effect list while the sweep reads it. A blast spawns its
+   embers from inside the sweep that removes finished effects, so the layer
+   buffers them. Without the buffer they are dropped, which looks like "a
+   rocket sometimes does not explode".
+
+#### 7.18.5 The palette of a match
+
+`NEON_THEMES` holds six palettes, keyed by tile kind and team slot.
+`pickRotation(seed)` gives five of them in an order that the seed fixes, and
+`themeForMatch(seed, matchNumber)` picks the one for a match. A run has a look
+of its own, and a replay of the run looks the same (Section 7.1).
+
+The simulation must never read a value from the palette. A color is a display
+decision, and the result of a match may not depend on it (Section 4.1).
 
 ### 7.19 Name generator (`names/`)
 
@@ -1649,6 +1753,41 @@ A team theme can bias the bot name style (for example, Sponsor teams prefer Desi
 - The generator rejects a result that matches the blocklist, then tries again (maximum 20 tries).
 - All word lists are data. The expander has no words in code.
 - The player can type a team name. The generator can suggest one.
+
+#### 7.20.21 The neon stage: what the change to a canvas bought
+
+The arena used to draw through the rot.js `Display`, which writes one glyph per
+cell with a foreground and a background color. Two things were not possible
+with it, and both of them are what a shooter needs a viewer to read.
+
+**A shot had no shape.** Every weapon drew the same short trail, so a viewer
+could not tell a beam from a rocket from a spread. The five attack types of
+Section 7.20.3 now each have a look of their own (Section 7.18.3), and the four
+numbers that set the look ride on the `Shot` event. A cone opens a wedge, a
+blast throws embers, a beam snaps along the ray.
+
+**A bot moved one cell at a time.** The simulation steps 20 times a second and
+the screen draws 60 times, so a bot held its cell for three frames and then
+jumped. `interp` (Section 7.18.2) draws the bot between the two cells, and the
+same movement now reads as a run.
+
+Two things the change also fixed, which were not the reason for it:
+
+- A death leaves gore on the ground for some seconds, so a firefight leaves a
+  mark on the arena and a viewer can see where the fighting was.
+- A hazard pool animates, with a phase per cell, so a viewer reads it as ground
+  to keep off and not as more wall.
+
+**What it cost.** The grid repaints every cell every frame. At 60×30 with six
+bots that holds 60 frames a second, because of the glow budget of
+Section 7.18.4: the walls, which are most of the glyphs, carry no shadow at
+all. Measured in Chromium at 1440×900 on a `bastion` arena: 60 frames a second
+at 1× and at 4×.
+
+**What is still open.** The count of live effects is capped at 400 and the
+oldest go first. At 4× with three area weapons on the ground the cap is the
+only thing that bounds the cost of a frame, and nothing measures how often it
+is reached. A phone is not measured at all. TBD
 
 ### 7.20 Design notes for M6: weapons, reaction order, and vision
 
@@ -2139,8 +2278,8 @@ Notes:
 | `arena/types.ts` | `Tile`, `PickupPoint`, `PickupKind`, `ArenaMap`, and the helpers `cellIndex`, `inBounds`, `tileAt`, `isWalkable`. |
 | `arena/textArena.ts` | `parseArenaText(text, options)`, `ArenaParseError`. |
 | `arena/index.ts` | `loadTestArena()`, `clearArenaCache()`. |
-| `render/display.ts` | `ArenaDisplay` with `draw`, `fit`, `setMap`, `destroy`. Browser only. |
-| `render/theme.ts` | `TILE_STYLES`, `PICKUP_STYLES`, `DISPLAY_BG`. All values TBD. |
+| `render/display.ts` | `ArenaDisplay` with `draw`, `fit`, `setMap`, `destroy`. Browser only. **Replaced after M8 by the two-canvas stage of Section 7.18.** |
+| `render/theme.ts` | `TILE_STYLES`, `PICKUP_STYLES`, `DISPLAY_BG`. All values TBD. **The colors moved to `render/neonThemes.ts`; only the facing glyphs are left.** |
 
 Notes:
 
@@ -2176,7 +2315,7 @@ Notes:
 | `sim/movement.ts` | `advanceBot(state, bot)`. M3 changed the first parameter from the map to the state, because an enemy bot blocks movement. |
 | `sim/round.ts` | `step(state)`, `stepMany(state, ticks)`. |
 | `render/runner.ts` | `SimRunner` with `start`, `stop`, `setSpeed`, `stepOnce`. `SPEEDS`. Browser only. |
-| `render/display.ts` | `setEntities(entities)` draws bots on top of the tiles. |
+| `render/display.ts` | `setEntities(entities)` draws bots on top of the tiles. **Replaced after M8; `SimArenaView.bots()` gives the same list to the canvas stage.** |
 | `ui/speedControls.ts` | `createSpeedControls(options)`. Browser only. |
 
 Notes:
