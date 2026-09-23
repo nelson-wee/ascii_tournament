@@ -33,7 +33,14 @@
     "perception.peripheralDelayTicks",
     "perception.turnRateDegreesPerTick",
     "combat.stationaryTicksForCrit",
-    "combat.dodgeRampTicks"
+    "combat.dodgeRampTicks",
+    "ai.pickupAnticipationTicks",
+    "ai.pickupAnticipationShare",
+    "ai.holdContactTicks",
+    "ai.holdBlindShare",
+    "ai.holdSuppressesPickup",
+    "ai.preferredRangeBias",
+    "influence"
   ],
   "simulation": {
     "ticksPerSecond": 20,
@@ -47,7 +54,7 @@
   "perception": {
     "directionalVision": false,
     "sightRadiusCells": 20,
-    "memoryTicks": 60,
+    "memoryTicks": 200,
     "focusHalfAngleDegrees": 45,
     "peripheralHalfAngleBaseDegrees": 70,
     "peripheralHalfAngleAwarenessDegrees": 40,
@@ -82,7 +89,24 @@
       "reposition": 0.7,
       "switchWeapon": 0.9,
       "follow": 0.4
-    }
+    },
+    "pickupAnticipationTicks": 220,
+    "pickupAnticipationShare": 0.55,
+    "holdContactTicks": 150,
+    "holdBlindShare": 0.1,
+    "holdSuppressesPickup": 0.6,
+    "preferredRangeBias": 0.25
+  },
+  "influence": {
+    "intervalTicks": 10,
+    "controlRadius": 6,
+    "dangerRadius": 5,
+    "botDanger": 1.0,
+    "sightDanger": 0.5,
+    "hazardDanger": 2.0,
+    "deathRadius": 4,
+    "deathDanger": 1.5,
+    "deathMemoryTicks": 300
   },
   "botDefaults": {
     "accuracy": 0.75,

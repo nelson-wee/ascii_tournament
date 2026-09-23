@@ -1,0 +1,40 @@
+{
+  "_notes": "Pickup points (dev-guide Section 7.12). The power-ups follow the classic arena shooter: double damage and a shield belt, and they come back far less often than health or armor. Ammo is universal: one pickup refills every weapon that a bot holds. Every number is a placeholder. TBD",
+  "armorMax": 75,
+  "armorAbsorb": 0.35,
+  "shieldMax": 75,
+  "kinds": {
+    "health": {
+      "respawnTicks": 300,
+      "amount": 25
+    },
+    "armor": {
+      "respawnTicks": 550,
+      "amount": 30
+    },
+    "ammo": {
+      "respawnTicks": 200,
+      "amount": 0
+    },
+    "weapon": {
+      "respawnTicks": 220,
+      "amount": 0
+    },
+    "powerup": {
+      "respawnTicks": 1400,
+      "amount": 0
+    }
+  },
+  "powerups": {
+    "doubleDamage": {
+      "durationTicks": 400,
+      "damageMultiplier": 2,
+      "weight": 1
+    },
+    "shieldBelt": {
+      "durationTicks": 0,
+      "shield": 75,
+      "weight": 1
+    }
+  }
+}

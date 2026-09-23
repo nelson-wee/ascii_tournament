@@ -10,6 +10,7 @@
  */
 import type { ArenaMap } from "../arena/types.js";
 import type { Tactics } from "../core/schemas.js";
+import type { Role } from "../sim/state.js";
 import { EventBus } from "../core/events.js";
 import { deriveSeed } from "../core/rng.js";
 import { createRng, deriveSeed as derive } from "../core/rng.js";
@@ -26,14 +27,29 @@ export interface BatchArena {
 export interface BatchPlanOptions {
   arenas: readonly BatchArena[];
   presets: Readonly<Record<string, Tactics>>;
+  /**
+   * One named role order per team (Section 7.11). Left out, every team plays
+   * `STANDARD_COMPOSITION`, which is what the simulation gives by default.
+   */
+  compositions?: Readonly<Record<string, readonly Role[]>> | undefined;
   rounds: number;
   seed: number;
 }
+
+/** One of each role. The simulation uses this order when nothing else says so. */
+export const STANDARD_COMPOSITION: readonly Role[] = ["tank", "overwatch", "skirmisher"];
+
+const DEFAULT_COMPOSITIONS: Readonly<Record<string, readonly Role[]>> = {
+  standard: STANDARD_COMPOSITION,
+};
 
 export interface PlannedRound {
   arena: BatchArena;
   teamA: string;
   teamB: string;
+  /** The name of the role composition of each team. */
+  compA: string;
+  compB: string;
   seed: number;
   index: number;
 }
@@ -47,10 +63,17 @@ export interface PlannedRound {
  */
 export function planRounds(options: BatchPlanOptions): PlannedRound[] {
   const presetNames = Object.keys(options.presets).sort();
-  const cells: { arena: BatchArena; teamA: string; teamB: string }[] = [];
+  const compositions = options.compositions ?? DEFAULT_COMPOSITIONS;
+  const compNames = Object.keys(compositions).sort();
+  const cells: { arena: BatchArena; teamA: string; teamB: string; compA: string; compB: string }[] =
+    [];
   for (const arena of options.arenas) {
     for (const teamA of presetNames) {
-      for (const teamB of presetNames) cells.push({ arena, teamA, teamB });
+      for (const teamB of presetNames) {
+        for (const compA of compNames) {
+          for (const compB of compNames) cells.push({ arena, teamA, teamB, compA, compB });
+        }
+      }
     }
   }
   if (cells.length === 0) return [];
@@ -58,7 +81,9 @@ export function planRounds(options: BatchPlanOptions): PlannedRound[] {
   const planned: PlannedRound[] = [];
   for (let index = 0; index < options.rounds; index += 1) {
     const cell = cells[index % cells.length] as (typeof cells)[number];
-    const label = `${cell.arena.name}|${cell.teamA}|${cell.teamB}|${Math.floor(index / cells.length)}`;
+    const label =
+      `${cell.arena.name}|${cell.teamA}|${cell.teamB}|${cell.compA}|${cell.compB}` +
+      `|${Math.floor(index / cells.length)}`;
     planned.push({ ...cell, seed: deriveSeed(options.seed, label), index });
   }
   return planned;
@@ -69,6 +94,7 @@ export function runPlannedRound(
   round: PlannedRound,
   presets: Readonly<Record<string, Tactics>>,
   config: SimConfig = simConfigFromTuning(),
+  compositions: Readonly<Record<string, readonly Role[]>> = DEFAULT_COMPOSITIONS,
 ): RoundRecord {
   const bus = new EventBus();
   const teamATactics = presets[round.teamA];
@@ -93,6 +119,10 @@ export function runPlannedRound(
     bus,
     weapons,
     tactics: { A: teamATactics, B: teamBTactics },
+    roles: {
+      A: compositions[round.compA] ?? STANDARD_COMPOSITION,
+      B: compositions[round.compB] ?? STANDARD_COMPOSITION,
+    },
   });
   const result = runRound(state);
 
@@ -120,6 +150,8 @@ export function runPlannedRound(
     arena: round.arena.name,
     teamA: round.teamA,
     teamB: round.teamB,
+    compA: round.compA,
+    compB: round.compB,
     winner: result.outcome.winnerTeamId,
     reason: result.outcome.reason,
     ticks: result.outcome.ticks,
@@ -144,8 +176,9 @@ export function runBatch(options: RunBatchOptions): RoundRecord[] {
   const config = options.config ?? simConfigFromTuning();
   const planned = planRounds(options);
   const records: RoundRecord[] = [];
+  const compositions = options.compositions ?? DEFAULT_COMPOSITIONS;
   for (const round of planned) {
-    records.push(runPlannedRound(round, options.presets, config));
+    records.push(runPlannedRound(round, options.presets, config, compositions));
     options.onProgress?.(records.length, planned.length);
   }
   return records;

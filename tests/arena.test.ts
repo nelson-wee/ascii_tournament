@@ -7,6 +7,7 @@ import {
   inBounds,
   isWalkable,
   loadTestArena,
+  orderSpawnsForFairness,
   parseArenaText,
   tileAt,
   type ArenaMap,
@@ -238,6 +239,19 @@ describe("loadTestArena", () => {
     }
   });
 
+  it("pairs the slots of the two teams, not only the groups", () => {
+    // Section 7.2.1: a scan of the map collects the second group in the
+    // reverse order of the first, so the slot 0 of team B stood where the slot
+    // 2 of team A stood. The arena was symmetric and the match was not.
+    const map = loadTestArena();
+    const size = map.spawns.length / 2;
+    for (let slot = 0; slot < size; slot += 1) {
+      const a = map.spawns[slot]!;
+      const b = map.spawns[size + slot]!;
+      expect(b).toEqual({ x: map.width - 1 - a.x, y: map.height - 1 - a.y });
+    }
+  });
+
   it("keeps the two spawn groups apart", () => {
     const { spawns } = loadTestArena();
     const distances = spawns.flatMap((a, i) =>
@@ -246,3 +260,68 @@ describe("loadTestArena", () => {
     expect(Math.max(...distances)).toBeGreaterThan(40);
   });
 });
+
+describe("orderSpawnsForFairness", () => {
+  it("turns a scan order into slots that face each other", () => {
+    // The scan gives the second group in the reverse order of the first.
+    const spawns = [
+      { x: 1, y: 1 },
+      { x: 3, y: 1 },
+      { x: 1, y: 4 },
+      { x: 8, y: 5 },
+      { x: 6, y: 8 },
+      { x: 8, y: 8 },
+    ];
+    const ordered = orderSpawnsForFairness(spawns, 10, 10, 3);
+    expect(ordered.slice(3)).toEqual([
+      { x: 8, y: 8 },
+      { x: 6, y: 8 },
+      { x: 8, y: 5 },
+    ]);
+  });
+
+  it("keeps every cell and the first group as it is", () => {
+    const spawns = [
+      { x: 1, y: 1 },
+      { x: 3, y: 1 },
+      { x: 1, y: 4 },
+      { x: 8, y: 5 },
+      { x: 6, y: 8 },
+      { x: 8, y: 8 },
+    ];
+    const ordered = orderSpawnsForFairness(spawns, 10, 10, 3);
+    expect(ordered.slice(0, 3)).toEqual(spawns.slice(0, 3));
+    expect([...ordered].sort(byCell)).toEqual([...spawns].sort(byCell));
+  });
+
+  it("gives the list back when there is not a team on each side", () => {
+    const spawns = [
+      { x: 1, y: 1 },
+      { x: 8, y: 8 },
+    ];
+    expect(orderSpawnsForFairness(spawns, 10, 10, 3)).toEqual(spawns);
+  });
+
+  it("takes the nearest cell to the image on an arena that is not symmetric", () => {
+    const spawns = [
+      { x: 1, y: 1 },
+      { x: 2, y: 1 },
+      { x: 1, y: 2 },
+      { x: 9, y: 2 },
+      { x: 7, y: 8 },
+      { x: 8, y: 8 },
+    ];
+    const ordered = orderSpawnsForFairness(spawns, 10, 10, 3);
+    // The image of 1,1 is 8,8; of 2,1 is 7,8; of 1,2 is 8,7, and the nearest
+    // cell that is left is 9,2.
+    expect(ordered.slice(3)).toEqual([
+      { x: 8, y: 8 },
+      { x: 7, y: 8 },
+      { x: 9, y: 2 },
+    ]);
+  });
+});
+
+function byCell(a: { x: number; y: number }, b: { x: number; y: number }): number {
+  return a.y - b.y || a.x - b.x;
+}

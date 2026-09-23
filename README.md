@@ -8,6 +8,23 @@ The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
 
 ## Status
 
+**Milestone M8 — teams, roles, matches, and pickups.** A full best-of-3 match
+plays in the browser. Between the rounds the tactics screen opens and the
+player sets the tactics and the role of each bot. The arena now gives a reason
+to move: health, armor, universal ammo, a weapon point, and the two power-ups
+of the classic arena shooter (double damage and a shield belt), each on its own
+respawn timer, from one spawn table per match. Each team has three roles
+(tank, overwatch, skirmisher), and the influence maps give the AI a danger map
+and a control map.
+
+The pickups changed the game more than any milestone before: a round went from
+10.9 kills in 5125 ticks to 25.9 kills in 2030 ticks, 98 % of rounds now reach
+the score limit, and the preset that holds its ground fell from 82 % to 42.5 %.
+The batch reports a win rate per role composition, and a rush composition beats
+a turtle composition by 8 points. Sections 7.20.13 and 7.20.14 of the dev guide
+hold the measurements and the three faults they found, among them an arena that
+was symmetric to the cell and still gave one side the better start.
+
 **Milestone M6 — weapon generation.** A run gets five weapons: one fixed
 baseline and four generated from a role trait (precise, assault, sniper, heavy)
 and one of seven attack types (hitscan, projectile, cone, burst, line, ricochet,
@@ -90,10 +107,14 @@ npm run batch -- --rounds 200 --seed 7
 npm run batch -- --config my-batch.json --out results --quiet
 ```
 
-It prints a win-rate matrix (tactics preset × arena), the matchup table, the
-round end reasons, the kills by weapon archetype, the weapon use, and any
-balance failure. Every win rate carries its standard error, because a win rate
-from few rounds says little (Section 7.2.1 of the dev guide).
+It prints a win-rate matrix (tactics preset × arena), the matchup table, a
+win rate per role composition with its own matchup table, the round end
+reasons, the kills by weapon archetype, the weapon use, and any balance
+failure. Every win rate carries its standard error, because a win rate from few
+rounds says little (Section 7.2.1 of the dev guide).
+
+`hits per shot` is not a share: one shot of an area weapon hits several bots,
+so the number passes 1.
 
 It writes `rounds.csv`, `matchups.csv`, and `presets.csv` into the output
 folder. With `--fail-on-balance` the command ends with a non-zero exit code
@@ -126,8 +147,10 @@ Every row must have the same width, and the map needs two spawn cells at
 minimum.
 
 The test arena has 180-degree rotational symmetry, so the two teams get the
-same arena. Section 7.2.1 of the dev guide says why this matters and how to
-check it.
+same arena. The parser also pairs the spawn slots of the two teams, because a
+row-major scan reads the second spawn group in the reverse order of the first,
+and the slot decides the role of a bot. Section 7.2.1 of the dev guide says why
+this matters and how to check it.
 
 ## Deployment
 

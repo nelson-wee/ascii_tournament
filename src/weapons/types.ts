@@ -108,6 +108,8 @@ export interface Weapon {
   /** For example "targetStationary" or "targetUnaware". */
   critConditions: string[];
   ammoMax: number;
+  /** Rounds that one universal ammo pickup gives this weapon. */
+  ammoPerPickup: number;
   /** Weapon mutations of Section 7.3. They arrive later. */
   traits: string[];
   /**

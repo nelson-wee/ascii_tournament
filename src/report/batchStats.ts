@@ -17,6 +17,9 @@ export interface RoundRecord {
   /** The tactics preset of each team. It stands in for a doctrine. */
   teamA: string;
   teamB: string;
+  /** The role composition of each team (Section 7.11). */
+  compA: string;
+  compB: string;
   winner: "A" | "B" | null;
   reason: RoundEndReason;
   ticks: number;
@@ -41,6 +44,11 @@ export interface BatchSummary {
   rounds: number;
   arenas: string[];
   presets: string[];
+  compositions: string[];
+  /** Per role composition, over every arena, preset, and opponent. */
+  byComposition: Map<string, WinRecord>;
+  /** Per composition matchup: `${compA}|${compB}`. */
+  byCompositionMatchup: Map<string, WinRecord>;
   /** Per preset, over every arena and every opponent. */
   byPreset: Map<string, WinRecord>;
   /** Per preset and arena. The balance rule of Section 7.16 uses it. */
@@ -50,7 +58,12 @@ export interface BatchSummary {
   meanTicks: number;
   meanKills: number;
   meanShots: number;
-  hitRate: number;
+  /**
+   * Hits per shot, not a share. One shot of an area weapon hits several bots,
+   * so this passes 1. The plain hit chance of a single shot is a combat
+   * number, not a batch number (Section 7.16).
+   */
+  hitsPerShot: number;
   /** The share of kills on a target that could not see its killer. */
   unawareKillShare: number;
   /** Rounds per end reason. */
@@ -114,11 +127,14 @@ export function summarize(
   const byPreset = new Map<string, WinRecord>();
   const byPresetArena = new Map<string, WinRecord>();
   const byMatchup = new Map<string, WinRecord>();
+  const byComposition = new Map<string, WinRecord>();
+  const byCompositionMatchup = new Map<string, WinRecord>();
   const byReason = new Map<RoundEndReason, number>();
   const killsByArchetype = new Map<string, number>();
   const shotsByWeapon = new Map<string, number>();
   const arenas = new Set<string>();
   const presets = new Set<string>();
+  const compositions = new Set<string>();
 
   let ticks = 0;
   let kills = 0;
@@ -131,6 +147,8 @@ export function summarize(
     arenas.add(round.arena);
     presets.add(round.teamA);
     presets.add(round.teamB);
+    compositions.add(round.compA);
+    compositions.add(round.compB);
 
     const resultA = round.winner === "A" ? "win" : round.winner === "B" ? "loss" : "draw";
     const resultB = round.winner === "B" ? "win" : round.winner === "A" ? "loss" : "draw";
@@ -139,6 +157,9 @@ export function summarize(
     add(record(byPresetArena, `${round.teamA}|${round.arena}`), resultA);
     add(record(byPresetArena, `${round.teamB}|${round.arena}`), resultB);
     add(record(byMatchup, `${round.arena}|${round.teamA}|${round.teamB}`), resultA);
+    add(record(byComposition, round.compA), resultA);
+    add(record(byComposition, round.compB), resultB);
+    add(record(byCompositionMatchup, `${round.compA}|${round.compB}`), resultA);
 
     byReason.set(round.reason, (byReason.get(round.reason) ?? 0) + 1);
     ticks += round.ticks;
@@ -177,13 +198,16 @@ export function summarize(
     rounds: count,
     arenas: arenaList,
     presets: presetList,
+    compositions: [...compositions].sort(),
+    byComposition,
+    byCompositionMatchup,
     byPreset,
     byPresetArena,
     byMatchup,
     meanTicks: count === 0 ? 0 : ticks / count,
     meanKills: count === 0 ? 0 : kills / count,
     meanShots: count === 0 ? 0 : shots / count,
-    hitRate: shots === 0 ? 0 : hits / shots,
+    hitsPerShot: shots === 0 ? 0 : hits / shots,
     unawareKillShare: kills === 0 ? 0 : unawareKills / kills,
     byReason,
     lowKillRounds,
@@ -192,7 +216,9 @@ export function summarize(
     balanceFailures,
     missingReports: [
       "Trait distribution in winning teams needs the progression of M10.",
-      "Average match length needs the best-of-3 match of M8.",
+      "Average match length needs a batch of matches. M8 built `runMatch`, "
+        + "but the batch runs single rounds, so the two teams keep one set of "
+        + "tactics and the between-round change is not measured.",
       "Average run duration needs the run structure of M11.",
       "A real doctrine needs M11, and a real arena profile needs M7. A tactics "
         + "preset and an arena file name stand in their place.",

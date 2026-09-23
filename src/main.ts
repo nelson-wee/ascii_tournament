@@ -1,15 +1,18 @@
 /**
  * Browser entry point.
  *
- * Milestone M3 runs one full round: six bots (3v3) see each other with FOV,
- * shoot with the baseline weapon, die, and respawn. The round ends at the
- * score limit or at the time limit. The side panel shows the score, the timer,
- * and the kill feed.
+ * Milestone M8 plays a full best-of-3 match (Section 7.4): six bots in three
+ * roles (Section 7.11) fight over pickups and power-ups (Section 7.12) with
+ * generated weapons (Section 7.3). Between rounds the tactics screen opens and
+ * the player sets the tactics and the roles of team A. The side panel shows
+ * the score, the round wins, the timer, and the kill feed.
  */
 import { loadTestArena } from "./arena/index.js";
 import { Tile } from "./arena/types.js";
-import { loadTuning } from "./core/data.js";
+import { loadDefaultTactics, loadTuning } from "./core/data.js";
+import { EventBus } from "./core/events.js";
 import { createRng, deriveSeed } from "./core/rng.js";
+import type { Tactics } from "./core/schemas.js";
 import { generateWeaponSet } from "./weapons/generate.js";
 import { feedLines } from "./report/killFeed.js";
 import { ArenaDisplay, type EntityGlyph } from "./render/display.js";
@@ -17,13 +20,20 @@ import { SimRunner, type Speed } from "./render/runner.js";
 import { PICKUP_STYLES, TEAM_STYLES, TILE_STYLES, facingChar } from "./render/theme.js";
 import {
   botCell,
-  createSimState,
+  createRoundState,
+  DEFAULT_ROLES,
+  rollSpawnTable,
   simConfigFromTuning,
   step,
   TEAM_IDS,
+  type MatchPlan,
+  type Role,
+  type RoundOutcome,
   type SimState,
+  type TeamId,
 } from "./sim/index.js";
 import { createSpeedControls } from "./ui/speedControls.js";
+import { openTacticsScreen } from "./ui/tacticsScreen.js";
 
 const INITIAL_SPEED: Speed = 1;
 const SEED = 1; // The run generator gives the seed from Milestone M11.
@@ -47,8 +57,8 @@ function buildLegend(directional: boolean): string {
     [PICKUP_STYLES.health.char, "health", PICKUP_STYLES.health.fg],
     [PICKUP_STYLES.powerup.char, "powerup", PICKUP_STYLES.powerup.fg],
     [PICKUP_STYLES.ammo.char, "ammo", PICKUP_STYLES.ammo.fg],
-    [directional ? "\u2192" : TEAM_STYLES["A"]!.char, "team A", TEAM_STYLES["A"]!.fg],
-    [directional ? "\u2192" : TEAM_STYLES["B"]!.char, "team B", TEAM_STYLES["B"]!.fg],
+    [directional ? "→" : TEAM_STYLES["A"]!.char, "team A", TEAM_STYLES["A"]!.fg],
+    [directional ? "→" : TEAM_STYLES["B"]!.char, "team B", TEAM_STYLES["B"]!.fg],
   ];
   return items
     .map(([glyph, label, color]) => `<b style="color:${color}">${glyph}</b> ${label}`)
@@ -62,9 +72,7 @@ function timeLeft(state: SimState): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function outcomeText(state: SimState): string {
-  const { outcome } = state;
-  if (outcome === null) return "";
+function outcomeText(outcome: RoundOutcome): string {
   const reason =
     outcome.reason === "scoreLimit"
       ? "score limit"
@@ -83,13 +91,24 @@ try {
   const statusHost = document.querySelector<HTMLElement>("#status");
   const scoreHost = document.querySelector<HTMLElement>("#score");
   const feedHost = document.querySelector<HTMLElement>("#feed");
-  if (!arenaHost || !meta || !legend || !controls || !statusHost || !scoreHost || !feedHost) {
+  const stageHost = document.querySelector<HTMLElement>("#stage");
+  if (
+    !arenaHost ||
+    !meta ||
+    !legend ||
+    !controls ||
+    !statusHost ||
+    !scoreHost ||
+    !feedHost ||
+    !stageHost
+  ) {
     throw new Error("index.html is missing one of the elements that main.ts needs");
   }
   // Narrowed bindings for the closures below.
   const statusEl: HTMLElement = statusHost;
   const scoreEl: HTMLElement = scoreHost;
   const feedEl: HTMLElement = feedHost;
+  const stageEl: HTMLElement = stageHost;
 
   const tuning = loadTuning();
   const arena = loadTestArena();
@@ -99,8 +118,32 @@ try {
     config.weaponsPerRun,
     { ticksPerSecond: config.ticksPerSecond },
   );
-  const state = createSimState({ map: arena, seed: SEED, config, weapons });
+  // One spawn table for every round of the match (Section 2.2).
+  const spawnTable = rollSpawnTable(arena, weapons, createRng(SEED, "weapons"));
   const display = new ArenaDisplay(arenaHost, arena);
+
+  // The match state that the rounds share. `runMatch` runs a match to its end
+  // in one call, which a display cannot do, so the browser keeps the same
+  // bookkeeping here and steps one round at a time.
+  const bus = new EventBus();
+  const matchOptions = { map: arena, weapons, seed: SEED, spawnTable };
+  const plan: MatchPlan = {
+    A: { tactics: loadDefaultTactics(), roles: [...DEFAULT_ROLES] },
+    B: { tactics: loadDefaultTactics(), roles: [...DEFAULT_ROLES] },
+  };
+  const rounds: RoundOutcome[] = [];
+  const roundWins: Record<TeamId, number> = { A: 0, B: 0 };
+  let matchWinner: TeamId | null = null;
+  let roundNumber = 1;
+
+  bus.emit("MatchStart", 0, 0, {
+    matchId: `match-${SEED}`,
+    arena: arena.name,
+    weapons: weapons.map((weapon) => weapon.id),
+    spawnTable: spawnTable.slots,
+  });
+
+  let state = createRoundState(matchOptions, roundNumber, plan, spawnTable, config, bus);
 
   function entities(): EntityGlyph[] {
     return state.bots
@@ -123,18 +166,21 @@ try {
       `<span class="dim">—</span>`,
       `<span style="color:${TEAM_STYLES[teamB]!.fg}">${state.score[teamB]} B</span>`,
       `<span class="dim">to ${state.config.scoreLimit}</span>`,
+      `<span class="dim">· rounds ${roundWins[teamA]}–${roundWins[teamB]}</span>`,
     ].join(" ");
 
     feedEl.replaceChildren();
-    for (const line of feedLines(state.bus.log, KILL_FEED_LINES)) {
+    for (const line of feedLines(bus.log, KILL_FEED_LINES)) {
       const item = document.createElement("li");
       item.textContent = line.text;
       if (line.kind !== "kill") item.className = `announce ${line.kind}`;
       feedEl.append(item);
     }
 
-    if (state.outcome !== null) {
-      statusEl.textContent = outcomeText(state);
+    if (matchWinner !== null) {
+      statusEl.textContent = `Team ${matchWinner} wins the match ${roundWins.A}–${roundWins.B}`;
+    } else if (state.outcome !== null) {
+      statusEl.textContent = outcomeText(state.outcome);
     } else if (state.suddenDeath) {
       statusEl.textContent = `round ${state.roundNumber}  ·  SUDDEN DEATH  ·  next kill wins`;
     } else {
@@ -143,15 +189,69 @@ try {
     statusEl.classList.toggle("urgent", state.suddenDeath && state.outcome === null);
   }
 
+  /** Close the round, and open the tactics screen or end the match. */
+  function endRound(): void {
+    const outcome = state.outcome;
+    if (outcome === null) return;
+    rounds.push(outcome);
+    if (outcome.winnerTeamId !== null) roundWins[outcome.winnerTeamId] += 1;
+
+    for (const teamId of TEAM_IDS) {
+      if (roundWins[teamId] >= config.roundWinsToWinMatch) matchWinner = teamId;
+    }
+    if (matchWinner === null && rounds.length >= config.maxRounds) {
+      const [first, second] = TEAM_IDS;
+      if (roundWins[first] > roundWins[second]) matchWinner = first;
+      else if (roundWins[second] > roundWins[first]) matchWinner = second;
+    }
+
+    runner.setSpeed(0);
+    speedControls.setEnabled(false);
+
+    if (matchWinner !== null || rounds.length >= config.maxRounds) {
+      bus.emit("MatchEnd", state.tick, rounds.length, {
+        matchId: `match-${SEED}`,
+        winnerTeamId: matchWinner,
+        roundWins: { ...roundWins },
+        rounds: rounds.length,
+      });
+      render();
+      return;
+    }
+
+    render();
+    openBetweenRounds();
+  }
+
+  /** The between-round screen of Section 7.4. */
+  function openBetweenRounds(): void {
+    const screen = openTacticsScreen({
+      container: stageEl,
+      teamId: "A",
+      tactics: plan.A?.tactics ?? loadDefaultTactics(),
+      roles: plan.A?.roles ?? DEFAULT_ROLES,
+      rounds,
+      roundWins,
+      nextRoundNumber: roundNumber + 1,
+      onStart: (tactics: Tactics, roles: Role[]) => {
+        screen.close();
+        plan.A = { tactics, roles };
+        roundNumber += 1;
+        state = createRoundState(matchOptions, roundNumber, plan, spawnTable, config, bus);
+        speedControls.setEnabled(true);
+        speedControls.setSpeed(INITIAL_SPEED);
+        runner.setSpeed(INITIAL_SPEED);
+        render();
+      },
+    });
+  }
+
   const runner = new SimRunner({
     ticksPerSecond: config.ticksPerSecond,
     initialSpeed: INITIAL_SPEED,
     onTick: () => {
       step(state);
-      if (state.outcome !== null) {
-        runner.setSpeed(0);
-        speedControls.setEnabled(false);
-      }
+      if (state.outcome !== null) endRound();
     },
     onRender: render,
   });
@@ -165,15 +265,14 @@ try {
       runner.setSpeed(0);
       // The time limit bounds this loop.
       while (state.outcome === null) step(state);
-      speedControls.setEnabled(false);
-      render();
+      endRound();
     },
   });
 
   meta.textContent = [
-    `M6 — ${arena.name}`,
+    `M8 — ${arena.name}`,
     `${arena.width}×${arena.height}`,
-    `${state.bots.length} bots`,
+    `best of ${config.maxRounds}`,
     `${config.ticksPerSecond} ticks/s`,
     weapons.map((weapon) => weapon.archetype).join("/"),
   ].join("  ·  ");

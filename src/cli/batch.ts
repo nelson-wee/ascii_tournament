@@ -123,6 +123,7 @@ function main(): void {
   const records = runBatch({
     arenas,
     presets: config.presets,
+    compositions: config.compositions,
     rounds,
     seed,
     config: simConfig,

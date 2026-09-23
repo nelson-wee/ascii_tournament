@@ -6,8 +6,8 @@
  *
  * Tick order of Section 7.4. A step of a later milestone is marked:
  *
- *   1. Timers          — respawn, the weapon cooldown, damage over time, and
- *                        the hazard tiles. The pickup timers arrive with M8.
+ *   1. Timers          — respawn, the weapon cooldown, damage over time, the
+ *                        hazard tiles, the pickup timers, and the power-ups.
  *   2. Perception      — FOV, visible enemies, memory
  *   3. AI decision     — the utility AI of Section 7.8
  *   4. AI action       — movement intent and fire intent
@@ -18,10 +18,12 @@
  *   9. Events
  *  10. End condition   — the score limit, the time limit, or sudden death
  */
+import { updateInfluence } from "../ai/influence.js";
 import { updatePerception } from "../ai/perception.js";
 import { actionLabel, applyAction, decide, noteReachedPickup } from "../ai/utility.js";
 import type { GameEvent } from "../core/events.js";
 import { applyDots, applyHazards, updateProjectiles } from "./attacks.js";
+import { applyPickups, updatePickups, updatePowerups } from "./pickups.js";
 import { respawn, tryFire } from "./combat.js";
 import { advanceBot } from "./movement.js";
 import {
@@ -141,9 +143,12 @@ export function step(state: SimState): void {
   }
   applyDots(state);
   applyHazards(state);
+  updatePickups(state);
+  updatePowerups(state);
 
-  // 2. Perception.
+  // 2. Perception, then the influence maps of Section 7.9.
   updatePerception(state);
+  updateInfluence(state);
 
   // 3 and 4. AI decision and intent.
   decideActions(state);
@@ -165,6 +170,9 @@ export function step(state: SimState): void {
   // in the air move before the new ones leave.
   updateProjectiles(state);
   for (const bot of order) tryFire(state, bot);
+
+  // 8. Pickups. A bot takes what it stands on.
+  applyPickups(state);
 
   // 10. End condition.
   enterSuddenDeathIfNeeded(state);

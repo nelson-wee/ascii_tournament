@@ -47,6 +47,8 @@ function record(over: Partial<RoundRecord> = {}): RoundRecord {
     arena: "a",
     teamA: "bold",
     teamB: "shy",
+    compA: "standard",
+    compB: "standard",
     winner: "A",
     reason: "scoreLimit",
     ticks: 1000,
@@ -197,7 +199,7 @@ describe("summarize", () => {
     expect(summary.meanTicks).toBe(1500);
     expect(summary.meanKills).toBe(20);
     expect(summary.meanShots).toBe(150);
-    expect(summary.hitRate).toBeCloseTo(100 / 300, 10);
+    expect(summary.hitsPerShot).toBeCloseTo(100 / 300, 10);
   });
 
   it("counts the rounds per end reason", () => {
@@ -250,7 +252,7 @@ describe("summarize", () => {
     const summary = summarize([]);
     expect(summary.rounds).toBe(0);
     expect(summary.meanTicks).toBe(0);
-    expect(summary.hitRate).toBe(0);
+    expect(summary.hitsPerShot).toBe(0);
   });
 });
 
@@ -292,7 +294,7 @@ describe("the CSV files", () => {
   it("writes one row per round, plus the header", () => {
     const lines = roundsCsv(records).trim().split("\n");
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toContain("seed,arena,teamA,teamB,winner,reason,ticks");
+    expect(lines[0]).toContain("seed,arena,teamA,teamB,compA,compB,winner,reason,ticks");
     expect(lines[0]).toContain("unawareKills");
     expect(lines[0]).toContain("kills_baseline");
     expect(lines[0]).toContain("kills_precision");
@@ -350,5 +352,85 @@ describe("the batch configuration", () => {
     expect(() => parseData("test", BatchConfigSchema, { ...good, presets: presetsValue })).toThrow(
       DataValidationError,
     );
+  });
+});
+
+describe("role compositions", () => {
+  const compositions = {
+    rush: ["skirmisher", "skirmisher", "tank"],
+    turtle: ["overwatch", "overwatch", "tank"],
+  } as const;
+
+  it("crosses every pair of compositions with every pair of presets", () => {
+    const planned = planRounds({
+      arenas: arenas(),
+      presets: presets(),
+      compositions,
+      rounds: 16,
+      seed: 1,
+    });
+    const cells = planned.map(
+      (round) => `${round.teamA}|${round.teamB}|${round.compA}|${round.compB}`,
+    );
+    expect(new Set(cells).size).toBe(16);
+  });
+
+  it("names the standard composition when the batch gives none", () => {
+    const [round] = planRounds({ arenas: arenas(), presets: presets(), rounds: 1, seed: 1 });
+    expect(round!.compA).toBe("standard");
+    expect(round!.compB).toBe("standard");
+  });
+
+  it("gives the bots the roles of their composition", () => {
+    const [round] = planRounds({
+      arenas: arenas(),
+      presets: presets(),
+      compositions,
+      rounds: 1,
+      seed: 1,
+    });
+    const record = runPlannedRound(round!, presets(), undefined, compositions);
+    expect(record.compA).toBe(round!.compA);
+    expect(record.compB).toBe(round!.compB);
+  });
+
+  it("gives a different result for a different composition", () => {
+    // The acceptance test of M8.
+    const [round] = planRounds({
+      arenas: arenas(),
+      presets: presets(),
+      compositions,
+      rounds: 1,
+      seed: 4,
+    });
+    const rush = runPlannedRound({ ...round!, compA: "rush", compB: "rush" }, presets(), undefined, compositions);
+    const turtle = runPlannedRound({ ...round!, compA: "turtle", compB: "turtle" }, presets(), undefined, compositions);
+    expect(turtle.ticks).not.toBe(rush.ticks);
+  });
+
+  it("counts the wins of each composition", () => {
+    const summary = summarize([
+      record({ compA: "rush", compB: "turtle", winner: "A" }),
+      record({ compA: "rush", compB: "turtle", winner: "B" }),
+      record({ compA: "turtle", compB: "rush", winner: "A" }),
+    ]);
+    expect(summary.compositions).toEqual(["rush", "turtle"]);
+    expect(summary.byComposition.get("rush")).toMatchObject({ rounds: 3, wins: 1, losses: 2 });
+    expect(summary.byComposition.get("turtle")).toMatchObject({ rounds: 3, wins: 2, losses: 1 });
+    expect(summary.byCompositionMatchup.get("rush|turtle")).toMatchObject({
+      rounds: 2,
+      wins: 1,
+      losses: 1,
+    });
+  });
+
+  it("shows the composition table only when there is more than one", () => {
+    const one = formatReport(summarize([record()]));
+    expect(one).not.toContain("WIN RATE: role composition");
+    const two = formatReport(
+      summarize([record({ compA: "rush", compB: "turtle", winner: "A" }), record()]),
+    );
+    expect(two).toContain("WIN RATE: role composition");
+    expect(two).toContain("COMPOSITION MATCHUPS");
   });
 });

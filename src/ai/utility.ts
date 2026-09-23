@@ -21,7 +21,7 @@
  */
 import type { Cell } from "../core/types.js";
 import type { Tactics } from "../core/schemas.js";
-import type { RangeBand, Weapon } from "../weapons/types.js";
+import { RANGE_BANDS, type RangeBand, type Weapon } from "../weapons/types.js";
 import {
   botCell,
   distanceBetween,
@@ -31,6 +31,8 @@ import {
   type SimState,
 } from "../sim/state.js";
 import { hasAmmo } from "../sim/combat.js";
+import { pickupValue } from "../sim/pickups.js";
+import { controlAt, dangerFor } from "./influence.js";
 import { findPath } from "./navigation.js";
 
 export type Action =
@@ -76,9 +78,16 @@ export function actionLabel(action: Action): string {
 // Modifier hooks of later milestones
 // ---------------------------------------------------------------------------
 
-/** Role behaviors arrive with M8 (Section 7.11). */
-function roleModifier(_action: Action, _bot: BotState): number {
-  return 1;
+/**
+ * The behavior weights of the role of a bot (Section 7.11).
+ *
+ * An Overwatch bot holds a sightline, a Tank presses and takes the items, and
+ * a Skirmisher follows the team and moves. The weights are small: the tactics
+ * of the player stay the main factor (Section 7.8).
+ */
+function roleModifier(action: Action, bot: BotState): number {
+  const key = action.kind.charAt(0).toLowerCase() + action.kind.slice(1);
+  return bot.roleBehavior[key] ?? 1;
 }
 
 /** Trait tendencies arrive with M10 (Section 7.13). They stay small. */
@@ -86,8 +95,33 @@ function traitModifiers(_action: Action, _bot: BotState): number {
   return 1;
 }
 
-/** Team tactics (cohesion, focus fire, spacing, trading) arrive with M8. */
-function teamModifier(_action: Action, _bot: BotState): number {
+/**
+ * The team tactics of Section 6.5.
+ *
+ * - `cohesion` pulls a bot toward its team, so it raises `Follow`.
+ * - `spacing` pushes the team apart, so it lowers `Follow`.
+ * - `focusFire` raises `Engage` and `Chase` on an enemy that a teammate is
+ *   already fighting.
+ * - `trading` raises `Engage` while the bot is hurt: a trade is worth it.
+ */
+function teamModifier(state: SimState, action: Action, bot: BotState): number {
+  const team = state.teamTactics[bot.teamId];
+  if (!team) return 1;
+
+  if (action.kind === "Follow") return 0.6 + team.cohesion - team.spacing * 0.5;
+  if (action.kind === "HoldPosition") return 0.8 + team.spacing * 0.4;
+
+  if (action.kind === "Engage" || action.kind === "Chase") {
+    let factor = 1;
+    const shared = state.bots.some(
+      (other) => other !== bot && other.teamId === bot.teamId && other.targetId === action.targetId,
+    );
+    if (shared) factor *= 1 + team.focusFire * 0.5;
+    if (action.kind === "Engage" && healthFraction(state, bot) < 0.5) {
+      factor *= 0.7 + team.trading * 0.6;
+    }
+    return factor;
+  }
   return 1;
 }
 
@@ -106,6 +140,30 @@ export function bandDistance(state: SimState, band: RangeBand): number {
   if (band === "close") return rangeBandCloseMax / 2;
   if (band === "mid") return (rangeBandCloseMax + rangeBandMidMax) / 2;
   return rangeBandMidMax * 1.25;
+}
+
+/**
+ * The band that a bot wants to fight in.
+ *
+ * The `preferredRange` tactic is a bias on the weapon in the hands of the bot,
+ * not an order. A bot that walks into close range with a long-range weapon
+ * crosses open ground and then fires the weapon where it is weakest, which is
+ * why the aggressive preset lost every matchup before this rule
+ * (Section 7.20.12). The weapon carries the band; the tactic breaks the tie.
+ */
+export function wantedBand(state: SimState, bot: BotState): RangeBand {
+  const bias = state.config.preferredRangeBias;
+  let best: RangeBand = bot.tactics.preferredRange;
+  let bestValue = -Infinity;
+  for (const band of RANGE_BANDS) {
+    if (bandDistance(state, band) > bot.weapon.rangeMax) continue;
+    const value = bot.weapon.dpsProfile[band] * (band === bot.tactics.preferredRange ? 1 + bias : 1);
+    if (value > bestValue) {
+      best = band;
+      bestValue = value;
+    }
+  }
+  return best;
 }
 
 /** The band of a distance. It repeats `rangeBandOf` without a circular import. */
@@ -129,6 +187,38 @@ export function bestWeaponAt(state: SimState, bot: BotState, distance: number): 
     if (!hasAmmo(bot, weapon)) continue;
     let value = weapon.dpsProfile[band];
     // The weapon role preference is a bias, not a rule.
+    if (bot.tactics.weaponRolePref !== null && weapon.archetype === bot.tactics.weaponRolePref) {
+      value *= 1.25;
+    }
+    if (value > bestValue) {
+      best = weapon;
+      bestValue = value;
+    }
+  }
+  return best;
+}
+
+/**
+ * The weapon that a bot carries while it sees nobody (Section 7.8).
+ *
+ * A weapon is worth what it can reach. A bot that picks its weapon for one
+ * band alone carries a short-range weapon into a mid-range arena and then
+ * cannot fire at all: that, and not the walk, is what the close preference
+ * cost the aggressive preset (Section 7.20.12). So the value of a weapon is
+ * its damage over every band it reaches, and the `preferredRange` tactic
+ * raises one of those bands.
+ */
+export function bestWeaponOverall(state: SimState, bot: BotState): Weapon {
+  const bias = state.config.preferredRangeBias;
+  let best = bot.weapons[0] ?? bot.weapon;
+  let bestValue = -Infinity;
+  for (const weapon of bot.weapons) {
+    if (!hasAmmo(bot, weapon)) continue;
+    let value = 0;
+    for (const band of RANGE_BANDS) {
+      if (bandDistance(state, band) > weapon.rangeMax) continue;
+      value += weapon.dpsProfile[band] * (band === bot.tactics.preferredRange ? 1 + bias : 1);
+    }
     if (bot.tactics.weaponRolePref !== null && weapon.archetype === bot.tactics.weaponRolePref) {
       value *= 1.25;
     }
@@ -188,25 +278,83 @@ function pickupTarget(
   bot: BotState,
   from: Cell,
 ): { slotId: string; value: number } | null {
-  const { pickups } = state.map;
-
-  // Hold the current goal while the bot is still on the way.
+  // Hold the current goal while the bot is still on the way and the point is
+  // still worth something.
   const committed = bot.action.kind === "SeekPickup" ? bot.action.slotId : null;
   if (committed !== null) {
-    const current = pickups.find((pickup) => pickup.slotId === committed);
-    if (current && (current.cell.x !== from.x || current.cell.y !== from.y)) {
-      return { slotId: current.slotId, value: nearness(state, from, current.cell) };
+    const current = state.pickups.find((pickup) => pickup.point.slotId === committed);
+    if (
+      current &&
+      (current.point.cell.x !== from.x || current.point.cell.y !== from.y) &&
+      pickupValue(state, bot, current) > 0
+    ) {
+      return {
+        slotId: current.point.slotId,
+        value: pickupValue(state, bot, current) * nearness(state, from, current.point.cell),
+      };
     }
   }
 
+  // What a point is worth now, and how far it is. Before M8 a point gave
+  // nothing, so the only question was the distance (Section 7.20.10).
   let best: { slotId: string; value: number } | null = null;
-  for (const pickup of pickups) {
-    if (pickup.cell.x === from.x && pickup.cell.y === from.y) continue;
-    if (bot.visitedSlotIds.includes(pickup.slotId)) continue;
-    const value = nearness(state, from, pickup.cell);
-    if (best === null || value > best.value) best = { slotId: pickup.slotId, value };
+  for (const pickup of state.pickups) {
+    const point = pickup.point;
+    if (point.cell.x === from.x && point.cell.y === from.y) continue;
+    const worth = pickupValue(state, bot, pickup);
+    if (worth <= 0) continue;
+    const value = worth * nearness(state, from, point.cell);
+    if (best === null || value > best.value) best = { slotId: point.slotId, value };
   }
   return best;
+}
+
+/**
+ * How much the cell that a bot stands on is worth holding, from about 0.2 to 1.
+ *
+ * A cell is worth holding when a pickup point is near it, when the team holds
+ * the ground around it, and when it is not itself dangerous. This is the
+ * "contested cell" of Section 7.2 step 5, measured on the grid: the arena has
+ * no macro graph until M7.
+ */
+export function positionValue(state: SimState, bot: BotState, cell: Cell): number {
+  let nearestPickup = 0;
+  for (const pickup of state.pickups) {
+    const worth = Math.max(0.35, pickupValue(state, bot, pickup));
+    const value = worth * nearness(state, cell, pickup.point.cell) ** 2;
+    if (value > nearestPickup) nearestPickup = value;
+  }
+
+  const control = controlAt(state.influence, cell.x, cell.y);
+  const friendly = bot.teamId === "A" ? control : -control;
+  const danger = dangerFor(state, bot, cell);
+
+  const value = 0.2 + nearestPickup + Math.max(0, friendly) * 0.1 - Math.min(0.4, danger * 0.05);
+  return Math.max(0.1, Math.min(1.4, value * contactFactor(state, bot)));
+}
+
+/**
+ * How much the last contact with an enemy is still worth, from
+ * `ai.holdBlindShare` to 1.
+ *
+ * Holding ground is a sightline action, so it is worth the most while an enemy
+ * is in that sightline. A bot that has seen no enemy for `ai.holdContactTicks`
+ * holds a sightline that nothing crosses. The measurement of Section 7.20.12
+ * found 29 000 of 29 051 HoldPosition ticks with no enemy in sight, which is
+ * the low-kill defect of Section 7.2.1: both teams stand still and the round
+ * runs to the time limit.
+ */
+function contactFactor(state: SimState, bot: BotState): number {
+  if (bot.visibleEnemyIds.length > 0) return 1;
+
+  let last = -Infinity;
+  for (const seen of bot.lastSeen.values()) {
+    if (seen.tick > last) last = seen.tick;
+  }
+  const { holdContactTicks, holdBlindShare } = state.config;
+  const since = state.tick - last;
+  if (!Number.isFinite(since) || since >= holdContactTicks) return holdBlindShare;
+  return holdBlindShare + (1 - holdBlindShare) * (1 - since / holdContactTicks);
 }
 
 /**
@@ -220,9 +368,8 @@ export function noteReachedPickup(state: SimState, bot: BotState): void {
   const cell = botCell(bot);
   if (goal.cell.x !== cell.x || goal.cell.y !== cell.y) return;
 
-  bot.visitedSlotIds.push(bot.goalSlotId);
-  // Always keep one free point, so that the bot always has a goal.
-  while (bot.visitedSlotIds.length >= state.map.pickups.length) bot.visitedSlotIds.shift();
+  // A point that the bot took is empty until its timer runs out, and
+  // `pickupValue` returns 0 for it, so no visited memory is needed any more.
   bot.goalSlotId = null;
   if (bot.action.kind === "SeekPickup") bot.action = { kind: "Idle" };
 }
@@ -249,7 +396,7 @@ export function scoreActions(state: SimState, bot: BotState): ScoredAction[] {
       weight *
       roleModifier(action, bot) *
       traitModifiers(action, bot) *
-      teamModifier(action, bot);
+      teamModifier(state, action, bot);
     if (score > 0) scored.push({ action, score });
   };
 
@@ -268,9 +415,15 @@ export function scoreActions(state: SimState, bot: BotState): ScoredAction[] {
     }
 
     // Reposition: the distance is outside the preferred band.
-    const wanted = bandDistance(state, tactics.preferredRange);
-    const mismatch = Math.min(1, Math.abs(distance - wanted) / Math.max(1, wanted));
-    push({ kind: "Reposition", band: tactics.preferredRange }, (base["reposition"] ?? 1) * mismatch, 1);
+    // The cost of the distance is the damage that the distance loses, not the
+    // number of cells. A bot that walks toward a band where its weapon is no
+    // better walks under fire for nothing: the close preference cost the
+    // aggressive preset 20 points of win rate that way (Section 7.20.12).
+    const band = wantedBand(state, bot);
+    const here = bot.weapon.dpsProfile[bandOf(state, distance)];
+    const there = bot.weapon.dpsProfile[band];
+    const mismatch = there <= 0 ? 0 : Math.max(0, Math.min(1, (there - here) / there));
+    push({ kind: "Reposition", band }, (base["reposition"] ?? 1) * mismatch, 1);
 
     // Retreat: the health fell under the retreat threshold.
     // Benefit: the bot lives. Cost: it gives ground and makes no kills.
@@ -296,26 +449,40 @@ export function scoreActions(state: SimState, bot: BotState): ScoredAction[] {
     }
   }
 
-  // SeekPickup: the nearest pickup point that the bot did not just take.
-  // Benefit of item control: the bot holds the items. Cost: it crosses the open
-  // arena instead of holding its ground.
+  // SeekPickup: the point that is worth the most to this bot, right now.
+  // Benefit of item control: health, armor, ammo, and the power-ups. Cost: the
+  // bot crosses the open arena instead of holding its ground.
   const from = botCell(bot);
   const target = pickupTarget(state, bot, from);
   if (target !== null) {
     push(
       { kind: "SeekPickup", slotId: target.slotId },
       (base["seekPickup"] ?? 1) * target.value,
-      (0.5 + tactics.itemControl) * (1 - tactics.holdPosition),
+      (0.5 + tactics.itemControl) *
+        (1 - tactics.holdPosition * state.config.holdSuppressesPickup),
     );
   }
 
-  // HoldPosition: stay on the current cell.
-  // Benefit: the bot keeps a sightline. Cost: it takes no items and no ground.
-  push({ kind: "HoldPosition", cell: from }, base["holdPosition"] ?? 1, tactics.holdPosition * 2);
+  // HoldPosition: stay on the current cell, if the cell is worth holding.
+  //
+  // Benefit: the bot keeps a sightline over ground that matters. Cost: it
+  // takes no items and no new ground.
+  //
+  // The value of the cell is the point of this action. A bot that holds a
+  // corner with nothing near it holds nothing: both teams then stand still and
+  // the round runs to the time limit with almost no kill, which is the defect
+  // of Section 7.2.1. Section 7.11 says the same thing for the Overwatch role:
+  // it holds a sightline over a contested pickup, not any cell at all.
+  push(
+    { kind: "HoldPosition", cell: from },
+    (base["holdPosition"] ?? 1) * positionValue(state, bot, from),
+    tactics.holdPosition * 2,
+  );
 
   // SwitchWeapon: another weapon gives more damage at this distance.
-  const distanceForWeapon = enemy ? distanceBetween(bot, enemy) : bandDistance(state, tactics.preferredRange);
-  const better = bestWeaponAt(state, bot, distanceForWeapon);
+  const better = enemy
+    ? bestWeaponAt(state, bot, distanceBetween(bot, enemy))
+    : bestWeaponOverall(state, bot);
   if (better.id !== bot.weapon.id) {
     push({ kind: "SwitchWeapon", weaponId: better.id }, base["switchWeapon"] ?? 1, 1);
   }
@@ -411,7 +578,7 @@ export function applyAction(state: SimState, bot: BotState, action: Action): voi
         bot.path = [];
         return;
       }
-      const wanted = bandDistance(state, bot.tactics.preferredRange);
+      const wanted = bandDistance(state, wantedBand(state, bot));
       const distance = distanceBetween(bot, target);
       // Inside the preferred band the bot stands and fires.
       if (Math.abs(distance - wanted) <= state.config.rangeBandCloseMax / 2) {

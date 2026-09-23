@@ -124,6 +124,7 @@ export interface WeaponDraft {
   hazardTicks: number;
   hazardRadius: number;
   hazardDamagePerTick: number;
+  ammoPickupShare: number;
   reactionByBand: BandValues;
   /** The DPS per point of damage, per band. It holds the expected targets. */
   perDamageDps: BandValues;
@@ -244,6 +245,7 @@ function buildDraft(rng: Rng, role: RoleTrait, tables: WeaponRoles, ticksPerSeco
     hazardTicks,
     hazardRadius,
     hazardDamagePerTick,
+    ammoPickupShare: rollRange(rng, shape.ammoPickupShare as Range),
     reactionByBand,
   };
 
@@ -351,6 +353,7 @@ export function generateWeapon(
       critChance: draft.critChance,
       critConditions: draft.critConditions,
       ammoMax: draft.ammoMax,
+      ammoPerPickup: Math.max(1, Math.round(draft.ammoMax * draft.ammoPickupShare)),
       traits: [],
       reactionByBand: draft.reactionByBand,
       dpsProfile: dpsProfileOf(draft, damage),

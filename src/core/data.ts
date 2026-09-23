@@ -6,6 +6,8 @@
  * Every file passes through its zod schema before any system reads it.
  */
 import announcementsJson from "../../data/announcements.json";
+import pickupsJson from "../../data/pickups.json";
+import rolesJson from "../../data/roles.json";
 import tacticsJson from "../../data/tactics.json";
 import weaponRolesJson from "../../data/weapon-roles.json";
 import tuningJson from "../../data/tuning.json";
@@ -21,6 +23,10 @@ import {
   type Tuning,
   type WeaponRoles,
   WeaponRolesSchema,
+  type Pickups,
+  PickupsSchema,
+  type Roles,
+  RolesSchema,
 } from "./schemas.js";
 
 /** Thrown when a data file does not match its schema. */
@@ -54,6 +60,8 @@ let baselineWeaponCache: Weapon | null = null;
 let announcementsCache: Announcements | null = null;
 let tacticsCache: Tactics | null = null;
 let weaponRolesCache: WeaponRoles | null = null;
+let pickupsCache: Pickups | null = null;
+let rolesCache: Roles | null = null;
 
 /** The global tuning numbers. The result is cached after the first call. */
 export function loadTuning(): Tuning {
@@ -96,6 +104,18 @@ export function loadWeaponRoles(): WeaponRoles {
   return weaponRolesCache;
 }
 
+/** What a pickup point gives (Section 7.12). */
+export function loadPickups(): Pickups {
+  pickupsCache ??= parseData("data/pickups.json", PickupsSchema, pickupsJson);
+  return pickupsCache;
+}
+
+/** The role presets of Section 7.11. */
+export function loadRoles(): Roles {
+  rolesCache ??= parseData("data/roles.json", RolesSchema, rolesJson);
+  return rolesCache;
+}
+
 /** Forget the cached data files. The tests use this. */
 export function clearDataCache(): void {
   tuningCache = null;
@@ -103,4 +123,6 @@ export function clearDataCache(): void {
   announcementsCache = null;
   tacticsCache = null;
   weaponRolesCache = null;
+  pickupsCache = null;
+  rolesCache = null;
 }

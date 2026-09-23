@@ -6,6 +6,7 @@ import type { ArenaMap } from "./types.js";
 export * from "./types.js";
 export { parseArenaText, ArenaParseError } from "./textArena.js";
 export type { ParseArenaOptions } from "./textArena.js";
+export { orderSpawnsForFairness } from "./spawnOrder.js";
 
 let testArenaCache: ArenaMap | null = null;
 

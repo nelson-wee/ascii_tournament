@@ -21,6 +21,7 @@
     "targetUnaware"
   ],
   "ammoMax": 30,
+  "ammoPerPickup": 30,
   "traits": [],
   "reactionByBand": {
     "close": 4,

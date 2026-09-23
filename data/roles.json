@@ -1,0 +1,74 @@
+{
+  "_notes": "Roles (dev-guide Section 7.11). A role is a tactics preset plus a few behavior weights. The player can change the tactics after the role applies its preset. Every number is a placeholder. TBD",
+  "roles": {
+    "overwatch": {
+      "tactics": {
+        "aggression": 0.4,
+        "retreatThreshold": 0.35,
+        "preferredRange": "long",
+        "weaponRolePref": "precision",
+        "itemControl": 0.4,
+        "holdPosition": 0.75,
+        "evasion": 0.2,
+        "hazardTolerance": 0.2
+      },
+      "behavior": {
+        "holdPosition": 1.35,
+        "engage": 1.0,
+        "seekPickup": 0.8,
+        "follow": 0.7,
+        "retreat": 1.0,
+        "reposition": 1.2,
+        "chase": 0.7
+      }
+    },
+    "tank": {
+      "tactics": {
+        "aggression": 0.8,
+        "retreatThreshold": 0.15,
+        "preferredRange": "mid",
+        "weaponRolePref": "heavy",
+        "itemControl": 0.8,
+        "holdPosition": 0.3,
+        "evasion": 0.2,
+        "hazardTolerance": 0.7
+      },
+      "behavior": {
+        "holdPosition": 0.9,
+        "engage": 1.25,
+        "seekPickup": 1.3,
+        "follow": 0.9,
+        "retreat": 0.7,
+        "reposition": 0.9,
+        "chase": 1.15
+      }
+    },
+    "skirmisher": {
+      "tactics": {
+        "aggression": 0.6,
+        "retreatThreshold": 0.4,
+        "preferredRange": "mid",
+        "weaponRolePref": null,
+        "itemControl": 0.6,
+        "holdPosition": 0.1,
+        "evasion": 0.7,
+        "hazardTolerance": 0.4
+      },
+      "behavior": {
+        "holdPosition": 0.5,
+        "engage": 1.0,
+        "seekPickup": 1.1,
+        "follow": 1.4,
+        "retreat": 1.2,
+        "reposition": 1.15,
+        "chase": 1.1
+      }
+    }
+  },
+  "teamTacticsDefault": {
+    "cohesion": 0.5,
+    "focusFire": 0.5,
+    "spacing": 0.4,
+    "trading": 0.5
+  }
+}

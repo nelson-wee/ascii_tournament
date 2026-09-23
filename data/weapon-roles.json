@@ -15,8 +15,8 @@
         40
       ],
       "ammoMax": [
-        20,
-        40
+        40,
+        80
       ],
       "critChance": [
         0.2,
@@ -75,8 +75,8 @@
         24
       ],
       "ammoMax": [
-        40,
-        90
+        80,
+        180
       ],
       "critChance": [
         0.03,
@@ -134,8 +134,8 @@
         58
       ],
       "ammoMax": [
-        8,
-        18
+        16,
+        36
       ],
       "critChance": [
         0.12,
@@ -193,8 +193,8 @@
         32
       ],
       "ammoMax": [
-        12,
-        28
+        24,
+        56
       ],
       "critChance": [
         0.02,
@@ -370,6 +370,10 @@
     "dotTicks": [
       15,
       35
+    ],
+    "ammoPickupShare": [
+      0.5,
+      0.9
     ]
   },
   "budget": {
@@ -381,7 +385,7 @@
     "lineWeight": 9,
     "ricochetWeight": 4,
     "reactionDiscount": 1.6,
-    "ammoWeight": 0.05
+    "ammoWeight": 0.025
   },
   "value": {
     "_notes": "How much a weapon is expected to gain from an area, a pierce, damage over time, and a hazard tile, and how often each attack type lands. The DPS profile carries all of these, so the budget does not charge for them twice. TBD",

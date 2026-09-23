@@ -4,25 +4,38 @@
  * Milestone M3 adds health, one baseline weapon, perception, and the score.
  * The `Tactics` and the `Role` of Sections 6.4 and 7.11 arrive with M4 and M8.
  */
-import type { ArenaMap } from "../arena/types.js";
+import { cellIndex, type ArenaMap } from "../arena/types.js";
 import {
   loadAnnouncements,
   loadBaselineWeapon,
   loadDefaultTactics,
+  loadPickups,
+  loadRoles,
   loadTuning,
   loadWeaponRoles,
 } from "../core/data.js";
 import { CellSet } from "../core/cellSet.js";
 import { EventBus } from "../core/events.js";
-import type { Tactics, Tuning } from "../core/schemas.js";
+import type { Pickups, Tactics, TeamTactics, Tuning } from "../core/schemas.js";
 import type { Action } from "../ai/utility.js";
+import { createInfluenceMaps, type InfluenceMaps } from "../ai/influence.js";
 import { createRng, type Rng } from "../core/rng.js";
+import {
+  createPickupStates,
+  rollSpawnTable,
+  type PickupState,
+  type SpawnTable,
+} from "./pickups.js";
 import type { Cell, Vec2 } from "../core/types.js";
 import type { Weapon } from "../weapons/types.js";
 
 /** Team ids of Milestone M3. Generated team names arrive with M11. */
 export const TEAM_IDS = ["A", "B"] as const;
 export type TeamId = (typeof TEAM_IDS)[number];
+
+/** The roles of Section 7.11. */
+export const ROLES = ["overwatch", "tank", "skirmisher"] as const;
+export type Role = (typeof ROLES)[number];
 
 /** What a bot IS (Section 6.4). The player does not change these values. */
 export interface Attributes {
@@ -82,6 +95,10 @@ export interface BotState {
   attributes: Attributes;
   /** What the player TELLS the bot (Section 6.4). */
   tactics: Tactics;
+  /** The role of the bot (Section 7.11). It sets the preset and the behaviors. */
+  role: Role;
+  /** The behavior weights of the role, by action kind. */
+  roleBehavior: Readonly<Record<string, number>>;
   /** Sub-cell position. The centre of cell (x, y) is (x + 0.5, y + 0.5). */
   pos: Vec2;
   /** Cells that the bot crosses in one tick. */
@@ -97,14 +114,6 @@ export interface BotState {
   pathGoal: Cell | null;
   /** The `slotId` of the pickup point that the bot moves to. */
   goalSlotId: string | null;
-  /**
-   * The pickup points that the bot reached, oldest first.
-   *
-   * The bot does not walk back to a point that it just took, so it works a
-   * route over the arena instead of stepping between two near points. M8
-   * replaces this memory with the real respawn timers of Section 7.12.
-   */
-  visitedSlotIds: string[];
   /** Ticks that an enemy bot blocked the next cell of the path. */
   blockedTicks: number;
   /** True if the bot changed position in the last tick. */
@@ -123,6 +132,12 @@ export interface BotState {
 
   alive: boolean;
   health: number;
+  /** The armor pool. It takes a share of every hit while it lasts. */
+  armor: number;
+  /** The shield of a shield belt. It takes a hit in full while it lasts. */
+  shield: number;
+  /** The power-ups that the bot holds, by name, with the tick that each ends. */
+  powerups: Map<string, number>;
   /** The tick of the respawn. Only valid while `alive` is false. */
   respawnAtTick: number;
   /** Every weapon that the bot holds. M3 and M4 give one baseline weapon. */
@@ -193,9 +208,26 @@ export interface SimConfig {
   stationaryTicksForCrit: number;
   dodgeRampTicks: number;
   coneRangeFactor: number;
+  pickupAnticipationTicks: number;
+  pickupAnticipationShare: number;
+  holdContactTicks: number;
+  holdBlindShare: number;
+  holdSuppressesPickup: number;
+  preferredRangeBias: number;
+  influenceIntervalTicks: number;
+  influenceControlRadius: number;
+  influenceDangerRadius: number;
+  influenceBotDanger: number;
+  influenceSightDanger: number;
+  influenceHazardDanger: number;
+  influenceDeathRadius: number;
+  influenceDeathDanger: number;
+  influenceDeathMemoryTicks: number;
   distanceFalloff: number;
   movingTargetPenalty: number;
   minHitChance: number;
+  maxRounds: number;
+  roundWinsToWinMatch: number;
   scoreLimit: number;
   timeLimitTicks: number;
   suddenDeathMaxTicks: number;
@@ -224,6 +256,8 @@ export interface RoundOutcome {
 }
 
 export interface SimState {
+  /** The team tactics of each team (Section 6.5). */
+  teamTactics: Record<TeamId, TeamTactics>;
   /** The number of ticks that ran. The first `step` makes this 1. */
   tick: number;
   /** True after the time limit ended a round with an equal score. */
@@ -244,6 +278,18 @@ export interface SimState {
   nextProjectileId: number;
   /** The hazard tiles, by cell index. */
   hazards: Map<number, HazardCell>;
+  /** The pickup points of the round (Section 7.12). */
+  pickups: PickupState[];
+  /** The same pickup points, by cell index. The movement step reads it. */
+  pickupByCell: Map<number, PickupState>;
+  /** What each pickup kind gives. */
+  pickupTables: Pickups;
+  /** The spawn table of the match. It does not change between rounds. */
+  spawnTable: SpawnTable;
+  /** The influence maps of Section 7.9. */
+  influence: InfluenceMaps;
+  /** Where bots died lately. The danger map reads it. */
+  recentDeaths: { cell: Cell; tick: number; teamId: TeamId }[];
   rng: Rng;
   bus: EventBus;
 }
@@ -264,6 +310,12 @@ export interface CreateSimStateOptions {
   attributes?: Attributes;
   /** The tactics of every bot, or of one team. */
   tactics?: Tactics | Partial<Record<TeamId, Tactics>>;
+  /** The spawn table of the match. One is rolled if none is given. */
+  spawnTable?: SpawnTable;
+  /** The role of each bot slot of a team (Section 7.11). */
+  roles?: Partial<Record<TeamId, readonly Role[]>>;
+  /** The team tactics of Section 6.5. */
+  teamTactics?: Partial<Record<TeamId, TeamTactics>>;
 }
 
 /** Read the simulation numbers from `data/tuning.json`. */
@@ -292,9 +344,26 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     stationaryTicksForCrit: tuning.combat.stationaryTicksForCrit,
     dodgeRampTicks: tuning.combat.dodgeRampTicks,
     coneRangeFactor: loadWeaponRoles().shape.coneRangeFactor,
+    pickupAnticipationTicks: tuning.ai.pickupAnticipationTicks,
+    pickupAnticipationShare: tuning.ai.pickupAnticipationShare,
+    holdContactTicks: tuning.ai.holdContactTicks,
+    holdBlindShare: tuning.ai.holdBlindShare,
+    holdSuppressesPickup: tuning.ai.holdSuppressesPickup,
+    preferredRangeBias: tuning.ai.preferredRangeBias,
+    influenceIntervalTicks: tuning.influence.intervalTicks,
+    influenceControlRadius: tuning.influence.controlRadius,
+    influenceDangerRadius: tuning.influence.dangerRadius,
+    influenceBotDanger: tuning.influence.botDanger,
+    influenceSightDanger: tuning.influence.sightDanger,
+    influenceHazardDanger: tuning.influence.hazardDanger,
+    influenceDeathRadius: tuning.influence.deathRadius,
+    influenceDeathDanger: tuning.influence.deathDanger,
+    influenceDeathMemoryTicks: tuning.influence.deathMemoryTicks,
     distanceFalloff: tuning.combat.distanceFalloff,
     movingTargetPenalty: tuning.combat.movingTargetPenalty,
     minHitChance: tuning.combat.minHitChance,
+    maxRounds: tuning.match.maxRounds,
+    roundWinsToWinMatch: tuning.match.roundWinsToWinMatch,
     scoreLimit: tuning.round.scoreLimit,
     timeLimitTicks: tuning.round.timeLimitTicks,
     suddenDeathMaxTicks: tuning.round.suddenDeathMaxTicks,
@@ -310,6 +379,10 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     spreeTiers: loadAnnouncements().spree,
   };
 }
+
+/** The role of each bot slot when the caller names none. TBD */
+/** One of each role. A team gets this order when the plan names none. */
+export const DEFAULT_ROLES: readonly Role[] = ["tank", "overwatch", "skirmisher"];
 
 /** The default attributes of a bot. Per-bot variation arrives with M11. */
 export function defaultAttributes(tuning: Tuning = loadTuning()): Attributes {
@@ -446,6 +519,8 @@ interface MakeBotOptions {
   config: SimConfig;
   attributes: Attributes;
   tactics: Tactics;
+  role: Role;
+  roleBehavior: Readonly<Record<string, number>>;
   weapons: readonly Weapon[];
   cellCount: number;
   facing: number;
@@ -458,13 +533,14 @@ function makeBot(options: MakeBotOptions): BotState {
     teamId: options.teamId,
     attributes: options.attributes,
     tactics: options.tactics,
+    role: options.role,
+    roleBehavior: options.roleBehavior,
     pos: cellCenter(options.spawn),
     facing: options.facing,
     moveSpeedPerTick: config.moveSpeedPerTick,
     path: [],
     pathGoal: null,
     goalSlotId: null,
-    visitedSlotIds: [],
     blockedTicks: 0,
     movedLastTick: false,
     stationaryTicks: 0,
@@ -475,6 +551,9 @@ function makeBot(options: MakeBotOptions): BotState {
     decisionCooldownTicks: options.slot % config.aiDecisionIntervalTicks,
     alive: true,
     health: config.healthMax,
+    armor: 0,
+    shield: 0,
+    powerups: new Map<string, number>(),
     respawnAtTick: 0,
     weapons: [...options.weapons],
     weapon: options.weapons[0] as Weapon,
@@ -511,6 +590,10 @@ export function createSimState(options: CreateSimStateOptions): SimState {
   const weapons = options.weapons ?? [loadBaselineWeapon()];
   if (weapons.length === 0) throw new Error("A round needs one weapon minimum.");
   const attributes = options.attributes ?? defaultAttributes();
+  const rolesData = loadRoles();
+  const pickupTables = loadPickups();
+  const spawnTable =
+    options.spawnTable ?? rollSpawnTable(map, weapons, createRng(seed, "weapons"), pickupTables);
   const tacticsOption = options.tactics ?? loadDefaultTactics();
   const tacticsFor = (teamId: TeamId): Tactics =>
     "aggression" in tacticsOption
@@ -528,6 +611,11 @@ export function createSimState(options: CreateSimStateOptions): SimState {
   for (const [teamIndex, teamId] of TEAM_IDS.entries()) {
     for (let slot = 0; slot < config.teamSize; slot += 1) {
       const spawn = map.spawns[teamIndex * config.teamSize + slot] as Cell;
+      // A role gives its tactics preset. The player can change the tactics
+      // after the role applies it (Section 7.11).
+      const role = options.roles?.[teamId]?.[slot] ?? DEFAULT_ROLES[slot % DEFAULT_ROLES.length]!;
+      const roleData = rolesData.roles[role];
+      const preset = options.tactics ? tacticsFor(teamId) : (roleData?.tactics ?? tacticsFor(teamId));
       bots.push(
         makeBot({
           id: `${teamId}${slot}`,
@@ -536,7 +624,9 @@ export function createSimState(options: CreateSimStateOptions): SimState {
           slot: teamIndex * config.teamSize + slot,
           config,
           attributes: { ...attributes },
-          tactics: { ...tacticsFor(teamId) },
+          tactics: { ...preset },
+          role,
+          roleBehavior: roleData?.behavior ?? {},
           weapons,
           cellCount: map.width * map.height,
           // A bot starts by looking at the middle of the arena.
@@ -555,13 +645,28 @@ export function createSimState(options: CreateSimStateOptions): SimState {
     config,
     bots,
     score: { A: 0, B: 0 },
+    teamTactics: {
+      A: options.teamTactics?.A ?? { ...rolesData.teamTacticsDefault },
+      B: options.teamTactics?.B ?? { ...rolesData.teamTacticsDefault },
+    },
     outcome: null,
     projectiles: [],
     nextProjectileId: 1,
     hazards: new Map<number, HazardCell>(),
+    pickups: [],
+    pickupByCell: new Map<number, PickupState>(),
+    pickupTables,
+    spawnTable,
+    influence: createInfluenceMaps(map),
+    recentDeaths: [],
     rng,
     bus,
   };
+  state.pickups = createPickupStates(map, spawnTable);
+  for (const pickup of state.pickups) {
+    state.pickupByCell.set(cellIndex(map, pickup.point.cell.x, pickup.point.cell.y), pickup);
+  }
+
   for (const bot of state.bots) {
     bus.emit("Spawn", 0, roundNumber, { botId: bot.id, teamId: bot.teamId, cell: botCell(bot) });
   }

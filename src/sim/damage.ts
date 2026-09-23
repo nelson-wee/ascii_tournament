@@ -8,6 +8,7 @@
 import { Tile, tileAt } from "../arena/types.js";
 import { isUnaware, noteIncomingFire } from "../ai/perception.js";
 import type { RangeBand } from "../weapons/types.js";
+import { damageMultiplierOf } from "./pickups.js";
 import { botCell, distanceBetween, type BotState, type SimState } from "./state.js";
 
 /** The range band of a distance (Section 6.8). */
@@ -113,11 +114,32 @@ export function damageBot(
   }
 
   const { config, tick, roundNumber } = state;
-  target.health -= amount;
+
+  // A power-up of the attacker raises the damage (Section 7.12).
+  const raised = amount * damageMultiplierOf(state, attacker);
+
+  // The shield of a shield belt takes a hit in full. The armor pool then takes
+  // a share of what is left. Health takes the rest.
+  let left = raised;
+  if (target.shield > 0) {
+    const taken = Math.min(target.shield, left);
+    target.shield -= taken;
+    left -= taken;
+  }
+  if (left > 0 && target.armor > 0) {
+    const share = state.pickupTables.armorAbsorb;
+    const wanted = left * share;
+    const taken = Math.min(target.armor, wanted);
+    target.armor -= taken;
+    left -= taken;
+  }
+  target.health -= left;
+
   state.bus.emit("Hit", tick, roundNumber, {
     shooterId: attacker.id,
     targetId: target.id,
-    damage: amount,
+    damage: left,
+    rawDamage: raised,
     source: context.source,
     weaponId: context.weaponId,
   });
@@ -125,7 +147,7 @@ export function damageBot(
     state.bus.emit("Crit", tick, roundNumber, {
       shooterId: attacker.id,
       targetId: target.id,
-      damage: amount,
+      damage: left,
     });
   }
   if (target.health > 0) return;
@@ -135,6 +157,9 @@ export function damageBot(
 
   target.alive = false;
   target.health = 0;
+  target.armor = 0;
+  target.shield = 0;
+  target.powerups.clear();
   target.respawnAtTick = tick + config.respawnDelayTicks;
   target.path = [];
   target.pathGoal = null;
@@ -154,6 +179,9 @@ export function damageBot(
   attacker.spreeCount += 1;
   state.score[attacker.teamId] += 1;
 
+  state.recentDeaths.push({ cell: botCell(target), tick, teamId: target.teamId });
+  // Keep the list short: the danger map only reads the last few hundred ticks.
+  if (state.recentDeaths.length > 64) state.recentDeaths.shift();
   state.bus.emit("Death", tick, roundNumber, {
     botId: target.id,
     teamId: target.teamId,

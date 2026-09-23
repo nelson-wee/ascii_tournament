@@ -23,6 +23,7 @@
  */
 import type { Cell } from "../core/types.js";
 import { Tile, type ArenaMap, type PickupKind, type PickupPoint } from "./types.js";
+import { orderSpawnsForFairness } from "./spawnOrder.js";
 
 /** Thrown when a map file is not readable. */
 export class ArenaParseError extends Error {
@@ -60,6 +61,11 @@ const DEFAULT_RESPAWN_TICKS = 0;
 export interface ParseArenaOptions {
   /** A name for the reports. The `name` header of the file wins over it. */
   source?: string;
+  /**
+   * Bots per team, for the spawn order of Section 7.2.1. Section 2.2 locks it
+   * at 3, so the default is 3.
+   */
+  teamSize?: number;
 }
 
 /** Read the optional `key: value` header. Returns the header and the map lines. */
@@ -153,7 +159,9 @@ export function parseArenaText(text: string, options: ParseArenaOptions = {}): A
     width,
     height,
     tiles,
-    spawns,
+    // Section 7.2.1: the slots of the two teams must face each other, or a
+    // symmetric arena still gives one side the better start.
+    spawns: orderSpawnsForFairness(spawns, width, height, options.teamSize ?? 3),
     pickups,
   };
 }

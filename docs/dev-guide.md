@@ -473,6 +473,16 @@ neither shows in the arena file:
   the symmetric arena this alone gave team A 55 % of 100 rounds. `botsInTickOrder`
   now turns the order around on every second tick. The order stays a function
   of the tick, so the simulation stays deterministic.
+- **The order of the spawn list.** A row-major scan reads the second spawn
+  group in the reverse order of the first, so the slot 0 of team B stands where
+  the slot 2 of team A stands. The slot decides the role, so two symmetric
+  halves gave two different fights, worth 5.75 points of win rate.
+  `orderSpawnsForFairness` pairs the slots at parse time. Section 7.20.14 holds
+  the measurement, and **an M7 generator must do the same**.
+- **Any "first one wins" rule over the bot list.** `applyPickups` handed every
+  contested pickup point to team A, because it walked `state.bots` in team
+  order. Every rule of that shape needs `botsInTickOrder`, or a list order
+  becomes a side advantage.
 - **A stall that looks like balance.** Before the fix of `selectTarget`, two or
   three enemies at almost the same distance made the nearest one change on
   every tick. The reaction timer started again with every change, so the bot
@@ -498,6 +508,12 @@ and state the number of rounds with every win rate.
 comes from the arena or from the simulation, run the batch two times and give
 the spawn groups to the other teams the second time. A bias that follows the
 spawn position is the arena. A bias that stays with the team name is the code.
+
+Read the result with care: swapping the groups also swaps which team stands
+near which pickup slot, and the slot ids do not turn around with them. The test
+names a suspect; it does not measure the size of the bias. The number to report
+is the win rate of team A in the configuration you actually ship, over 600
+rounds or more.
 
 #### 7.20.11 Measurement: what the weapons changed, and what they did not
 
@@ -653,6 +669,127 @@ a best weapon, and the player should plan around it. The balance question is
 whether the strong weapon pays for its power in reach, in rounds, and in
 cadence, and whether the batch still shows every archetype taking kills.
 
+#### 7.20.13 Measurement: what the pickups changed, and the two faults they found
+
+M8 gave the arena its first reward for moving: health, armor, universal ammo, a
+weapon point, and the two power-ups of Section 7.12. The measurement is 1080
+rounds, three presets, three role compositions, one arena.
+
+**The pace of a round.** Before the pickups a round made 10.9 kills in 5125
+ticks and 40 % of rounds ran to the time limit. After them a round makes **25.9
+kills in 2035 ticks and 98.1 % of rounds reach the score limit.** The teams now
+meet, because the arena gives them a reason to.
+
+**The balance of the presets.**
+
+| Preset | Before M6 | M6 | M6 full budget | M8 |
+|---|---|---|---|---|
+| anchor | 82.0 % ±1.6 | 74.2 % ±1.8 | 69.1 % ±1.9 | **41.9 % ±1.9** |
+| balanced | 27.0 % ±1.8 | 50.8 % ±2.0 | 48.1 % ±2.0 | **56.3 % ±1.9** |
+| aggressive | 41.0 % ±2.0 | 24.9 % ±1.8 | 32.8 % ±1.9 | **51.8 % ±1.8** |
+
+The preset that holds its ground no longer wins the game by standing still, and
+no preset passes the 60 % balance rule of Section 7.16. `anchor` is now the
+weakest of the three, which is the opposite of the fault of Section 7.20.10 and
+is worth watching, not fixing by another 10 points of tuning.
+
+**Role composition.** This is the acceptance test of M8: the batch reports a
+win rate per composition, and the compositions differ.
+
+| Composition | Roles | Win rate |
+|---|---|---|
+| standard | tank, overwatch, skirmisher | 52.8 % ±1.9 |
+| turtle | overwatch, overwatch, tank | 48.8 % ±1.9 |
+| rush | skirmisher, skirmisher, tank | 48.5 % ±1.9 |
+
+Four points between `standard` and the other two is more than two standard
+errors, so one of each role is a real choice and not noise. The matchup table
+says more than the column does: `standard` beats `turtle` 60.8 % ±4.5 and
+`rush` beats `turtle` 62.5 % ±4.4, while `standard` against `rush` is even. Two
+bots that hold a sightline lose to any composition that moves.
+
+A caution about this table. Before the spawn order fix of Section 7.20.14 the
+same batch read `rush` 54.4 %, `standard` 49.3 %, `turtle` 46.3 %, which put
+`rush` on top. A side bias of six points was enough to turn the ranking of the
+compositions around. Do not read a composition table from a batch whose mirror
+matchups are not near 50 %.
+
+**The first fault: holding ground was free.** A bot that chose `HoldPosition`
+almost never had an enemy in sight: **28 962 of 29 051 HoldPosition ticks were
+blind**, and those ticks were 47 % of every bot tick in a round. Both teams
+stood in an empty corner until the clock ran out.
+
+Holding ground is a **sightline** action, so its value now falls with the time
+since the last contact (`ai.holdContactTicks`, `ai.holdBlindShare`), and the
+memory of a last seen position lasts long enough for the `Chase` action to use
+it (`perception.memoryTicks` went from 60 ticks to 200). A bot that has seen
+nobody for ten seconds holds nothing, and it goes to find a fight or an item.
+
+The `holdPosition` tactic also suppressed `SeekPickup` completely, by a factor
+of `1 - holdPosition`. Items decide fights from M8 on, so that made the anchor
+preset unplayable; the factor is now `1 - holdPosition × ai.holdSuppressesPickup`.
+
+**The second fault: a weapon was chosen for one band.** With no enemy in sight
+a bot picked its weapon by the DPS at the band of its `preferredRange` tactic
+alone. A close-range preference therefore put a short-range weapon in its hands,
+and the bot then could not fire at the distance where the arena's fights happen.
+The cost was measured by giving the aggressive preset one changed value at a
+time, over 700 rounds each:
+
+| Change to the aggressive preset | Win rate |
+|---|---|
+| none | 43.4 % ±3.5 |
+| `retreatThreshold` 0.15 → 0.3 | 42.9 % ±3.5 |
+| `itemControl` 0.3 → 0.5 | 44.9 % ±3.5 |
+| `evasion` 0.2 → 0.4 | 41.5 % ±3.4 |
+| `hazardTolerance` 0.7 → 0.3 | 44.9 % ±3.5 |
+| **`preferredRange` close → mid** | **63.6 % ±3.4** |
+
+One value was worth 20 points and every other value was worth nothing. That is
+not a balance problem, it is a bug: a tactic that a player can set must not be a
+trap. A weapon is now worth what it **reaches**, summed over every band inside
+its range, and `preferredRange` is a bias on that sum
+(`ai.preferredRangeBias`). The band that a bot fights at comes from the weapon
+in its hands, not from the tactic, and `Reposition` measures the mismatch in
+lost damage instead of in cells. After the fix the same seven presets sat inside
+41.5 % to 53.0 %.
+
+**The pattern, again.** Both faults are the pattern of Section 7.20.12 read from
+the other side: **a number that the AI reads but that does not mean what the
+name says.** `positionValue` measured the ground and not the sightline;
+`bestWeaponAt` measured one band and not the reach. Both gave the AI a confident
+wrong answer, and neither showed up as a crash or a failing test. Only a batch
+that reports why a round ended found them.
+
+#### 7.20.14 A symmetric arena is not a fair match
+
+Section 7.2.1 said that the test arena has 180-degree rotational symmetry, and
+it does: every one of its 1800 cells matches its turned-around partner. The
+match was still unfair by 5.75 points of win rate.
+
+**The cause is the order of the spawn list.** A scan of the map collects the
+spawn cells from the top left to the bottom right. Team A takes the first three
+and team B the next three. Under a half turn the first group maps onto the
+second **in reverse**, so the slot 0 of team B stood where the slot 2 of team A
+stood. The slot decides the role (Section 7.11), so the tank of one team started
+in the corner that faced the skirmisher of the other. Two symmetric halves, two
+different fights.
+
+`orderSpawnsForFairness` now reorders the list: the cell of slot *i* of every
+later team is the one nearest to the turned-around cell of slot *i* of the first
+team. On a symmetric arena that is the exact partner; on any other arena it is
+the nearest one, and nothing breaks. After the fix the side bias measured over
+600 rounds is **50.7 % ±2.0**, which is even.
+
+A second, smaller side bias came from `applyPickups`, which walked the bot list
+in team order, so team A took every point that two enemies reached in the same
+tick. It now walks the bots in reaction order, as firing does (Section 7.20.7).
+
+**The rule for M7.** An arena generator must not only make the two halves the
+same shape. It must also hand the two teams their spawn cells in matching slot
+order, or a generated arena will carry this same hidden bias into every
+measurement made on it.
+
 ### 7.3 Weapon generation (`weapons/`)
 
 Purpose: generate readable procedural weapons with clear roles.
@@ -782,8 +919,26 @@ score(action) = baseConsideration(action, world)
 Rules:
 
 - **Weapon selection uses the DPS profile.** The bot selects the weapon with the highest expected damage at the current range. Weapon role preference adds a bias. The AI must never refer to a specific weapon by id.
+- **With no enemy in sight, a weapon is worth what it reaches.** `bestWeaponAt`
+  answers "the best weapon at this distance" and is right only when a distance
+  exists. With nobody in sight, `bestWeaponOverall` sums the DPS over every band
+  inside the weapon's range, and `preferredRange` biases that sum. Choosing for
+  one band alone put a short-range weapon in the hands of a bot that then could
+  not fire at all, and it cost the aggressive preset 20 points of win rate
+  (Section 7.20.13).
+- **The band that a bot fights at comes from its weapon, not from its tactic.**
+  `wantedBand` takes the band where the equipped weapon deals the most damage,
+  with `preferredRange` as the tie-break, and `Reposition` scores the mismatch
+  in lost damage, not in cells.
+- **`HoldPosition` is a sightline action.** Its value is `positionValue`: a
+  pickup point near the cell, the team's control of the ground, and the danger
+  of the cell, all falling with the time since the last contact. A bot that
+  holds an empty corner holds nothing, and two teams doing it run the round to
+  the time limit (Section 7.20.13).
 - **Tactics are orders. Traits are tendencies.** Tactics weights are the main factor. Trait modifiers are small multipliers.
 - **Each tactic has a cost and a benefit.** Do not add a tactic that has only a benefit.
+- **No tactic may be a trap.** A value that a player can set must not lose the
+  match on its own. A one-tactic sweep in the batch is how you find one.
 - A bot keeps its current action unless a new action scores higher by a margin (hysteresis). This stops fast changes of decision.
 
 ### 7.9 Influence maps (`ai/influence.ts`)
@@ -792,6 +947,12 @@ Rules:
 - `control`: which team holds each area.
 - Update every N ticks (TBD).
 - The hazard tolerance tactic controls how much a bot avoids `danger`.
+
+**What M8 built.** `createInfluenceMaps`, `updateInfluence`, `dangerAt`,
+`controlAt`, and `dangerFor`. An **area** means one cell until M7 gives the
+arena its macro graph; a room value is then the mean of its cells. The maps
+update every `influence.intervalTicks` ticks, not every tick, because a
+sightline pass over the whole grid is the expensive part.
 
 ### 7.10 Navigation (`ai/navigation.ts`)
 
@@ -811,6 +972,20 @@ Each role has a tactics preset and role behaviors.
 
 The player can change the tactics after the role applies its preset.
 
+**What M8 built.** `data/roles.json` holds a tactics preset and a set of
+behavior weights per role, and a team gets one of each role unless the plan
+says otherwise. A behavior weight is a small factor on the base consideration
+of one action, so a role bends the AI without replacing it.
+
+The behaviors that read "an area", "a sightline over a contested pickup", and
+"side routes" need the macro graph of M7. Until then `positionValue`
+(Section 7.8) measures the same idea on the grid: a cell is worth holding when
+a pickup point is near it, when the team holds the ground around it, and when
+it is not itself dangerous. Read this table again after M7.
+
+The batch reports a win rate per role composition (Section 7.16), which is what
+says whether a role is worth taking.
+
 ### 7.12 Pickups (`sim/pickups.ts`)
 
 - Each pickup point has a respawn timer.
@@ -818,6 +993,36 @@ The player can change the tactics after the role applies its preset.
 - The game rolls one spawn table per match. The table does not change between rounds.
 - The next match can have a new spawn table (the same arena or a different arena).
 - The pre-match screen shows the spawn table.
+
+**The items (M8).** `data/pickups.json` holds every number.
+
+| Kind | Gives | Comes back |
+|---|---|---|
+| health | health, up to the maximum | often |
+| armor | an armor pool that takes a share of every hit | often |
+| ammo | rounds for every weapon that the bot holds, up to each maximum | often |
+| weapon | the weapon of the slot, with a full magazine | less often |
+| powerup | double damage for a time, or a shield belt | rarely |
+
+Rules:
+
+- **Ammo is universal.** One ammo point refills every weapon the bot holds, not
+  one named weapon. The arena is small, so a weapon-by-weapon supply would send
+  a bot across it for a magazine. `ammoPerPickup` and `ammoMax` are generated
+  per weapon (Section 7.3), so the generator, not the arena, decides how long a
+  weapon lasts between points.
+- **A power-up is rare.** It comes back far less often than health or armor, so
+  the point where it lands is worth a fight. That is what makes the ground of
+  Section 7.9 contested at all.
+- **A point that gives nothing is not taken.** A bot at full health walks over a
+  health point and leaves it for a teammate.
+- **A point that is coming back soon is still worth walking to**
+  (`ai.pickupAnticipationTicks`). Without that rule a bot with nothing to take
+  stands still, and the two teams never meet (Section 7.20.13).
+- **Reaction order decides a contested point.** Two enemies can reach one point
+  in the same tick, and only the first takes it. The bots come in reaction
+  order, as they do when they fire; the plain team order is a side bias
+  (Section 7.20.14).
 
 ### 7.13 Progression (`progression/`)
 
@@ -925,6 +1130,19 @@ Outputs (to the terminal and to CSV files):
 - Average run duration (for the open run-length decision).
 
 Rule: if one doctrine wins in all arena profiles, report it as a balance failure.
+
+**What M8 added.** A win rate per **role composition**, and a composition
+matchup table. A batch names its compositions in `data/batch.json`, and every
+pair of compositions plays every pair of presets, so the two are not confounded.
+
+**Read `hits per shot`, not a hit rate.** One shot of an area weapon hits
+several bots, so the number passes 1 and is not a share. The hit chance of a
+single shot is a combat number, not a batch number.
+
+**Check the mirror matchups in every batch.** A preset against itself must sit
+near 50 %. A mirror that does not is a side bias, and Section 7.20.14 shows
+that an arena can be symmetric to the cell and still give one side the better
+start.
 
 ### 7.17 Reports and kill feed (`report/`)
 
@@ -1330,6 +1548,14 @@ works by making movement safer.
    flank becomes worth something as soon as holding a position stops being
    free. Measure it again then, against a fresh baseline.
 
+**Update after M8.** The pickups landed and they did give movement its reward:
+`anchor` fell from 81 % to 41.9 % and the mean kills per round rose from 10.9
+to 25.9 (Section 7.20.13). Point 4 is now ready to test. Directional vision is
+still `false`, because M8 changed the baseline it must be measured against;
+turn it on and run the 1080-round batch again before you keep or drop it. The
+batch already reports `kills from behind`, which is the number to read: it sits
+at 9.4 % with 360-degree sight.
+
 ---
 
 ## 8. Match flow (sequence)
@@ -1723,6 +1949,10 @@ What the first batch says:
 Do not tune these numbers before M6 and M8 change them again. The value of the
 batch here is the method and the numbers to compare against later.
 
+**M8 answered both.** The pickups gave the moving team something to win, and
+`anchor` fell from 81.1 % to 41.9 %, with 98.1 % of rounds reaching the score
+limit. Section 7.20.13 holds the numbers.
+
 **After this batch** the `cautious` preset was removed from `data/batch.json`.
 It won 19.1 % and it stalled rounds. The default presets are `balanced`,
 `aggressive`, and `anchor`. Section 7.20 holds the design that answers the two
@@ -1817,6 +2047,36 @@ field of view (Section 7.20.6) is built and switched off; see M5.5.
 - Add pickups with respawn timers and one spawn table per match.
 - Add influence maps.
 - Accept: a full best-of-3 match plays in the browser. The batch harness shows different results by role composition.
+
+**Result: done.** `npm run dev` plays a best-of-3 match: the tactics screen
+opens between the rounds and sets the tactics and the roles of team A. The
+batch reports a win rate per role composition, and `standard` beats `turtle`
+60.8 % ±4.5 in their matchup.
+
+New files: `sim/pickups.ts`, `sim/match.ts`, `ai/influence.ts`,
+`arena/spawnOrder.ts`, `ui/tacticsScreen.ts`, `data/pickups.json`,
+`data/roles.json`.
+
+Section 7.20.13 holds the measurement and the two AI faults that the pickups
+found. Section 7.20.14 holds the spawn order fault: a symmetric arena is not a
+fair match, and an M7 generator must pair the slots of the teams, not only the
+shape of the halves.
+
+**What M8 takes from M7, and what stands in for it.** `ArenaMap` has no rooms,
+no links, and no metrics until M7, so three parts of M8 work on the raw grid
+instead of the macro graph:
+
+- Section 7.2 step 5 places pickups on contested cells by betweenness
+  centrality. The test arena places them by hand, symmetrically.
+- Section 7.9 says that `control` is "which team holds each area". An area is a
+  cell here. When M7 gives the arena its rooms, a room value is the mean of its
+  cells.
+- Section 7.11 describes the roles in terms of areas, of "a sightline over a
+  contested pickup", and of side routes. `positionValue` measures the same idea
+  on the grid: a cell is worth holding when a pickup point is near it, when the
+  team holds the ground around it, and when it is not itself dangerous.
+
+None of these blocks M8. Each one is a place to read again after M7.
 
 ### M9 — Reports
 

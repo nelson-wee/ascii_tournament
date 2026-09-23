@@ -183,14 +183,14 @@ describe("step", () => {
     expect(changed, "the bot never reached its first goal").toBe(true);
   });
 
-  it("reaches pickup points and remembers them", () => {
-    // A bot marks a pickup point only when it stands on that cell.
-    const state = newState(3);
+  it("reaches pickup points and takes them", () => {
+    const bus = new EventBus();
+    const state = newState(3, bus);
     stepMany(state, 1200);
-    const visited = state.bots.flatMap((bot) => bot.visitedSlotIds);
-    expect(visited.length).toBeGreaterThan(0);
+    const taken = bus.filter("PickupTaken");
+    expect(taken.length).toBeGreaterThan(0);
     const slotIds = new Set(state.map.pickups.map((pickup) => pickup.slotId));
-    for (const slotId of visited) expect(slotIds.has(slotId)).toBe(true);
+    for (const event of taken) expect(slotIds.has(String(event.data["slotId"]))).toBe(true);
   });
 });
 

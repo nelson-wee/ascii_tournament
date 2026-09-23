@@ -32,10 +32,15 @@
       "preferredRange": "mid",
       "weaponRolePref": null,
       "itemControl": 0.4,
-      "holdPosition": 0.8,
+      "holdPosition": 0.65,
       "evasion": 0.2,
       "hazardTolerance": 0.3
     }
+  },
+  "compositions": {
+    "standard": ["tank", "overwatch", "skirmisher"],
+    "rush": ["skirmisher", "skirmisher", "tank"],
+    "turtle": ["overwatch", "overwatch", "tank"]
   },
   "outDir": "batch-out"
 }

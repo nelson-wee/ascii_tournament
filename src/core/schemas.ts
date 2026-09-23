@@ -112,6 +112,35 @@ export const TuningSchema = z
         hazardAvoidBelowTolerance: unitRange,
         /** The distance that makes a bot follow a teammate, in cells. TBD */
         teamSpacingCells: positiveNumber,
+        /**
+         * How early a bot walks toward a pickup point that is coming back, in
+         * ticks, and how much of its full value it is worth on the way. A bot
+         * with nothing to take stands still, and then the teams never meet. TBD
+         */
+        pickupAnticipationTicks: positiveInt,
+        pickupAnticipationShare: unitRange,
+        /**
+         * How long a sightline stays worth holding after the last contact, in
+         * ticks, and what share of its value it keeps once that time is spent.
+         * Holding ground is a sightline action: with no enemy in sight and
+         * none seen for a while, the ground is worth little and the bot takes
+         * items or new ground instead. TBD
+         */
+        holdContactTicks: positiveInt,
+        holdBlindShare: unitRange,
+        /**
+         * How much the `holdPosition` tactic lowers `SeekPickup`. 1 means a
+         * bot at `holdPosition` 1 takes no item at all. The items of M8 decide
+         * fights, so a full suppression makes the anchor preset unplayable
+         * (Section 7.20.12). TBD
+         */
+        holdSuppressesPickup: unitRange,
+        /**
+         * How much the `preferredRange` tactic outweighs the band where the
+         * equipped weapon deals the most damage. 0 makes the weapon decide
+         * alone. TBD
+         */
+        preferredRangeBias: z.number().min(0),
         /** The base consideration of each action, before the tactics weights. TBD */
         actionBase: z
           .object({
@@ -125,6 +154,20 @@ export const TuningSchema = z
             follow: positiveNumber,
           })
           .strict(),
+      })
+      .strict(),
+    influence: z
+      .object({
+        /** Ticks between two updates of the influence maps (Section 7.9). TBD */
+        intervalTicks: positiveInt,
+        controlRadius: positiveNumber,
+        dangerRadius: positiveNumber,
+        botDanger: z.number().nonnegative(),
+        sightDanger: z.number().nonnegative(),
+        hazardDanger: z.number().nonnegative(),
+        deathRadius: positiveNumber,
+        deathDanger: z.number().nonnegative(),
+        deathMemoryTicks: positiveInt,
       })
       .strict(),
     botDefaults: z
@@ -179,7 +222,16 @@ export const TacticsSchema = z
     retreatThreshold: unitRange,
     preferredRange: z.enum(["close", "mid", "long"]),
     weaponRolePref: z
-      .enum(["precision", "splash", "burst", "denial", "versatile", "baseline"])
+      .enum([
+        "precision",
+        "assault",
+        "marksman",
+        "heavy",
+        "splash",
+        "denial",
+        "versatile",
+        "baseline",
+      ])
       .nullable(),
     itemControl: unitRange,
     holdPosition: unitRange,
@@ -200,6 +252,9 @@ export const TacticsFileSchema = z
  * `presets` stands in for the doctrines of M11, and `arenas` stands in for the
  * arena profiles of M7.
  */
+/** One of the three roles of Section 7.11. */
+export const RoleSchema = z.enum(["overwatch", "tank", "skirmisher"]);
+
 export const BatchConfigSchema = z
   .object({
     _notes: z.string().optional(),
@@ -207,12 +262,79 @@ export const BatchConfigSchema = z
     seed: z.number().int(),
     arenas: z.array(z.string().min(1)).min(1),
     presets: z.record(z.string().min(1), TacticsSchema),
+    /**
+     * One named role order per team, for the acceptance test of M8: the batch
+     * shows a different result by role composition. Left out, every team plays
+     * the standard one role of each.
+     */
+    compositions: z.record(z.string().min(1), z.array(RoleSchema).min(1)).optional(),
     outDir: z.string().min(1),
   })
   .strict()
   .refine((value) => Object.keys(value.presets).length > 0, "batch.json needs one preset minimum");
 
 export type BatchConfig = z.infer<typeof BatchConfigSchema>;
+
+/** `data/roles.json`: the role presets and their behavior weights (Section 7.11). */
+export const TeamTacticsSchema = z
+  .object({
+    cohesion: unitRange,
+    focusFire: unitRange,
+    spacing: unitRange,
+    trading: unitRange,
+  })
+  .strict();
+
+export type TeamTactics = z.infer<typeof TeamTacticsSchema>;
+
+export const RolesSchema = z
+  .object({
+    _notes: z.string().optional(),
+    roles: z.record(
+      z.enum(["overwatch", "tank", "skirmisher"]),
+      z
+        .object({
+          tactics: TacticsSchema,
+          /** A small factor on the base consideration of an action (Section 7.8). */
+          behavior: z.record(z.string().min(1), positiveNumber),
+        })
+        .strict(),
+    ),
+    teamTacticsDefault: TeamTacticsSchema,
+  })
+  .strict();
+
+export type Roles = z.infer<typeof RolesSchema>;
+
+/** `data/pickups.json`: what a pickup point gives (Section 7.12). */
+export const PickupsSchema = z
+  .object({
+    _notes: z.string().optional(),
+    armorMax: positiveNumber,
+    /** The share of damage that armor takes while the bot has any. TBD */
+    armorAbsorb: unitRange,
+    shieldMax: positiveNumber,
+    kinds: z.record(
+      z.enum(["weapon", "armor", "health", "powerup", "ammo"]),
+      z
+        .object({ respawnTicks: positiveInt, amount: z.number().nonnegative() })
+        .strict(),
+    ),
+    powerups: z.record(
+      z.string().min(1),
+      z
+        .object({
+          durationTicks: nonNegativeInt,
+          damageMultiplier: positiveNumber.optional(),
+          shield: z.number().nonnegative().optional(),
+          weight: z.number().positive(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+export type Pickups = z.infer<typeof PickupsSchema>;
 
 /** One entry of an announcement table. */
 const AnnouncementTierSchema = z
@@ -319,6 +441,7 @@ export const WeaponRolesSchema = z
         dotChance: unitRange,
         dotDamage: range,
         dotTicks: range,
+        ammoPickupShare: range,
       })
       .strict(),
     value: z
@@ -397,6 +520,8 @@ export const WeaponSchema = z
     hazardTicks: nonNegativeInt,
     hazardRadius: z.number().nonnegative(),
     hazardDamagePerTick: z.number().nonnegative(),
+    /** Rounds that one universal ammo pickup gives this weapon. */
+    ammoPerPickup: positiveInt,
     critChance: unitRange,
     critConditions: z.array(z.string()),
     ammoMax: positiveInt,

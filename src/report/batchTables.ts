@@ -39,14 +39,14 @@ export function formatReport(summary: BatchSummary): string {
 
   parts.push(
     table(
-      ["rounds", "mean ticks", "mean kills", "mean shots", "hit rate", "kills from behind"],
+      ["rounds", "mean ticks", "mean kills", "mean shots", "hits per shot", "kills from behind"],
       [
         [
           String(summary.rounds),
           summary.meanTicks.toFixed(0),
           summary.meanKills.toFixed(1),
           summary.meanShots.toFixed(0),
-          percent(summary.hitRate),
+          summary.hitsPerShot.toFixed(2),
           percent(summary.unawareKillShare),
         ],
       ],
@@ -81,6 +81,36 @@ export function formatReport(summary: BatchSummary): string {
             ),
           ]),
           [false, ...summary.presets.map(() => true)],
+        ),
+    );
+  }
+
+  // Win rate per role composition. This is the acceptance test of M8: the
+  // batch shows a different result by role composition (Section 7.11). One
+  // composition alone says nothing, so the table is left out then.
+  if (summary.compositions.length > 1) {
+    parts.push(
+      "WIN RATE: role composition\n" +
+        table(
+          ["composition", "all"],
+          summary.compositions.map((composition) => [
+            composition,
+            rateCell(summary.byComposition.get(composition)),
+          ]),
+          [false, true],
+        ),
+    );
+    parts.push(
+      "COMPOSITION MATCHUPS: the row is team A, the column is team B\n" +
+        table(
+          ["team A \\ team B", ...summary.compositions],
+          summary.compositions.map((row) => [
+            row,
+            ...summary.compositions.map((column) =>
+              rateCell(summary.byCompositionMatchup.get(`${row}|${column}`)),
+            ),
+          ]),
+          [false, ...summary.compositions.map(() => true)],
         ),
     );
   }
@@ -172,6 +202,8 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       "arena",
       "teamA",
       "teamB",
+      "compA",
+      "compB",
       "winner",
       "reason",
       "ticks",
@@ -189,6 +221,8 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       round.arena,
       round.teamA,
       round.teamB,
+      round.compA,
+      round.compB,
       round.winner ?? "draw",
       round.reason,
       round.ticks,

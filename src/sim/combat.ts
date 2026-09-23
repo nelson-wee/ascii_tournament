@@ -225,8 +225,12 @@ export function tryFire(state: SimState, bot: BotState): void {
 
   const target = selectTarget(state, bot);
   if (!target) {
-    bot.targetId = null;
-    bot.aimTicks = 0;
+    // The aim falls away, it does not vanish. A bot that walks behind a pillar
+    // for a moment should not start its whole reaction again. Without this a
+    // bot that moves almost never finishes aiming, and a round of bots that
+    // cross the arena for pickups slows to a stop.
+    bot.aimTicks = Math.max(0, bot.aimTicks - 1);
+    if (bot.aimTicks === 0) bot.targetId = null;
     return;
   }
 
@@ -269,6 +273,9 @@ export function respawn(state: SimState, bot: BotState): void {
 
   bot.alive = true;
   bot.health = state.config.healthMax;
+  bot.armor = 0;
+  bot.shield = 0;
+  bot.powerups.clear();
   bot.pos = cellCenter(cell);
   bot.facing = Math.atan2(state.map.height / 2 - bot.pos.y, state.map.width / 2 - bot.pos.x);
   bot.fovCell = null;
