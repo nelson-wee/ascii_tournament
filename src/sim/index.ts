@@ -21,6 +21,8 @@ export {
   applyHazards,
   applyLineDamage,
   areaTargetsIfAimedAt,
+  damageProjectile,
+  interceptableProjectiles,
   clearLine,
   createHazard,
   leadAngle,

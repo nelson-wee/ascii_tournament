@@ -17,7 +17,14 @@ import { generateWeaponSet } from "./weapons/generate.js";
 import { feedLines } from "./report/killFeed.js";
 import { ArenaDisplay, type EntityGlyph } from "./render/display.js";
 import { SimRunner, type Speed } from "./render/runner.js";
-import { PICKUP_STYLES, TEAM_STYLES, TILE_STYLES, facingChar } from "./render/theme.js";
+import {
+  PICKUP_STYLES,
+  PROJECTILE_STYLE,
+  REDEEMER_PROJECTILE_STYLE,
+  TEAM_STYLES,
+  TILE_STYLES,
+  facingChar,
+} from "./render/theme.js";
 import {
   botCell,
   createRoundState,
@@ -147,7 +154,7 @@ try {
   let state = createRoundState(matchOptions, roundNumber, plan, spawnTable, config, bus);
 
   function entities(): EntityGlyph[] {
-    return state.bots
+    const bots: EntityGlyph[] = state.bots
       .filter((bot) => bot.alive)
       .map((bot) => {
         const team = TEAM_STYLES[bot.teamId] ?? TEAM_STYLES["A"]!;
@@ -156,6 +163,16 @@ try {
         const char = config.directionalVision ? facingChar(bot.facing) : team.char;
         return { cell: botCell(bot), style: { ...team, char } };
       });
+
+    // A shot in the air is drawn under the bots: a Redeemer is a decision for
+    // the other team, so a viewer has to see it coming (Section 7.20.18).
+    const shots: EntityGlyph[] = state.projectiles.map((projectile) => ({
+      cell: { x: Math.floor(projectile.pos.x), y: Math.floor(projectile.pos.y) },
+      style: projectile.weapon.archetype === "redeemer"
+        ? REDEEMER_PROJECTILE_STYLE
+        : PROJECTILE_STYLE,
+    }));
+    return [...shots, ...bots];
   }
 
   function render(): void {

@@ -12,6 +12,7 @@ import tacticsJson from "../../data/tactics.json";
 import weaponRolesJson from "../../data/weapon-roles.json";
 import tuningJson from "../../data/tuning.json";
 import baselineWeaponJson from "../../data/weapons/baseline.json";
+import redeemerWeaponJson from "../../data/weapons/redeemer.json";
 import type { Weapon } from "../weapons/types.js";
 import {
   AnnouncementsSchema,
@@ -57,6 +58,7 @@ export function parseData<T>(
 
 let tuningCache: Tuning | null = null;
 let baselineWeaponCache: Weapon | null = null;
+let redeemerWeaponCache: Weapon | null = null;
 let announcementsCache: Announcements | null = null;
 let tacticsCache: Tactics | null = null;
 let weaponRolesCache: WeaponRoles | null = null;
@@ -73,6 +75,16 @@ export function loadTuning(): Tuning {
  * The fixed baseline weapon (Section 7.3). It must stay a viable fallback.
  * The generated weapons arrive with Milestone M6.
  */
+export function loadRedeemerWeapon(): Weapon {
+  redeemerWeaponCache ??= parseData(
+    "data/weapons/redeemer.json",
+    WeaponSchema,
+    redeemerWeaponJson,
+  ) as Weapon;
+  return redeemerWeaponCache;
+}
+
+/** The fixed baseline weapon (Section 7.3). */
 export function loadBaselineWeapon(): Weapon {
   baselineWeaponCache ??= parseData(
     "data/weapons/baseline.json",
@@ -120,6 +132,7 @@ export function loadRoles(): Roles {
 export function clearDataCache(): void {
   tuningCache = null;
   baselineWeaponCache = null;
+  redeemerWeaponCache = null;
   announcementsCache = null;
   tacticsCache = null;
   weaponRolesCache = null;

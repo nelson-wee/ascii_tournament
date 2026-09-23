@@ -13,7 +13,7 @@
 import type { Tactics } from "../core/schemas.js";
 import type { Role, RoundOutcome, TeamId } from "../sim/state.js";
 import { ROLES } from "../sim/state.js";
-import type { Archetype, RangeBand } from "../weapons/types.js";
+import type { RangeBand } from "../weapons/types.js";
 
 /** Every tactics value that the screen shows, in the order it shows them. */
 const SLIDERS: readonly { key: keyof Tactics; label: string; help: string }[] = [
@@ -26,7 +26,14 @@ const SLIDERS: readonly { key: keyof Tactics; label: string; help: string }[] = 
 
 const RANGES: readonly RangeBand[] = ["close", "mid", "long"];
 
-const WEAPON_PREFS: readonly (Archetype | "")[] = [
+/**
+ * The archetypes a player can name as the tournament weapon priority. The
+ * Redeemer is not here: it is a power-up, not a weapon a run generates
+ * (Section 7.20.18).
+ */
+type WeaponPref = NonNullable<Tactics["weaponRolePref"]>;
+
+const WEAPON_PREFS: readonly (WeaponPref | "")[] = [
   "",
   "precision",
   "assault",
@@ -147,7 +154,7 @@ export function openTacticsScreen(options: TacticsScreenOptions): TacticsScreen 
     pref.append(option);
   }
   pref.addEventListener("change", () => {
-    tactics.weaponRolePref = pref.value === "" ? null : (pref.value as Archetype);
+    tactics.weaponRolePref = pref.value === "" ? null : (pref.value as WeaponPref);
   });
   form.append(field("weapon priority", "the archetype a bot reaches for first", pref));
 

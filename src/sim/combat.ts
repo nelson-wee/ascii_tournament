@@ -16,11 +16,13 @@
  * (Section 7.3), and the ammo pickups arrive with M8.
  */
 import { canSee, isUnaware } from "../ai/perception.js";
-import type { RangeBand, Weapon } from "../weapons/types.js";
+import { POWERUP_TIER, type RangeBand, type Weapon } from "../weapons/types.js";
 import {
   applyConeDamage,
   applyLineDamage,
   areaTargetsIfAimedAt,
+  damageProjectile,
+  interceptableProjectiles,
   leadAngle,
   spawnProjectile,
 } from "./attacks.js";
@@ -239,6 +241,7 @@ function releaseShot(state: SimState, bot: BotState, target: BotState): void {
 export function tryFire(state: SimState, bot: BotState): void {
   if (!bot.alive) return;
   if (bot.fireCooldownTicks > 0) return;
+  if (tryIntercept(state, bot)) return;
   const target = selectTarget(state, bot);
   if (!target) {
     // The aim falls away, it does not vanish. A bot that walks behind a pillar
@@ -272,6 +275,56 @@ export function tryFire(state: SimState, bot: BotState): void {
   });
   releaseShot(state, bot, target);
   if (bot.weapon.id === fired.id) spendAmmo(state, bot);
+}
+
+/**
+ * Shoot down an enemy shot that is in the air, if one is worth shooting
+ * (Section 7.20.18).
+ *
+ * A Redeemer flying at a team is a bigger problem than the bot that fired it,
+ * so a bot that can reach it stops what it is doing and fires at it. It takes
+ * the reaction of the bot, like any other shot: a bot that has just turned
+ * around cannot answer in time.
+ *
+ * Returns true when the bot spent its shot on the interception.
+ */
+function tryIntercept(state: SimState, bot: BotState): boolean {
+  const [shot] = interceptableProjectiles(state, bot);
+  if (!shot) return false;
+
+  // The bot aims at the shot as it would aim at a bot. `targetId` holds the id
+  // of the shot, so a bot that changes from a bot to a shot starts its aim
+  // again, and the reaction is honest.
+  const id = `projectile:${shot.id}`;
+  if (bot.targetId !== id) {
+    bot.targetId = id;
+    bot.aimTicks = 0;
+    return true;
+  }
+  bot.aimTicks += 1;
+  const distance = Math.hypot(shot.pos.x - bot.pos.x, shot.pos.y - bot.pos.y);
+  const band = rangeBandOf(state, distance);
+  if (bot.aimTicks < effectiveReaction(bot, band, state.config.aggressionReactionDiscount)) {
+    return true;
+  }
+
+  bot.fireCooldownTicks = bot.weapon.fireIntervalTicks;
+  state.bus.emit("Shot", state.tick, state.roundNumber, {
+    shooterId: bot.id,
+    targetId: id,
+    weaponId: bot.weapon.id,
+    attackType: bot.weapon.attackType,
+    rangeBand: band,
+  });
+  // A shot in the air is a small target, and the bot is not one: the hit
+  // chance falls with the distance alone.
+  const chance = Math.max(
+    state.config.minHitChance,
+    bot.attributes.accuracy * (1 - state.config.distanceFalloff * (distance / bot.weapon.rangeMax)),
+  );
+  if (state.rng.bool(chance)) damageProjectile(state, shot, bot.weapon.damage);
+  spendAmmo(state, bot);
+  return true;
 }
 
 /** Put a dead bot back on a spawn cell of its team. */
@@ -311,6 +364,11 @@ export function respawn(state: SimState, bot: BotState): void {
   // death put the bot back on the baseline for most of its life, and the
   // baseline took 43 % of the kills, which is not a fallback (Section 7.3).
   // Death still costs the armor, the shield, the power-ups, and the ground.
+  //
+  // A power-up weapon is a power-up, so it goes with them. Without this a bot
+  // could fire its Redeemer, die, and come back holding another one: an empty
+  // ammo map reads as a full magazine (Section 7.20.18).
+  bot.weapons = bot.weapons.filter((weapon) => weapon.tier !== POWERUP_TIER);
   bot.weapon = bot.weapons[0] ?? bot.weapon;
   bot.ammo.clear();
   bot.lastSeen.clear();

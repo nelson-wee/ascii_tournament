@@ -529,7 +529,41 @@ the numbers to watch next.
 Its cost — no healing while it presses — landed harder than its benefit, the
 shorter aim delay. The next lever is the benefit.
 
-### 5.4 Two open questions, stated and not hidden
+### 5.4 The Redeemer
+
+A power-up that hands over one shot: a slow homing projectile with a six-cell
+blast, which the other team can shoot down. Section 7.20.18 of the dev guide
+holds the full design. It is a fixed file, outside the power budget, because a
+Redeemer is a single event and not a damage-per-second profile.
+
+| Number | Value | Measured over 540 rounds | Value |
+|---|---|---|---|
+| damage | 120 | matches with a Redeemer | 26.5 % |
+| blast radius | 6 cells | Redeemers fired per round | 0.67 |
+| projectile speed | 0.85 cells/tick | bots caught per shot | 1.26 |
+| turn rate | 0.09 rad/tick | kills per Redeemer fired | 1.05 |
+| projectile health | 18 | shots destroyed in the air | 12.2 % |
+| ammo | 1, never refilled | share of all kills | 2.4 % |
+
+A centre hit kills a whole bot outright (120 against 100 health). The blast
+falls to half at the edge, so 60 damage leaves a whole bot alive. A shot that is
+destroyed in the air detonates where it flies, so an interception at the wrong
+moment kills the team that made it.
+
+**The power-up cadence is now about three spawns in a round** — two points open
+the round and about one comes back (`powerup.respawnTicks` 1750, measured 2.96
+spawns and 2.81 taken). The Redeemer holds weight 2 of 8, and a spawn table is
+rolled once per match, so a match either offers it all round or never.
+
+**The trade.** Item control rose from a 20-point spread to **32** (0.1 → 40.7 %,
+0.9 → 72.6 %). A power-up worth a fight makes contesting power-ups worth doing,
+which is the point of the change, but it moves Section 5.5's first open question
+further out: item control is a stronger axis than any other tactic, and the
+answer is still more ground to fight over (M7) or a doctrine that says which
+items to contest (M11). The preset balance did not move: `aggressive` 53.9 %
+±1.8, `anchor` 40.9 % ±1.8, `balanced` 55.0 % ±1.9, no balance failure.
+
+### 5.5 Two open questions, stated and not hidden
 
 **1. `itemControl` is now structural, not tunable.** Gating the weapons behind
 pickup points is what made the arena matter, and it also made item control the
@@ -554,7 +588,7 @@ was removed: a bot takes health and armor only when it has no enemy to engage
 (Section 5.3). Its replacement question is smaller and better shaped — does a
 bold bot gain enough from shooting first to pay for never healing?
 
-### 5.5 What still needs a measurement after M7
+### 5.6 What still needs a measurement after M7
 
 - The band shares in `data/weapon-roles.json` are measured on one hand-made
   arena. A generated arena will fire in different bands, and the budget reads

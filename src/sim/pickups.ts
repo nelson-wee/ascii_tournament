@@ -17,12 +17,24 @@
  */
 import { cellIndex } from "../arena/types.js";
 import { isContested, pickupEvenness } from "../arena/contested.js";
-import { loadPickups } from "../core/data.js";
+import { loadPickups, loadRedeemerWeapon } from "../core/data.js";
 import type { Pickups } from "../core/schemas.js";
 import type { Rng } from "../core/rng.js";
 import type { ArenaMap, PickupPoint } from "../arena/types.js";
 import type { Weapon } from "../weapons/types.js";
 import { botCell, botsInTickOrder, type BotState, type SimState } from "./state.js";
+
+/**
+ * The fixed weapon that a power-up hands over, by its id.
+ *
+ * These weapons sit outside the power budget of Section 7.3 on purpose. A
+ * Redeemer is one shot that ends a fight, not a damage-per-second profile, so
+ * pricing it against the budget would either make it useless or make
+ * `expectedTargets` lie again (Section 7.20.18).
+ */
+function powerupWeapon(id: string): Weapon | null {
+  return id === "redeemer" ? loadRedeemerWeapon() : null;
+}
 
 /** The item that each pickup slot gives, for a whole match (Section 7.12). */
 export interface SpawnTable {
@@ -261,9 +273,18 @@ function readyValue(state: SimState, bot: BotState, pickup: PickupState): number
       }
       return need * 1.2;
     }
-    case "powerup":
-      // A power-up is always worth taking, and it is rare.
+    case "powerup": {
+      // A power-up is always worth taking, and it is rare. A power-up that
+      // hands over a weapon is worth nothing to a bot that already holds it
+      // with a round in the magazine.
+      const weaponId = state.pickupTables.powerups[pickup.itemId]?.weapon;
+      if (weaponId !== undefined) {
+        const held = bot.weapons.find((candidate) => candidate.id === weaponId);
+        if (held && (bot.ammo.get(held.id) ?? held.ammoMax) > 0) return 0;
+        return 2.2;
+      }
       return 1.5;
+    }
     case "weapon": {
       const weapon = state.runWeapons.find((candidate) => candidate.id === pickup.itemId);
       if (!weapon) return 0;
@@ -306,6 +327,9 @@ export function takePickup(state: SimState, bot: BotState, pickup: PickupState):
     }
     case "ammo": {
       for (const weapon of bot.weapons.slice(1)) {
+        // A weapon that an ammo point does not refill: the Redeemer is one
+        // shot, and an ammo point must not make it two.
+        if (weapon.ammoPerPickup <= 0) continue;
         const left = bot.ammo.get(weapon.id) ?? weapon.ammoMax;
         if (left >= weapon.ammoMax) continue;
         bot.ammo.set(weapon.id, Math.min(weapon.ammoMax, left + weapon.ammoPerPickup));
@@ -339,6 +363,20 @@ export function takePickup(state: SimState, bot: BotState, pickup: PickupState):
       }
       if (powerup.durationTicks > 0) {
         bot.powerups.set(pickup.itemId, state.tick + powerup.durationTicks);
+      }
+      if (powerup.weapon !== undefined) {
+        // A power-up that hands over a weapon: the Redeemer (Section 7.20.18).
+        // It carries one round, so the bot fires it once and falls back.
+        const weapon = powerupWeapon(powerup.weapon);
+        if (!weapon) break;
+        const held = bot.weapons.find((candidate) => candidate.id === weapon.id);
+        // A bot that still has the shot takes nothing, and the point stays for
+        // a teammate or for the other team.
+        if (held && (bot.ammo.get(held.id) ?? held.ammoMax) > 0) break;
+        if (!held) bot.weapons.push(weapon);
+        bot.ammo.set(weapon.id, weapon.ammoMax);
+        took = true;
+        break;
       }
       took = true;
       break;

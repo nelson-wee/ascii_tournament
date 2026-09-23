@@ -990,6 +990,80 @@ and both are stated rather than hidden:
   healing in a fight — landed harder than its benefit. The next lever is the
   benefit, not the cost: a bold bot should gain more than a shorter aim delay.
 
+#### 7.20.18 The Redeemer: a power-up that is not a weapon
+
+A power-up that hands over **one shot**: a slow homing projectile with a wide
+blast, which the other team can shoot down. It answers the question that
+Section 7.20.17 left open — what makes a power-up point worth a fight.
+
+**Why a power-up and not a generated weapon.** Double damage and a shield belt
+are personal: one bot gets stronger and the other team finds out afterwards. A
+Redeemer is a **board state**. Everyone sees the shot in the air, and for a few
+seconds the round is about that shot and not about attrition. That is the pull a
+conflict zone needs.
+
+**It sits outside the power budget, on purpose.** `data/weapons/redeemer.json`
+is a fixed file with `tier: "powerup"` and `budgetUsed: 0`, and the generator
+never makes one. The budget of Section 7.3 prices a damage-per-second profile,
+and a Redeemer is not one: it is a single event. Pricing it would either make it
+useless or make `expectedTargets` lie, which is the fault that Section 7.20.12
+spent a whole pass removing.
+
+**What it does.**
+
+| Number | Value | Why |
+|---|---|---|
+| damage | 120 | Above `combat.healthMax`, so a centre hit kills a whole bot outright |
+| `aoeRadius` | 6 cells | The area falls to half at the edge, so 60 damage leaves a whole bot alive |
+| `projectileSpeed` | 0.85 cells per tick | Slow enough to see coming and to answer |
+| `homingTurnRate` | 0.09 radians per tick | It follows, but it cannot follow a bot that breaks hard around cover |
+| `projectileHealth` | 18 | One solid hit sets it off early; a weak one does not |
+| `ammoMax` / `ammoPerPickup` | 1 / 0 | One shot means one shot: an ammo point does not refill it |
+
+A bot loses it when it dies, with the other power-ups. Without that rule a bot
+could fire it, die, and come back holding another one, because an empty ammo map
+reads as a full magazine.
+
+**Shooting it down is the point.** `tryIntercept` runs before a bot picks a bot
+to shoot at: a Redeemer flying at a team is a bigger problem than the bot that
+fired it. It takes the full reaction of the bot, like any other shot, so a bot
+that has just turned around cannot answer in time. A shot that is destroyed
+**detonates where it flies**, so an interception at the wrong moment kills the
+team that made it. That is three choices in one moment — scatter, shoot it down,
+or push while the enemy is busy — and it is the most tactical second the game
+has.
+
+**Power-up cadence.** The user's rule is about three power-up spawns in a round,
+so that item control is a real strategy and not a chore. `powerup.respawnTicks`
+is 1750: two points open the round and about one comes back. Measured over 540
+rounds: **2.96 spawns and 2.81 taken per round**. The Redeemer holds weight 2 of
+8 in the power-up table, so **26.5 % of matches** have one on the map. A spawn
+table is rolled once per match (Section 7.12), so a match either offers the
+Redeemer all round or never.
+
+**Measured over 540 rounds, and 1080 for the batch.**
+
+| Measurement | Value |
+|---|---|
+| Matches whose spawn table holds a Redeemer | 26.5 % |
+| Redeemers fired per round | 0.67 |
+| Bots caught per shot | 1.26 |
+| Kills per Redeemer fired | 1.05 |
+| Shots destroyed in the air | 12.2 % |
+| Share of all kills | 2.4 % |
+
+One Redeemer is worth about one kill, one in eight is answered in the air, and
+it takes 2.4 % of the kills of a round. It is an event, not a strategy: a team
+cannot win on Redeemers, and a team that ignores the point gives away a free
+kill every few rounds.
+
+**What it cost.** Item control is stronger again: the sweep spread went from 20
+points to **32** (0.1 → 40.7 %, 0.9 → 72.6 %). That is the trade the cadence
+asks for — a power-up worth a fight makes contesting power-ups worth doing — and
+it is the number to watch after M7 gives the arena more ground to fight over.
+The preset balance did not move: `aggressive` 53.9 % ±1.8, `anchor` 40.9 % ±1.8,
+`balanced` 55.0 % ±1.9, with no balance failure.
+
 ### 7.3 Weapon generation (`weapons/`)
 
 Purpose: generate readable procedural weapons with clear roles.
@@ -1205,7 +1279,7 @@ says whether a role is worth taking.
 | armor | an armor pool that takes a share of every hit | often |
 | ammo | rounds for every weapon that the bot holds, up to each maximum | often |
 | weapon | the weapon of the slot, with a full magazine | less often |
-| powerup | double damage for a time, or a shield belt | rarely |
+| powerup | double damage for a time, a shield belt, or the Redeemer | rarely |
 
 Rules:
 
@@ -1223,7 +1297,11 @@ Rules:
   weapon lasts between points.
 - **A power-up is rare.** It comes back far less often than health or armor, so
   the point where it lands is worth a fight. That is what makes the ground of
-  Section 7.9 contested at all.
+  Section 7.9 contested at all. The cadence is about **three spawns in a round**:
+  two points open it and one comes back.
+- **A power-up can hand over a weapon.** The Redeemer of Section 7.20.18 arrives
+  this way, with one round that no ammo point refills, and a bot loses it when
+  it dies. A weapon that a power-up gives sits outside the power budget.
 - **A point that gives nothing is not taken.** A bot at full health walks over a
   health point and leaves it for a teammate.
 - **A point that is coming back soon is still worth walking to**

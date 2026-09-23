@@ -28,7 +28,14 @@ while weapons, ammo and power-ups stay worth fighting for — and a weapon swap
 costs firing ticks inside a fight but nothing outside one, so a team arms itself
 by its role and its doctrine before contact.
 
-Over 1080 rounds: aggressive 53.1 %, anchor 40.9 %, balanced 55.8 %, no balance
+A third pass added the **Redeemer**: a power-up that hands over one shot, a slow
+homing projectile with a six-cell blast that kills a whole bot at the centre,
+leaves one alive at the edge, and can be shot down in the air — where it
+detonates on the spot. It is a fixed file outside the power budget, because a
+single event is not a damage-per-second profile. Power-ups now spawn about three
+times in a round, and one match in four offers a Redeemer.
+
+Over 1080 rounds: aggressive 53.9 %, anchor 40.9 %, balanced 55.0 %, no balance
 failure, and every round reaches the score limit. The tournament weapon priority
 is now worth 11 points of win rate, and item control fell from a 36-point spread
 to 20. [`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md) holds the

@@ -72,6 +72,13 @@ export interface Projectile {
   weapon: Weapon;
   /** True if the shot that made it rolled a critical hit. */
   crit: boolean;
+  /**
+   * The damage the shot itself can take before it detonates early. 0 means
+   * nothing can shoot it down (Section 7.20.18).
+   */
+  health: number;
+  /** Radians of turn per tick toward the nearest enemy. 0 means it flies straight. */
+  homingTurnRate: number;
   pos: Vec2;
   /** Cells per tick. */
   velocity: Vec2;

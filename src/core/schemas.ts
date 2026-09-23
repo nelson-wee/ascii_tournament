@@ -365,6 +365,12 @@ export const PickupsSchema = z
           durationTicks: nonNegativeInt,
           damageMultiplier: positiveNumber.optional(),
           shield: z.number().nonnegative().optional(),
+          /**
+           * The id of a weapon file that the point hands over, with one
+           * magazine. The Redeemer of Section 7.20.18 arrives this way: it is
+           * a power-up, so the power budget of Section 7.3 never prices it.
+           */
+          weapon: z.string().min(1).optional(),
           weight: z.number().positive(),
         })
         .strict(),
@@ -568,6 +574,7 @@ export const WeaponSchema = z
       "denial",
       "versatile",
       "baseline",
+      "redeemer",
     ]),
     role: z.enum(["precise", "assault", "sniper", "heavy"]).nullable(),
     tier: z.string().min(1),
@@ -585,7 +592,12 @@ export const WeaponSchema = z
     hazardRadius: z.number().nonnegative(),
     hazardDamagePerTick: z.number().nonnegative(),
     /** Rounds that one universal ammo pickup gives this weapon. */
-    ammoPerPickup: positiveInt,
+    /**
+     * Rounds that one universal ammo pickup gives this weapon. 0 means an ammo
+     * point does not refill it, which is what makes the Redeemer one shot
+     * (Section 7.20.18).
+     */
+    ammoPerPickup: nonNegativeInt,
     critChance: unitRange,
     critConditions: z.array(z.string()),
     ammoMax: positiveInt,
@@ -593,5 +605,9 @@ export const WeaponSchema = z
     reactionByBand: bandValues,
     dpsProfile: bandValues,
     budgetUsed: z.number().nonnegative(),
+    /** Radians of turn per tick toward the target. Only the Redeemer uses it. */
+    homingTurnRate: z.number().nonnegative().optional(),
+    /** Damage that the shot itself takes before it detonates early. */
+    projectileHealth: z.number().nonnegative().optional(),
   })
   .strict();

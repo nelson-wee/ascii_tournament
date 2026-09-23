@@ -221,6 +221,8 @@ export function spawnProjectile(
     teamId: shooter.teamId,
     weapon,
     crit,
+    health: weapon.projectileHealth ?? 0,
+    homingTurnRate: weapon.homingTurnRate ?? 0,
     pos: { x: shooter.pos.x, y: shooter.pos.y },
     velocity: { x: Math.cos(aimAngle) * speed, y: Math.sin(aimAngle) * speed },
     rangeLeft: weapon.rangeMax,
@@ -315,6 +317,77 @@ function onImpact(state: SimState, projectile: Projectile, at: Vec2, hit: BotSta
   }
 }
 
+/**
+ * Turn a homing shot toward the enemy it is nearest to (Section 7.20.18).
+ *
+ * The turn rate is what makes a Redeemer dodgeable: it follows, but it cannot
+ * follow a bot that breaks hard around cover. A shot with no turn rate flies
+ * straight, which is every other weapon.
+ */
+function steerProjectile(state: SimState, projectile: Projectile): void {
+  if (projectile.homingTurnRate <= 0) return;
+  const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
+  if (speed < 1e-9) return;
+
+  let best: BotState | null = null;
+  let bestDistance = Infinity;
+  for (const bot of enemiesOf(state, projectile.teamId)) {
+    const distance = Math.hypot(bot.pos.x - projectile.pos.x, bot.pos.y - projectile.pos.y);
+    if (distance >= bestDistance) continue;
+    if (!clearLine(state, projectile.pos, bot.pos)) continue;
+    best = bot;
+    bestDistance = distance;
+  }
+  if (!best) return;
+
+  const wanted = Math.atan2(best.pos.y - projectile.pos.y, best.pos.x - projectile.pos.x);
+  const now = Math.atan2(projectile.velocity.y, projectile.velocity.x);
+  let offset = wanted - now;
+  while (offset > Math.PI) offset -= Math.PI * 2;
+  while (offset < -Math.PI) offset += Math.PI * 2;
+  const turn = Math.max(-projectile.homingTurnRate, Math.min(projectile.homingTurnRate, offset));
+  const heading = now + turn;
+  projectile.velocity = { x: Math.cos(heading) * speed, y: Math.sin(heading) * speed };
+}
+
+/**
+ * Damage a shot that is in the air. It detonates where it flies when its own
+ * health runs out (Section 7.20.18).
+ *
+ * This is what makes a Redeemer a decision for the other team and not only for
+ * the bot that fired it: scatter, shoot it down, or push while it flies.
+ */
+export function damageProjectile(state: SimState, projectile: Projectile, damage: number): boolean {
+  if (projectile.health <= 0) return false;
+  projectile.health -= damage;
+  if (projectile.health > 0) return false;
+
+  state.bus.emit("HazardCreated", state.tick, state.roundNumber, {
+    shooterId: projectile.shooterId,
+    cell: posCell(projectile.pos),
+    radius: projectile.weapon.aoeRadius,
+    ticks: 0,
+    reason: "projectileDestroyed",
+  });
+  onImpact(state, projectile, projectile.pos, null);
+  state.projectiles = state.projectiles.filter((other) => other !== projectile);
+  return true;
+}
+
+/** Every shot in the air that a bot can shoot down, nearest first. */
+export function interceptableProjectiles(state: SimState, bot: BotState): Projectile[] {
+  return state.projectiles
+    .filter((projectile) => projectile.health > 0 && projectile.teamId !== bot.teamId)
+    .map((projectile) => ({
+      projectile,
+      distance: Math.hypot(projectile.pos.x - bot.pos.x, projectile.pos.y - bot.pos.y),
+    }))
+    .filter((entry) => entry.distance <= bot.weapon.rangeMax)
+    .filter((entry) => clearLine(state, bot.pos, entry.projectile.pos))
+    .sort((a, b) => a.distance - b.distance)
+    .map((entry) => entry.projectile);
+}
+
 /** The live enemy that a projectile touches at a point, or `null`. */
 function botAt(state: SimState, projectile: Projectile, at: Vec2): BotState | null {
   for (const bot of state.bots) {
@@ -334,6 +407,7 @@ export function updateProjectiles(state: SimState): void {
   const left: Projectile[] = [];
 
   for (const projectile of state.projectiles) {
+    steerProjectile(state, projectile);
     const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
     if (speed < 1e-9) continue;
     const steps = Math.max(1, Math.ceil(speed / STEP));

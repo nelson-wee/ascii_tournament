@@ -21,7 +21,7 @@
       "amount": 0
     },
     "powerup": {
-      "respawnTicks": 1400,
+      "respawnTicks": 1750,
       "amount": 0
     }
   },
@@ -29,12 +29,17 @@
     "doubleDamage": {
       "durationTicks": 400,
       "damageMultiplier": 2,
-      "weight": 1
+      "weight": 3
     },
     "shieldBelt": {
       "durationTicks": 0,
       "shield": 75,
-      "weight": 1
+      "weight": 3
+    },
+    "redeemer": {
+      "durationTicks": 0,
+      "weapon": "redeemer",
+      "weight": 2
     }
   }
 }
