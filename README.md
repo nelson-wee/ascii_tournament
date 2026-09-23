@@ -4,7 +4,9 @@ An ASCII team shooter tournament with indirect control. The player sets the
 tactics of a team of three bots. The bots fight. The player does not control a
 bot directly.
 
-The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
+The full design is in [`docs/dev-guide.md`](docs/dev-guide.md). The measured
+state of the weapons and the balance after M8 is in
+[`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md).
 
 ## Status
 
