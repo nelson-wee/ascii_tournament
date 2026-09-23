@@ -8,9 +8,60 @@ The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
 
 ## Status
 
-**Milestone M0 — scaffolding and deployment.** The build, the seeded RNG, the
-data loader, the event bus, the tests, and the GitHub Pages deployment work.
-The game itself starts at Milestone M1.
+**Milestone M8 — teams, roles, matches, and pickups.** A full best-of-3 match
+plays in the browser. Between the rounds the tactics screen opens and the
+player sets the tactics and the role of each bot. The arena now gives a reason
+to move: health, armor, universal ammo, a weapon point, and the two power-ups
+of the classic arena shooter (double damage and a shield belt), each on its own
+respawn timer, from one spawn table per match. Each team has three roles
+(tank, overwatch, skirmisher), and the influence maps give the AI a danger map
+and a control map.
+
+The pickups changed the game more than any milestone before: a round went from
+10.9 kills in 5125 ticks to 25.9 kills in 2030 ticks, 98 % of rounds now reach
+the score limit, and the preset that holds its ground fell from 82 % to 42.5 %.
+The batch reports a win rate per role composition, and a rush composition beats
+a turtle composition by 8 points. Sections 7.20.13 and 7.20.14 of the dev guide
+hold the measurements and the three faults they found, among them an arena that
+was symmetric to the cell and still gave one side the better start.
+
+**Milestone M6 — weapon generation.** A run gets five weapons: one fixed
+baseline and four generated from a role trait (precise, assault, sniper, heavy)
+and one of seven attack types (hitscan, projectile, cone, burst, line, ricochet,
+tile). Every generated weapon costs the same power budget, and its archetype is
+a label that the generator derives at the end. Combat gained area damage,
+projectiles, hazard tiles, damage over time, a crit against a target that stands
+still, a dodge for one that moves, and an order of fire that comes from the
+reaction speed of the bot and its weapon.
+
+The power budget trades four things, not one: an area weapon pays for its power
+in reach, in magazine size, and in cadence before it pays in damage. A run holds
+a clear tier ranking (`prize`, `strong`, `standard`), and ammo is counted, so an
+empty weapon drops a bot back to the baseline.
+
+**Milestone M5.5 — directional vision (off).** A bot can have a facing, a narrow
+focus arc where it can fire, a wide peripheral arc where it only notices, and a
+turn rate. The batch says the change did not move the balance, and Section
+7.20.10 of the dev guide says why. `perception.directionalVision` in
+`data/tuning.json` turns it on; it is off until the pickups of Milestone M8
+give a reason to cross the arena.
+
+**Milestone M5 — headless batch harness.** `npm run batch` runs rounds in Node
+with no display and prints a win-rate table, the round end reasons, the weapon
+use, and any balance failure. It writes three CSV files. Weapon generation
+arrives with Milestone M6.
+
+**Milestone M4 — utility AI and tactics.** Each bot gives a score to every
+action (engage, chase, retreat, seek a pickup, hold, reposition, switch weapon,
+follow) and takes the highest. The tactics of the player are the weights. A
+round with an equal score at the time limit goes to sudden death. The kill feed
+carries the classic arena shooter announcements. The headless batch harness
+arrives with Milestone M5.
+
+Earlier milestones gave the build, the seeded RNG, the data loader, the event
+bus, the tests, the GitHub Pages deployment (M0), the arena map files with the
+rot.js display (M1), A* movement with the tick loop and the speed controls (M2),
+and FOV, the baseline weapon, and the round end condition (M3).
 
 ## Commands
 
@@ -24,6 +75,7 @@ The game itself starts at Milestone M1.
 | `npm run test:watch` | Run the tests and watch for changes. |
 | `npm run typecheck` | Typecheck only. |
 | `npm run lint` | Run ESLint. |
+| `npm run batch` | Run the headless batch harness (see below). |
 
 ## Rules for the code
 
@@ -44,6 +96,61 @@ These rules come from Sections 4 and 13 of the dev guide.
 
 The ESLint configuration and the test `tests/boundary.test.ts` check rules 1
 and 4 automatically.
+
+## The batch harness
+
+`npm run batch` runs rounds with no display and reports the balance.
+
+```
+npm run batch                                # data/batch.json, 1000 rounds
+npm run batch -- --rounds 200 --seed 7
+npm run batch -- --config my-batch.json --out results --quiet
+```
+
+It prints a win-rate matrix (tactics preset × arena), the matchup table, a
+win rate per role composition with its own matchup table, the round end
+reasons, the kills by weapon archetype, the weapon use, and any balance
+failure. Every win rate carries its standard error, because a win rate from few
+rounds says little (Section 7.2.1 of the dev guide).
+
+`hits per shot` is not a share: one shot of an area weapon hits several bots,
+so the number passes 1.
+
+It writes `rounds.csv`, `matchups.csv`, and `presets.csv` into the output
+folder. With `--fail-on-balance` the command ends with a non-zero exit code
+when it finds a balance failure, so a workflow can use it as a gate.
+
+## Arena map files
+
+A file in `data/arenas/` holds one hand-made arena. The file has an optional
+header, a line with `---`, and then the map:
+
+```
+name: Proving Ground
+notes: free text
+---
+##########
+#S..,.^..#
+##########
+```
+
+| Glyph | Tile |
+|---|---|
+| `#` | wall |
+| `.` | floor |
+| `,` | low cover |
+| `^` | hazard |
+| `S` | spawn |
+| `W` `A` `H` `U` `M` | a weapon, armor, health, powerup, or ammo pickup |
+
+Every row must have the same width, and the map needs two spawn cells at
+minimum.
+
+The test arena has 180-degree rotational symmetry, so the two teams get the
+same arena. The parser also pairs the spawn slots of the two teams, because a
+row-major scan reads the second spawn group in the reverse order of the first,
+and the slot decides the role of a bot. Section 7.2.1 of the dev guide says why
+this matters and how to check it.
 
 ## Deployment
 

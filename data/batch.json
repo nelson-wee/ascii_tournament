@@ -1,0 +1,46 @@
+{
+  "_notes": "The default batch. A tactics preset stands in for a doctrine (M11), and an arena file stands in for an arena profile (M7). The cautious preset was removed after the first 1000-round batch: it won 19.1 % and it stalled rounds. Every number is a placeholder. TBD",
+  "rounds": 1000,
+  "seed": 20260922,
+  "arenas": [
+    "data/arenas/test-arena.txt"
+  ],
+  "presets": {
+    "balanced": {
+      "aggression": 0.5,
+      "retreatThreshold": 0.3,
+      "preferredRange": "mid",
+      "weaponRolePref": null,
+      "itemControl": 0.5,
+      "holdPosition": 0.2,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    },
+    "aggressive": {
+      "aggression": 0.9,
+      "retreatThreshold": 0.15,
+      "preferredRange": "close",
+      "weaponRolePref": null,
+      "itemControl": 0.3,
+      "holdPosition": 0.1,
+      "evasion": 0.2,
+      "hazardTolerance": 0.7
+    },
+    "anchor": {
+      "aggression": 0.5,
+      "retreatThreshold": 0.25,
+      "preferredRange": "mid",
+      "weaponRolePref": null,
+      "itemControl": 0.4,
+      "holdPosition": 0.65,
+      "evasion": 0.2,
+      "hazardTolerance": 0.3
+    }
+  },
+  "compositions": {
+    "standard": ["tank", "overwatch", "skirmisher"],
+    "rush": ["skirmisher", "skirmisher", "tank"],
+    "turtle": ["overwatch", "overwatch", "tank"]
+  },
+  "outDir": "batch-out"
+}

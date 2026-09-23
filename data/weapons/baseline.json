@@ -1,0 +1,38 @@
+{
+  "id": "baseline-rifle",
+  "name": "Standard Rifle",
+  "archetype": "baseline",
+  "role": null,
+  "tier": "baseline",
+  "attackType": "hitscan",
+  "damage": 25,
+  "fireIntervalTicks": 12,
+  "rangeMax": 30,
+  "projectileSpeed": null,
+  "aoeRadius": 0,
+  "coneHalfAngle": 0,
+  "ricochetBounces": 0,
+  "dotDamage": 0,
+  "dotTicks": 0,
+  "hazardTicks": 0,
+  "hazardRadius": 0,
+  "critChance": 0.15,
+  "critConditions": [
+    "targetUnaware"
+  ],
+  "ammoMax": 30,
+  "ammoPerPickup": 30,
+  "traits": [],
+  "reactionByBand": {
+    "close": 4,
+    "mid": 4,
+    "long": 5
+  },
+  "dpsProfile": {
+    "close": 22.9,
+    "mid": 22.9,
+    "long": 22.9
+  },
+  "budgetUsed": 0,
+  "hazardDamagePerTick": 0
+}

@@ -3,20 +3,125 @@
   "tbd": [
     "simulation.ticksPerSecond",
     "simulation.aiDecisionIntervalTicks",
-    "round.scoreLimit",
-    "round.timeLimitTicks"
+    "movement.moveSpeedCellsPerSecond",
+    "movement.repathAfterBlockedTicks",
+    "perception.sightRadiusCells",
+    "perception.memoryTicks",
+    "combat.healthMax",
+    "combat.respawnDelayTicks",
+    "combat.rangeBandCloseMax",
+    "combat.rangeBandMidMax",
+    "combat.multiKillWindowTicks",
+    "combat.critMultiplier",
+    "combat.distanceFalloff",
+    "combat.movingTargetPenalty",
+    "combat.minHitChance",
+    "botDefaults.accuracy",
+    "botDefaults.reactionTicks",
+    "botDefaults.awareness",
+    "round.suddenDeathMaxTicks",
+    "movement.evasionLateralFactor",
+    "combat.evasionAccuracyPenalty",
+    "ai.hysteresisMargin",
+    "ai.hazardAvoidBelowTolerance",
+    "ai.teamSpacingCells",
+    "ai.actionBase",
+    "combat.targetSwitchMargin",
+    "perception.focusHalfAngleDegrees",
+    "perception.peripheralHalfAngleBaseDegrees",
+    "perception.peripheralHalfAngleAwarenessDegrees",
+    "perception.peripheralDelayTicks",
+    "perception.turnRateDegreesPerTick",
+    "combat.stationaryTicksForCrit",
+    "combat.dodgeRampTicks",
+    "ai.pickupAnticipationTicks",
+    "ai.pickupAnticipationShare",
+    "ai.holdContactTicks",
+    "ai.holdBlindShare",
+    "ai.holdSuppressesPickup",
+    "ai.preferredRangeBias",
+    "influence"
   ],
   "simulation": {
     "ticksPerSecond": 20,
     "aiDecisionIntervalTicks": 5
   },
+  "movement": {
+    "moveSpeedCellsPerSecond": 4,
+    "repathAfterBlockedTicks": 10,
+    "evasionLateralFactor": 0.5
+  },
+  "perception": {
+    "directionalVision": false,
+    "sightRadiusCells": 20,
+    "memoryTicks": 200,
+    "focusHalfAngleDegrees": 45,
+    "peripheralHalfAngleBaseDegrees": 70,
+    "peripheralHalfAngleAwarenessDegrees": 40,
+    "peripheralDelayTicks": 8,
+    "turnRateDegreesPerTick": 12
+  },
+  "combat": {
+    "healthMax": 100,
+    "respawnDelayTicks": 60,
+    "rangeBandCloseMax": 8,
+    "rangeBandMidMax": 20,
+    "multiKillWindowTicks": 60,
+    "critMultiplier": 2,
+    "distanceFalloff": 0.6,
+    "movingTargetPenalty": 0.25,
+    "minHitChance": 0.05,
+    "evasionAccuracyPenalty": 0.4,
+    "targetSwitchMargin": 0.8,
+    "stationaryTicksForCrit": 10,
+    "dodgeRampTicks": 8
+  },
+  "ai": {
+    "hysteresisMargin": 1.2,
+    "hazardAvoidBelowTolerance": 0.5,
+    "teamSpacingCells": 12,
+    "actionBase": {
+      "engage": 1.0,
+      "chase": 0.55,
+      "retreat": 1.1,
+      "seekPickup": 0.8,
+      "holdPosition": 0.5,
+      "reposition": 0.7,
+      "switchWeapon": 0.9,
+      "follow": 0.4
+    },
+    "pickupAnticipationTicks": 220,
+    "pickupAnticipationShare": 0.55,
+    "holdContactTicks": 150,
+    "holdBlindShare": 0.1,
+    "holdSuppressesPickup": 0.6,
+    "preferredRangeBias": 0.25
+  },
+  "influence": {
+    "intervalTicks": 10,
+    "controlRadius": 6,
+    "dangerRadius": 5,
+    "botDanger": 1.0,
+    "sightDanger": 0.5,
+    "hazardDanger": 2.0,
+    "deathRadius": 4,
+    "deathDanger": 1.5,
+    "deathMemoryTicks": 300
+  },
+  "botDefaults": {
+    "accuracy": 0.75,
+    "reactionTicks": 6,
+    "awareness": 0.5
+  },
   "match": {
     "teamSize": 3,
     "maxRounds": 3,
-    "roundWinsToWinMatch": 2
+    "roundWinsToWinMatch": 2,
+    "weaponsPerRun": 5
   },
   "round": {
     "scoreLimit": 15,
-    "timeLimitTicks": 3600
+    "timeLimitTicks": 3600,
+    "suddenDeathMaxTicks": 3600
   }
 }

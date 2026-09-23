@@ -1,0 +1,50 @@
+{
+  "_notes": "UT99-style kill announcements. The words are the classic ones. The counts are lower than UT99, because a 3v3 round ends at 15 team kills: the classic 5/10/15/20/25 spree steps never happen in this format. TBD",
+  "multiKill": [
+    {
+      "count": 2,
+      "text": "Double Kill"
+    },
+    {
+      "count": 3,
+      "text": "Multi Kill"
+    },
+    {
+      "count": 4,
+      "text": "Mega Kill"
+    },
+    {
+      "count": 5,
+      "text": "Ultra Kill"
+    },
+    {
+      "count": 6,
+      "text": "Monster Kill"
+    }
+  ],
+  "spree": [
+    {
+      "count": 3,
+      "text": "Killing Spree"
+    },
+    {
+      "count": 5,
+      "text": "Rampage"
+    },
+    {
+      "count": 7,
+      "text": "Dominating"
+    },
+    {
+      "count": 9,
+      "text": "Unstoppable"
+    },
+    {
+      "count": 12,
+      "text": "Godlike"
+    }
+  ],
+  "multiKillTemplate": "{bot}: {text}!",
+  "spreeTemplate": "{bot} is on a {text}!",
+  "spreeEndedTemplate": "{killer} ended {victim}'s {text}"
+}

@@ -6,7 +6,12 @@
  * internal state of another system.
  */
 
-/** The minimum event types of Section 6.8. */
+/**
+ * The minimum event types of Section 6.8, plus `Announcement`.
+ *
+ * `Announcement` carries a multi-kill, a killing spree, or the end of a spree.
+ * The kill feed reads it (Section 7.17).
+ */
 export const GAME_EVENT_TYPES = [
   "MatchStart",
   "MatchEnd",
@@ -21,9 +26,11 @@ export const GAME_EVENT_TYPES = [
   "Crit",
   "DotTick",
   "HazardCreated",
+  "WeaponEmpty",
   "PickupTaken",
   "PickupRespawned",
   "DecisionChanged",
+  "Announcement",
   "TraitGained",
   "RivalryStarted",
   "RivalryEventAdded",

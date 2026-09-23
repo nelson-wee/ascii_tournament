@@ -74,6 +74,9 @@ This document is a blueprint for Claude Code.
 - **Match format:** best of 3 rounds. All rounds use the same arena and the same opponent team.
 - **Tactics between rounds:** the player can change tactics between rounds.
 - **Progression timing:** affinity collects during all rounds. Traits apply after the match, not during it.
+- **Collision:** an enemy bot blocks movement. A teammate does not.
+- **Round end:** a round ends when one team makes 15 kills, or after 3 simulated minutes (3600 ticks at 20 ticks per second).
+- **A drawn round:** an equal score at the time limit starts sudden death. The next kill wins the round.
 - **Pickups:** the spawn table is fixed for all rounds of a match. The spawn table can change in the next match.
 - **Arenas:** spawn points and pickup points are fixed per arena.
 - **Weapons per run:** 5 total. 1–2 are fixed baseline weapons. The other weapons are procedural.
@@ -147,7 +150,12 @@ The project root is the repository root.
 │   └── dev-guide.md               # this document
 ├── data/
 │   ├── tuning.json                # global numbers (tick rate, speeds, limits)
-│   ├── archetypes/*.json          # weapon archetypes
+│   ├── arenas/*.txt               # hand-made arena maps (M1 test arena)
+│   ├── weapon-roles.json          # role traits, attack types, power budget
+│   ├── weapons/*.json             # fixed weapons (the M3 baseline weapon)
+│   ├── tactics.json               # tactics presets
+│   ├── batch.json                 # batch harness configuration
+│   ├── announcements.json         # kill announcement tables
 │   ├── weapon-traits.json         # weapon mutations
 │   ├── bot-traits.json            # bot traits
 │   ├── roles.json                 # role presets
@@ -218,6 +226,10 @@ interface Arena {
 
 ### 6.3 Weapon
 
+> **Section 7.20 changes this interface.** `delivery` becomes `attackType` with
+> seven values, the weapon gains a role trait and a reaction per range band, and
+> the archetype list changes: `burst` goes, `assault` and `marksman` arrive.
+
 ```ts
 type Archetype = "precision" | "splash" | "burst" | "denial" | "versatile" | "baseline";
 
@@ -265,6 +277,9 @@ interface Tactics {           // what the player TELLS the bot (0.0–1.0 unless
 }
 
 type Role = "overwatch" | "tank" | "skirmisher";
+
+// Section 7.20.8 adds an optional advanced layer beside Tactics. Its first
+// setting is the weapon priority of the run.  // TBD
 
 interface Bot {
   id: string;
@@ -360,6 +375,7 @@ Minimum event types:
 - `PickupTaken`, `PickupRespawned`
 - `DecisionChanged` (debug)
 - `TraitGained`, `RivalryStarted`, `RivalryEventAdded`, `NicknameGained`
+- `Announcement` (a multi-kill, a killing spree, the end of a spree, sudden death)
 
 `Kill` events must include context: weapon archetype, range band, killer in cover, target aware, killer health, multi-kill count.
 
@@ -415,9 +431,372 @@ Validation rules (starting set, values TBD):
 
 The pre-match screen shows the metrics to the player in plain words (for example, "Long sightlines. Three chokepoints.").
 
+### 7.2.1 Symmetry, spawn fairness, and how to measure them
+
+This subsection holds what the work on the M1 test arena taught. It applies to
+the generator of M7 and to the batch harness of M5.
+
+**Why it matters.** A batch result measures the tactics only if the arena gives
+the two teams the same conditions. The first test arena was hand-made and not
+symmetric. With the same tactics on both teams, the south-east spawn group won
+68 % of 60 rounds. Every doctrine and role measurement on that arena would have
+carried the spawn advantage inside it.
+
+**Symmetry is the simple answer.** An arena with 180-degree rotational symmetry
+gives each team the same rooms, the same sightlines, and the same distances to
+every pickup point. Build it from one half: take the cells of the half, add the
+image of every cell under `(x, y) → (width − 1 − x, height − 1 − y)`, and the
+result is symmetric whatever shape the half has. A 60 × 30 grid has no fixed
+point under this map, so a "centre" item is always a pair.
+
+Mirror symmetry (left to right) also works, but rotational symmetry suits
+spawns at opposite corners, and it does not make a pair of rooms that are each
+other's reflection, which plays differently for a right-handed sightline.
+
+**Rules for a symmetric arena:**
+
+1. Place every spawn cell, every pickup point, every cover cell, and every
+   hazard cell in pairs. An odd count of any pickup kind means the arena is not
+   symmetric.
+2. Keep the spawn groups in the order that the teams read: the arena file
+   gives the first `teamSize` spawn cells to team A. Put one group in the top
+   half, so a row-major scan reads that group first.
+3. Check the symmetry with a test, not by eye. `tests/arena.test.ts` compares
+   every cell with its image.
+
+**Symmetry is not enough.** Two other faults give one team an advantage, and
+neither shows in the arena file:
+
+- **Tick order.** The simulation walked the bots in a fixed order, so team A
+  decided, moved, and fired before team B on every tick. In an exchange at the
+  same tick, the bot that fires first can kill the other before it fires. On
+  the symmetric arena this alone gave team A 55 % of 100 rounds. `botsInTickOrder`
+  now turns the order around on every second tick. The order stays a function
+  of the tick, so the simulation stays deterministic.
+- **The order of the spawn list.** A row-major scan reads the second spawn
+  group in the reverse order of the first, so the slot 0 of team B stands where
+  the slot 2 of team A stands. The slot decides the role, so two symmetric
+  halves gave two different fights, worth 5.75 points of win rate.
+  `orderSpawnsForFairness` pairs the slots at parse time. Section 7.20.14 holds
+  the measurement, and **an M7 generator must do the same**.
+- **Any "first one wins" rule over the bot list.** `applyPickups` handed every
+  contested pickup point to team A, because it walked `state.bots` in team
+  order. Every rule of that shape needs `botsInTickOrder`, or a list order
+  becomes a side advantage.
+- **A stall that looks like balance.** Before the fix of `selectTarget`, two or
+  three enemies at almost the same distance made the nearest one change on
+  every tick. The reaction timer started again with every change, so the bot
+  never fired. 6 % of rounds ended 0–0 after the full time limit. A batch that
+  counts only wins does not show this. **The batch harness must report the mean
+  kills per round and the number of rounds that reach the time limit.** A round
+  with no kill is a defect, not a draw.
+
+**How many rounds to trust.** A win rate from `n` rounds has a standard error of
+about `50 / √n` percent:
+
+| Rounds | Standard error | A result of 50 % ± this is normal |
+|---|---|---|
+| 100 | 5.0 % | 45 % – 55 % |
+| 400 | 2.5 % | 47.5 % – 52.5 % |
+| 1000 | 1.6 % | 48.4 % – 51.6 % |
+
+So a 100-round test cannot show a 5 % bias: the noise is the same size as the
+limit. Use 400 rounds or more before you call an arena or a doctrine unfair,
+and state the number of rounds with every win rate.
+
+**A test that separates the arena from the code.** To find out whether a bias
+comes from the arena or from the simulation, run the batch two times and give
+the spawn groups to the other teams the second time. A bias that follows the
+spawn position is the arena. A bias that stays with the team name is the code.
+
+Read the result with care: swapping the groups also swaps which team stands
+near which pickup slot, and the slot ids do not turn around with them. The test
+names a suspect; it does not measure the size of the bias. The number to report
+is the win rate of team A in the configuration you actually ship, over 600
+rounds or more.
+
+#### 7.20.11 Measurement: what the weapons changed, and what they did not
+
+M6 was measured against the same 900 rounds, the same seed, and the same three
+presets as Section 7.20.10.
+
+| Preset | Before M6 | After M6 |
+|---|---|---|
+| anchor | 82.0 % ±1.6 | **74.2 % ±1.8** |
+| balanced | 27.0 % ±1.8 | **50.8 % ±2.0** |
+| aggressive | 41.0 % ±2.0 | **24.9 % ±1.8** |
+
+**The weapons did what Section 7.20.1 asked of them.** A bot that holds a
+position lost almost 8 points, which is four standard errors, and the middle
+preset went from a clear loser to even. Section 7.20.10 said that weapons alone
+could not bring `anchor` to 50 % before the pickups of M8, and that still holds.
+
+`aggressive` fell by 16 points. An area weapon punishes the bot that closes in,
+because the bot arrives inside the area. This is worth a second look when M8
+gives a reward for moving.
+
+**One target was missed: the kill share.** Section 7.20.9 asks that no archetype
+takes more than about half the kills. `splash` takes 80 %.
+
+Three configurations were measured while looking for the cause:
+
+| Model of an area weapon | `splash` share of kills |
+|---|---|
+| Area and damage over time inside the DPS profile | 73 % |
+| …plus a factor for "an area does not roll to hit" | 88 % |
+| …plus a higher estimate of how many bots an area touches | 95 % |
+
+**Every change that raised the modelled value of an area weapon raised its kill
+share, although each one lowered its damage.** That is the cause:
+
+1. The DPS profile has two readers that pull in opposite directions. The power
+   budget reads it as a cost, so a higher number gives the weapon less damage.
+   The AI reads it as the key for its choice (Section 7.8), so a higher number
+   makes the bot take the weapon more often. A better model of an area weapon
+   therefore makes a weaker weapon that the AI picks more.
+2. **The AI is winner-take-all.** A bot holds every weapon of the run and fires
+   the one with the highest DPS at the current band. The kill share of that one
+   weapon goes to almost 100 %, however near the others are in power. The kill
+   share measures which weapon has the top number, not whether the weapons are
+   balanced.
+
+**The kill share cannot be fixed by tuning.** It needs one of:
+
+- **Ammo, and pickups (M8).** A bot that runs a weapon dry must change to
+  another. A bot that does not hold every weapon must use what it found. This
+  is the answer that the design already plans.
+- **An AI that spreads its choice**, for example a weapon preference per bot
+  (Section 7.20.8 gives the player that control), or a rule that keeps a bot on
+  a weapon for a time.
+
+Until then, read the kill share as "which weapon had the top DPS number", and
+read the **budget** test as the real check on weapon balance: every generated
+weapon costs the same.
+
+**Two faults were found and fixed on the way.** Both are the same shape: a
+number that the budget charged for, and the AI could not see.
+
+1. **The baseline weapon beat the weapons that paid a full budget.** It was not
+   priced at all, so its 60 mean DPS sat above the generated median of 57. A
+   bot often chose the fallback over everything else. The DPS profile now holds
+   the expected damage, the generated median is 96, and the baseline is a
+   fallback again at 63 % of it. Section 7.3 asks for a viable fallback, not
+   the best weapon.
+2. **Damage over time cost up to 45 of the 100 budget points, and the AI could
+   not see any of it.** A weapon paid nearly half its budget for an effect that
+   did not appear in its DPS profile, so it looked weak and the AI passed it
+   over. One shot could also deliver 150 damage against 100 health. The damage
+   over time and the hazard tiles are now inside the DPS profile, the budget no
+   longer charges for them twice, and both are much smaller.
+
+#### 7.20.12 The budget must trade more than damage
+
+Section 7.20.11 left `splash` at 80 % of the kills and could not explain it away
+by tuning. The cause was simpler than the models: **the budget solved for the
+damage and for nothing else.**
+
+Every other attribute came from the role and was never touched again. Inside
+the `heavy` role, the measurement was:
+
+| Attack type | damage | range | magazine | ticks per shot |
+|---|---|---|---|---|
+| burst (an area) | 33.5 | 25.8 | 19 | 13.3 |
+| line | 32.1 | 23.6 | 18 | 12.0 |
+| projectile | 38.4 | 27.3 | 24 | 12.0 |
+
+An area weapon that never misses and touches more than one bot held the same
+range, the same magazine, and the same cadence as a plain shot. It paid for all
+of that with about one point of damage.
+
+**The fix: the attack type now shifts four numbers.**
+
+| Attack type | Range | Magazine | Ticks per shot |
+|---|---|---|---|
+| hitscan | 1.00 | 1.00 | 1.00 |
+| projectile | 0.95 | 0.90 | 1.05 |
+| ricochet | 0.90 | 0.80 | 1.10 |
+| line | 0.90 | 0.60 | 1.25 |
+| cone | 0.55 | 0.65 | 1.15 |
+| burst | 0.80 | 0.45 | 1.30 |
+| tile | 0.75 | 0.40 | 1.35 |
+
+A cone now reaches about half as far. A tile weapon holds four rounds in ten
+and fires a third more slowly. The budget then solves for the damage on top of
+that shape, so an area weapon pays in reach, in rounds, and in cadence before
+it pays in damage.
+
+**Two more changes came with it.**
+
+- **Weapons have tiers.** A run holds one `prize` weapon at 1.25 of the budget,
+  one `strong` at 1.0, and the rest at `standard` at 0.85. A run therefore has
+  a clear ranking, and the player can build tactics around the best weapon of
+  the run. Five weapons of equal power give the player nothing to choose.
+- **Ammo is counted.** A shot spends a round, and an empty weapon drops the bot
+  back to the baseline. A magazine is now a real cost: a strong weapon with a
+  small magazine gives a short burst of power and then the fallback. The
+  baseline weapon never runs dry, which is what Section 7.3 means by a viable
+  fallback. The ammo pickups of M8 refill the rest.
+- **The budget was rescaled.** `dpsWeight` went from 1.0 to 2.7. At 1.0 a
+  weapon needed about 85 mean DPS against 100 health, so a slow weapon had to
+  deal more than 150 damage in one shot, and no `sniper` or `heavy` weapon
+  could be built at all: **0 of 200 drafts fitted their damage range**. The
+  damage ranges of every role were then measured from what the budget asks for,
+  instead of guessed. Every role now builds 75 % to 98 % of the time.
+
+**The result.**
+
+| Measurement | Before M6 | M6 | M6 with the full budget |
+|---|---|---|---|
+| `anchor` win rate | 82.0 % ±1.6 | 74.2 % ±1.8 | **69.1 % ±1.9** |
+| `balanced` win rate | 27.0 % ±1.8 | 50.8 % ±2.0 | 48.1 % ±2.0 |
+| `aggressive` win rate | 41.0 % ±2.0 | 24.9 % ±1.8 | 32.8 % ±1.9 |
+| Highest archetype kill share | — | 80 % (`splash`) | **22 % (`assault`)** |
+
+The kill share now reads: assault 22 %, precision 19 %, marksman 15 %, heavy
+13 %, baseline 10 %, splash 10 %, denial 8 %. Section 7.20.9 asked that no
+archetype take more than about half. It takes 22 %.
+
+**What this says about the winner-take-all reading of Section 7.20.11.** That
+reading was right about the mechanism and wrong about the cure. The AI does
+take the weapon with the top DPS at the current band. Once no single weapon
+holds the top place at every band, and once a magazine runs out, the bot rotates
+on its own. A weapon that reaches 12 cells cannot hold the long band, and a
+weapon with 7 rounds cannot hold any band for long. Ammo and a real shape did
+what tuning a single number could not.
+
+**A tier is not a fault.** Weapons are not meant to be equal. A run should have
+a best weapon, and the player should plan around it. The balance question is
+whether the strong weapon pays for its power in reach, in rounds, and in
+cadence, and whether the batch still shows every archetype taking kills.
+
+#### 7.20.13 Measurement: what the pickups changed, and the two faults they found
+
+M8 gave the arena its first reward for moving: health, armor, universal ammo, a
+weapon point, and the two power-ups of Section 7.12. The measurement is 1080
+rounds, three presets, three role compositions, one arena.
+
+**The pace of a round.** Before the pickups a round made 10.9 kills in 5125
+ticks and 40 % of rounds ran to the time limit. After them a round makes **25.9
+kills in 2035 ticks and 98.1 % of rounds reach the score limit.** The teams now
+meet, because the arena gives them a reason to.
+
+**The balance of the presets.**
+
+| Preset | Before M6 | M6 | M6 full budget | M8 |
+|---|---|---|---|---|
+| anchor | 82.0 % ±1.6 | 74.2 % ±1.8 | 69.1 % ±1.9 | **41.9 % ±1.9** |
+| balanced | 27.0 % ±1.8 | 50.8 % ±2.0 | 48.1 % ±2.0 | **56.3 % ±1.9** |
+| aggressive | 41.0 % ±2.0 | 24.9 % ±1.8 | 32.8 % ±1.9 | **51.8 % ±1.8** |
+
+The preset that holds its ground no longer wins the game by standing still, and
+no preset passes the 60 % balance rule of Section 7.16. `anchor` is now the
+weakest of the three, which is the opposite of the fault of Section 7.20.10 and
+is worth watching, not fixing by another 10 points of tuning.
+
+**Role composition.** This is the acceptance test of M8: the batch reports a
+win rate per composition, and the compositions differ.
+
+| Composition | Roles | Win rate |
+|---|---|---|
+| standard | tank, overwatch, skirmisher | 52.8 % ±1.9 |
+| turtle | overwatch, overwatch, tank | 48.8 % ±1.9 |
+| rush | skirmisher, skirmisher, tank | 48.5 % ±1.9 |
+
+Four points between `standard` and the other two is more than two standard
+errors, so one of each role is a real choice and not noise. The matchup table
+says more than the column does: `standard` beats `turtle` 60.8 % ±4.5 and
+`rush` beats `turtle` 62.5 % ±4.4, while `standard` against `rush` is even. Two
+bots that hold a sightline lose to any composition that moves.
+
+A caution about this table. Before the spawn order fix of Section 7.20.14 the
+same batch read `rush` 54.4 %, `standard` 49.3 %, `turtle` 46.3 %, which put
+`rush` on top. A side bias of six points was enough to turn the ranking of the
+compositions around. Do not read a composition table from a batch whose mirror
+matchups are not near 50 %.
+
+**The first fault: holding ground was free.** A bot that chose `HoldPosition`
+almost never had an enemy in sight: **28 962 of 29 051 HoldPosition ticks were
+blind**, and those ticks were 47 % of every bot tick in a round. Both teams
+stood in an empty corner until the clock ran out.
+
+Holding ground is a **sightline** action, so its value now falls with the time
+since the last contact (`ai.holdContactTicks`, `ai.holdBlindShare`), and the
+memory of a last seen position lasts long enough for the `Chase` action to use
+it (`perception.memoryTicks` went from 60 ticks to 200). A bot that has seen
+nobody for ten seconds holds nothing, and it goes to find a fight or an item.
+
+The `holdPosition` tactic also suppressed `SeekPickup` completely, by a factor
+of `1 - holdPosition`. Items decide fights from M8 on, so that made the anchor
+preset unplayable; the factor is now `1 - holdPosition × ai.holdSuppressesPickup`.
+
+**The second fault: a weapon was chosen for one band.** With no enemy in sight
+a bot picked its weapon by the DPS at the band of its `preferredRange` tactic
+alone. A close-range preference therefore put a short-range weapon in its hands,
+and the bot then could not fire at the distance where the arena's fights happen.
+The cost was measured by giving the aggressive preset one changed value at a
+time, over 700 rounds each:
+
+| Change to the aggressive preset | Win rate |
+|---|---|
+| none | 43.4 % ±3.5 |
+| `retreatThreshold` 0.15 → 0.3 | 42.9 % ±3.5 |
+| `itemControl` 0.3 → 0.5 | 44.9 % ±3.5 |
+| `evasion` 0.2 → 0.4 | 41.5 % ±3.4 |
+| `hazardTolerance` 0.7 → 0.3 | 44.9 % ±3.5 |
+| **`preferredRange` close → mid** | **63.6 % ±3.4** |
+
+One value was worth 20 points and every other value was worth nothing. That is
+not a balance problem, it is a bug: a tactic that a player can set must not be a
+trap. A weapon is now worth what it **reaches**, summed over every band inside
+its range, and `preferredRange` is a bias on that sum
+(`ai.preferredRangeBias`). The band that a bot fights at comes from the weapon
+in its hands, not from the tactic, and `Reposition` measures the mismatch in
+lost damage instead of in cells. After the fix the same seven presets sat inside
+41.5 % to 53.0 %.
+
+**The pattern, again.** Both faults are the pattern of Section 7.20.12 read from
+the other side: **a number that the AI reads but that does not mean what the
+name says.** `positionValue` measured the ground and not the sightline;
+`bestWeaponAt` measured one band and not the reach. Both gave the AI a confident
+wrong answer, and neither showed up as a crash or a failing test. Only a batch
+that reports why a round ended found them.
+
+#### 7.20.14 A symmetric arena is not a fair match
+
+Section 7.2.1 said that the test arena has 180-degree rotational symmetry, and
+it does: every one of its 1800 cells matches its turned-around partner. The
+match was still unfair by 5.75 points of win rate.
+
+**The cause is the order of the spawn list.** A scan of the map collects the
+spawn cells from the top left to the bottom right. Team A takes the first three
+and team B the next three. Under a half turn the first group maps onto the
+second **in reverse**, so the slot 0 of team B stood where the slot 2 of team A
+stood. The slot decides the role (Section 7.11), so the tank of one team started
+in the corner that faced the skirmisher of the other. Two symmetric halves, two
+different fights.
+
+`orderSpawnsForFairness` now reorders the list: the cell of slot *i* of every
+later team is the one nearest to the turned-around cell of slot *i* of the first
+team. On a symmetric arena that is the exact partner; on any other arena it is
+the nearest one, and nothing breaks. After the fix the side bias measured over
+600 rounds is **50.7 % ±2.0**, which is even.
+
+A second, smaller side bias came from `applyPickups`, which walked the bot list
+in team order, so team A took every point that two enemies reached in the same
+tick. It now walks the bots in reaction order, as firing does (Section 7.20.7).
+
+**The rule for M7.** An arena generator must not only make the two halves the
+same shape. It must also hand the two teams their spawn cells in matching slot
+order, or a generated arena will carry this same hidden bias into every
+measurement made on it.
+
 ### 7.3 Weapon generation (`weapons/`)
 
 Purpose: generate readable procedural weapons with clear roles.
+
+> **Section 7.20 changes this section.** A weapon now starts from a role trait
+> and an attack type, and the archetype becomes a label that the generator
+> derives at the end. Read Section 7.20 before you build M6.
 
 Entry point: `generateWeaponSet(rng, count = 5): Weapon[]`
 
@@ -459,6 +838,10 @@ Rules:
 
 **Round.** Entry point: `runRound(state, config, rng): RoundResult`
 
+> **Section 7.20.7 changes the order of the bots inside a tick.** A bot acts in
+> the order of its reaction speed, which is its own reaction attribute plus the
+> reaction of its weapon at the current range.
+
 Tick order (each tick):
 
 1. Update timers (respawns, DoT, hazards, pickups).
@@ -484,6 +867,10 @@ For the browser, the round loop must also support step-by-step execution (`step(
 
 ### 7.6 Combat (`sim/combat.ts`)
 
+> **Section 7.20.5 adds two rules:** a `precise` weapon crits a target that
+> stands still, and a target that moves gets a dodge. Section 7.20.3 adds five
+> attack types beside hitscan and projectile.
+
 - Hitscan: check line of sight at fire time. Roll hit from accuracy, distance, and target movement.
 - Projectile: move each tick at `projectileSpeed`. Check collision with walls and bots.
 - Area damage: apply damage in `aoeRadius`. Walls block area damage.
@@ -493,6 +880,10 @@ For the browser, the round loop must also support step-by-step execution (`step(
 - Trait modifiers apply here (for example, `shellShocked` reduces area damage taken).
 
 ### 7.7 Perception (`ai/perception.ts`)
+
+> **Section 7.20.6 changes this section.** Today a bot sees through 360
+> degrees. It gets a facing, a narrow focus arc, and a wide peripheral arc, so
+> that a flank works and the `awareness` attribute gets its first use.
 
 - Use rot.js `FOV.PreciseShadowcasting`.
 - Each bot has a list of visible enemies and a short memory of last-seen positions.
@@ -528,8 +919,26 @@ score(action) = baseConsideration(action, world)
 Rules:
 
 - **Weapon selection uses the DPS profile.** The bot selects the weapon with the highest expected damage at the current range. Weapon role preference adds a bias. The AI must never refer to a specific weapon by id.
+- **With no enemy in sight, a weapon is worth what it reaches.** `bestWeaponAt`
+  answers "the best weapon at this distance" and is right only when a distance
+  exists. With nobody in sight, `bestWeaponOverall` sums the DPS over every band
+  inside the weapon's range, and `preferredRange` biases that sum. Choosing for
+  one band alone put a short-range weapon in the hands of a bot that then could
+  not fire at all, and it cost the aggressive preset 20 points of win rate
+  (Section 7.20.13).
+- **The band that a bot fights at comes from its weapon, not from its tactic.**
+  `wantedBand` takes the band where the equipped weapon deals the most damage,
+  with `preferredRange` as the tie-break, and `Reposition` scores the mismatch
+  in lost damage, not in cells.
+- **`HoldPosition` is a sightline action.** Its value is `positionValue`: a
+  pickup point near the cell, the team's control of the ground, and the danger
+  of the cell, all falling with the time since the last contact. A bot that
+  holds an empty corner holds nothing, and two teams doing it run the round to
+  the time limit (Section 7.20.13).
 - **Tactics are orders. Traits are tendencies.** Tactics weights are the main factor. Trait modifiers are small multipliers.
 - **Each tactic has a cost and a benefit.** Do not add a tactic that has only a benefit.
+- **No tactic may be a trap.** A value that a player can set must not lose the
+  match on its own. A one-tactic sweep in the batch is how you find one.
 - A bot keeps its current action unless a new action scores higher by a margin (hysteresis). This stops fast changes of decision.
 
 ### 7.9 Influence maps (`ai/influence.ts`)
@@ -538,6 +947,12 @@ Rules:
 - `control`: which team holds each area.
 - Update every N ticks (TBD).
 - The hazard tolerance tactic controls how much a bot avoids `danger`.
+
+**What M8 built.** `createInfluenceMaps`, `updateInfluence`, `dangerAt`,
+`controlAt`, and `dangerFor`. An **area** means one cell until M7 gives the
+arena its macro graph; a room value is then the mean of its cells. The maps
+update every `influence.intervalTicks` ticks, not every tick, because a
+sightline pass over the whole grid is the expensive part.
 
 ### 7.10 Navigation (`ai/navigation.ts`)
 
@@ -557,6 +972,20 @@ Each role has a tactics preset and role behaviors.
 
 The player can change the tactics after the role applies its preset.
 
+**What M8 built.** `data/roles.json` holds a tactics preset and a set of
+behavior weights per role, and a team gets one of each role unless the plan
+says otherwise. A behavior weight is a small factor on the base consideration
+of one action, so a role bends the AI without replacing it.
+
+The behaviors that read "an area", "a sightline over a contested pickup", and
+"side routes" need the macro graph of M7. Until then `positionValue`
+(Section 7.8) measures the same idea on the grid: a cell is worth holding when
+a pickup point is near it, when the team holds the ground around it, and when
+it is not itself dangerous. Read this table again after M7.
+
+The batch reports a win rate per role composition (Section 7.16), which is what
+says whether a role is worth taking.
+
 ### 7.12 Pickups (`sim/pickups.ts`)
 
 - Each pickup point has a respawn timer.
@@ -564,6 +993,36 @@ The player can change the tactics after the role applies its preset.
 - The game rolls one spawn table per match. The table does not change between rounds.
 - The next match can have a new spawn table (the same arena or a different arena).
 - The pre-match screen shows the spawn table.
+
+**The items (M8).** `data/pickups.json` holds every number.
+
+| Kind | Gives | Comes back |
+|---|---|---|
+| health | health, up to the maximum | often |
+| armor | an armor pool that takes a share of every hit | often |
+| ammo | rounds for every weapon that the bot holds, up to each maximum | often |
+| weapon | the weapon of the slot, with a full magazine | less often |
+| powerup | double damage for a time, or a shield belt | rarely |
+
+Rules:
+
+- **Ammo is universal.** One ammo point refills every weapon the bot holds, not
+  one named weapon. The arena is small, so a weapon-by-weapon supply would send
+  a bot across it for a magazine. `ammoPerPickup` and `ammoMax` are generated
+  per weapon (Section 7.3), so the generator, not the arena, decides how long a
+  weapon lasts between points.
+- **A power-up is rare.** It comes back far less often than health or armor, so
+  the point where it lands is worth a fight. That is what makes the ground of
+  Section 7.9 contested at all.
+- **A point that gives nothing is not taken.** A bot at full health walks over a
+  health point and leaves it for a teammate.
+- **A point that is coming back soon is still worth walking to**
+  (`ai.pickupAnticipationTicks`). Without that rule a bot with nothing to take
+  stands still, and the two teams never meet (Section 7.20.13).
+- **Reaction order decides a contested point.** Two enemies can reach one point
+  in the same tick, and only the first takes it. The bots come in reaction
+  order, as they do when they fire; the plain team order is a side bias
+  (Section 7.20.14).
 
 ### 7.13 Progression (`progression/`)
 
@@ -665,13 +1124,30 @@ Outputs (to the terminal and to CSV files):
 - Weapon usage and kills by archetype.
 - Trait distribution in winning teams.
 - Average round length and match length.
+- Average kills per round, and the number of rounds that reach the time limit.
+  A round with few kills or no kill is a defect of the AI or of the arena, not
+  a close match (Section 7.2.1).
 - Average run duration (for the open run-length decision).
 
 Rule: if one doctrine wins in all arena profiles, report it as a balance failure.
 
+**What M8 added.** A win rate per **role composition**, and a composition
+matchup table. A batch names its compositions in `data/batch.json`, and every
+pair of compositions plays every pair of presets, so the two are not confounded.
+
+**Read `hits per shot`, not a hit rate.** One shot of an area weapon hits
+several bots, so the number passes 1 and is not a share. The hit chance of a
+single shot is a combat number, not a batch number.
+
+**Check the mirror matchups in every batch.** A preset against itself must sit
+near 50 %. A mirror that does not is a side bias, and Section 7.20.14 shows
+that an arena can be symmetric to the cell and still give one side the better
+start.
+
 ### 7.17 Reports and kill feed (`report/`)
 
 - Kill feed lines from event templates (for example, "Vex killed Rook with a precision weapon at long range").
+- Kill announcements from `data/announcements.json`: a multi-kill (Double Kill, Multi Kill, Mega Kill, Ultra Kill, Monster Kill), a killing spree (Killing Spree, Rampage, Dominating, Unstoppable, Godlike), and the end of a spree. The counts are lower than the classic ones, because a 3v3 round ends at 15 team kills.
 - Round report (between rounds): score, kills, deaths, damage by archetype, death heatmap (ASCII).
 - Match report: all round data, pickup control time, progression results.
 - Bot stat card: role, traits, affinities, rivalries, nickname.
@@ -742,6 +1218,343 @@ A team theme can bias the bot name style (for example, Sponsor teams prefer Desi
 - The generator rejects a result that matches the blocklist, then tries again (maximum 20 tries).
 - All word lists are data. The expander has no words in code.
 - The player can type a team name. The generator can suggest one.
+
+### 7.20 Design notes for M6: weapons, reaction order, and vision
+
+These notes come from the first 1000-round batch (Milestone M5). They set the
+direction of M6 and of the combat and perception changes that go with it.
+Nothing here is built yet. Numbers are placeholders. TBD
+
+#### 7.20.1 The problem to solve
+
+The batch found one fault above all others: **a bot that holds a position wins**.
+The `anchor` preset won 81.1 % of its rounds, and it beat the `aggressive`
+preset 100 % of the time. The cause is simple. A bot that holds a sightline
+sees the other bot first, fires first, and never crosses open ground. Team
+deathmatch gives the moving team nothing in return.
+
+Four changes answer this, and M6 is the milestone that carries them:
+
+1. Weapons that punish a bot which does not move (Section 7.20.4).
+2. A crit against a target that stands still, and a dodge for a target that
+   moves (Section 7.20.5).
+3. A field of view with a front and a side, so that a flank works
+   (Section 7.20.6).
+4. An order of fire that comes from a reaction speed, not from the order of a
+   list (Section 7.20.7).
+
+The `cautious` preset is removed from `data/batch.json`. It won 19.1 % and it
+made rounds stall. The default presets are now `balanced`, `aggressive`, and
+`anchor`.
+
+#### 7.20.2 Weapon role traits
+
+A generated weapon gets exactly one **role trait**. The trait sets the shape of
+the weapon: its DPS across the range bands, its reaction speed, and how often it
+takes a special attack type.
+
+| Role trait | DPS | Reaction | Range | Special attack types |
+|---|---|---|---|---|
+| `precise` | Medium | Medium | Even | Low chance. It is the crit weapon: it uses the `targetStationary` crit condition. |
+| `assault` | High at close range | Fast at close range | Penalty at long range | High chance |
+| `sniper` | High at long range | Fast at long range | Penalty at close range | Low chance |
+| `heavy` | Highest | Slow at every range | Even | High chance |
+
+The role trait is not the same thing as `Weapon.traits` of Section 6.3. That
+field holds the weapon mutations of Section 7.3, which are small changes on top
+of a finished weapon. The mutations arrive later.
+
+**Open question.** M6 gives one role trait per weapon, because the label of the
+weapon must stay readable for the player. Two traits on one weapon (for example
+a precise sniper) may be worth a later pass.
+
+#### 7.20.3 Attack types
+
+`Weapon.delivery` of Section 6.3 holds `hitscan` or `projectile`. It becomes
+`Weapon.attackType` and holds one of seven values. **This changes Section 6.3.**
+
+| Attack type | Behavior |
+|---|---|
+| `hitscan` | The shot arrives at once. Line of sight decides the hit. |
+| `projectile` | The shot crosses the arena at `projectileSpeed`. A wall or a bot stops it. |
+| `cone` | Area damage in a cone in front of the shooter. High damage at close range. It fades to nothing at long range. |
+| `burst` | Area damage at the point of impact. |
+| `line` | The shot passes through every bot on its line, up to `rangeMax`. |
+| `ricochet` | A projectile that turns off a wall, or off the first bot that it hits. |
+| `tile` | Damage, plus hazard tiles at the point of impact (Section 7.6). |
+
+`cone`, `burst`, `line`, `ricochet`, and `tile` are the **special** types. The
+role trait sets how often the generator takes one.
+
+**Why this answers the camping problem.** Every special type hits an area or a
+line, not one cell. A bot that holds one cell is the easiest target for all of
+them. `tile` takes the cell away for a time, and `cone` and `burst` hit the bot
+behind the cover as well.
+
+#### 7.20.4 Archetypes become a label, not an input
+
+Section 7.3 rolls an archetype first and then rolls stats inside the ranges of
+that archetype. The new order is the opposite: the generator rolls a role trait
+and an attack type, prices the result, and **then** labels it. The label is for
+the player, for the reports, and for the `weaponRolePref` tactic. The AI still
+reads only the DPS profile (Section 7.8).
+
+Generation order:
+
+1. Roll the role trait.
+2. Roll the attack type, with the weights of that trait.
+3. Roll the stats inside the ranges of the trait, shaped by the attack type.
+4. Calculate the DPS profile at close, mid, and long range.
+5. Price every attribute and scale the weapon to fit the power budget.
+6. Derive the archetype label.
+
+The label comes from the first rule that matches, from the top:
+
+| Label | Rule |
+|---|---|
+| `baseline` | The fixed fallback weapon. |
+| `denial` | Attack type `tile`. |
+| `splash` | Attack type `cone` or `burst`. |
+| `marksman` | Role trait `sniper`. |
+| `assault` | Role trait `assault`. |
+| `precision` | Role trait `precise`. |
+| `versatile` | Nothing above matches. |
+
+**This changes Section 6.3.** The archetype `burst` is gone, because `burst` is
+now an attack type and the weapon that uses it is `splash`. The archetype
+`assault` and the archetype `marksman` are new.
+
+**The power budget must price the new attributes.** An attack type that hits an
+area is worth more than one that hits a cell. A slow reaction is worth less. A
+DPS profile that is high in every band is worth more than one with a hole in it.
+
+#### 7.20.5 Combat: stand still and you get hit harder
+
+Two changes to Section 7.6. Both push a bot to keep moving.
+
+- **A crit against a target that stands still.** The crit condition
+  `targetStationary` of Section 6.3 exists in the engine but no weapon uses it.
+  A `precise` weapon uses it, and its crit chance against a target that stands
+  still is high. A bot that holds a sightline is the target this is made for.
+  The engine counts "stationary" as some number of ticks with no movement, not
+  one tick, so that a step does not turn the crit off and on. TBD
+- **A dodge for a target that moves.** `combat.movingTargetPenalty` already
+  lowers the hit chance against a target that moved in the last tick. It
+  becomes a dodge value that rises with how far the bot moved over the last few
+  ticks, and the `evasion` tactic adds to it. The cost of evasion stays: it
+  lowers the accuracy of the bot that evades.
+
+Together these make the choice real. Stand still and shoot straight, and a
+precise weapon crits you. Move and be hard to hit, and your own shots miss more.
+
+#### 7.20.6 A field of view with a front and a side — built, and it changed nothing
+
+**Today every bot sees through 360 degrees.** `ai/perception.ts` asks rot.js for
+every cell inside the sight radius and asks no question about which way the bot
+faces. A bot behind another bot is as visible as a bot in front of it, so a
+flank gives nothing, and the `awareness` attribute of Section 6.4 has no work.
+
+The change: a bot gets a **facing**, and its vision has two arcs.
+
+| Arc | Width | What the bot gets |
+|---|---|---|
+| Focus | Narrow, in front | Full detection. The bot can fire. |
+| Peripheral | Wide, to the sides | It knows that an enemy is there, after a delay, and its reaction is slower. |
+| Behind | The rest | Nothing. |
+
+Rules to settle when this is built:
+
+- The `awareness` attribute sets the width of the peripheral arc, or the delay
+  before a peripheral contact becomes a full one. This gives the attribute of
+  Section 6.4 its first use.
+- A bot faces the enemy that it aims at. With no target it faces the way it
+  moves. A turn rate (a limit on how fast a bot turns) would make a flank
+  stronger still, and is an open question.
+- "Target unaware" of Section 6.8 becomes a real event: a bot behind another
+  bot cannot be seen at all. Expect the crit rate to rise, and re-tune.
+
+**Cost.** Low. The set of cells that a bot can see depends on its cell and on
+the walls, not on its facing, so the cache of Section 7.7 stays valid. The arc
+test is one angle comparison per enemy, and there are five enemies.
+
+**Risk.** Fewer contacts means slower rounds, and the batch already reports
+22.5 % of rounds reaching the time limit. Watch the mean kills per round
+(Section 7.2.1) when this lands. The memory of a last seen position and the
+`Chase` action are what keep a round moving.
+
+**Result: it is built, it changed nothing, and it is switched off.** Section
+7.20.10 holds the measurement and the cause. Read it before you plan any more
+work on vision.
+
+`perception.directionalVision` in `data/tuning.json` turns it on and off. It is
+`false`. With it off a bot sees through 360 degrees, as in the milestones before
+M5.5, and the simulation does not calculate a facing at all. Turn it on again
+when the pickups of M8 give a reason to cross the arena, and measure it then
+against a fresh baseline.
+
+The rules as built:
+
+| Rule | Value |
+|---|---|
+| Focus arc | 45 degrees each side of the facing. The bot fires only inside it. |
+| Peripheral arc | 70 degrees each side, plus 40 more at full `awareness`. |
+| Peripheral delay | 8 ticks of unbroken sight before the bot notices a contact. |
+| Behind | Nothing. |
+| Turn rate | 12 degrees per tick. A half turn takes 15 ticks. |
+| Incoming fire | A bot that takes damage learns where the shot came from. |
+
+A bot turns toward, in order: the enemy that it aims at, the nearest enemy that
+it knows about, then the way that it moves.
+
+#### 7.20.7 Reaction order: the tick order becomes a mechanic
+
+Today the simulation walks the bots in a fixed list and turns that list around
+on every second tick, so that no team fires first every time (Section 7.2.1).
+The order carries no meaning.
+
+The change: **a bot acts in the order of its reaction speed.**
+
+```
+effectiveReaction(bot) = bot.attributes.reactionTicks
+                       + weapon.reactionByBand[band of the current target]
+```
+
+The bots of a tick sort by this value, lowest first. A bot with a fast reaction
+and a light weapon fires before a bot with a slow reaction and a heavy weapon.
+This is the cost of the highest damage: a `heavy` weapon hits hardest and acts
+last.
+
+`Weapon` gets `reactionByBand: { close, mid, long }`, which is also what gives
+`assault` a fast reaction at close range and `sniper` a fast reaction at long
+range (Section 7.20.2). The same value sets the aim delay before the first shot,
+so one number covers both.
+
+**Is it feasible? Yes.**
+
+- **Cost.** A sort of six values per tick. It does not show against the cost of
+  perception and pathfinding.
+- **Determinism.** The order stays a function of the state, so one seed still
+  gives one result. Two bots with the same reaction need a tie-break that does
+  not favour one team: use the parity of the tick, as the current order does.
+- **The guard is already in place.** A preset against itself must win 50 % of
+  its rounds (Section 7.2.1). If the tie-break favours team A, the mirror
+  matchup shows it at once. Do not remove that check.
+- **It replaces `botsInTickOrder`**, and it is a better answer than the parity
+  rule, because the order now means something in the game instead of only
+  removing a fault.
+
+#### 7.20.8 An advanced tactics layer
+
+The eight fields of `Tactics` (Section 6.4) are the orders that every player
+gives. An **advanced layer** holds the settings that a player who wants finer
+control can set. It is optional: a team with no advanced settings plays as it
+does today.
+
+The first advanced setting is the **weapon priority of the run**. A run has five
+weapons (Section 2.2), and the player knows them before the match. The priority
+is an ordered list of the weapons of that run, and it biases the weapon choice
+of a bot on top of the DPS profile.
+
+**This does not break the rule of Section 7.8** that says the AI must never
+refer to a weapon by id. The rule stops the AI code from knowing the weapons of
+a run. A priority list is player data that the AI reads as a weight, in the same
+way that it reads `aggression`. The AI still asks the DPS profile which weapon
+does the most damage at this range, and the priority moves the answer.
+
+Rules for the layer:
+
+- Every advanced setting must have a cost and a benefit, the same as a tactic
+  (Section 7.8). A weapon priority that ignores the DPS profile gives away
+  damage.
+- The layer must stay optional. The batch harness must be able to run with an
+  empty advanced layer, so that its result measures the basic tactics.
+- More settings belong here later: focus fire per target kind, the order of
+  pickup points, the rule for when to break a hold.
+
+#### 7.20.9 What to watch in the batch after M6
+
+| Signal | Today | What to want |
+|---|---|---|
+| `anchor` win rate | 81.1 % | Near 50 % against the other presets |
+| Rounds that reach the time limit | 22.5 % | Lower |
+| Rounds with very few kills | 139 of 1000 | Near zero |
+| Mirror matchup of every preset | 48–54 % | Stays at 50 % |
+| Kills by archetype | One weapon | No archetype above about half the kills |
+
+A weapon is not meant to be the equal of every other weapon. A run has tiers
+(Section 7.20.12), and the player should build tactics around the best weapon
+of the run. What the batch must show is that the strong weapon pays for its
+power, and that every archetype still takes kills.
+
+#### 7.20.10 Measurement: why a bot that holds a position wins
+
+Section 7.20.6 was built first, on its own, so that the batch could say what it
+changed. The answer is: **nothing**. Three configurations, 900 rounds each, the
+same seed and the same three presets.
+
+| Vision | `anchor` win rate | Kills from behind | Rounds at the time limit |
+|---|---|---|---|
+| 360 degrees (before) | 82.0 % ±1.6 | — | 11.3 % |
+| Focus and peripheral, turn at once | 82.2 % ±1.6 | 11.3 % | 12.2 % |
+| Focus and peripheral, turn 12°/tick | 82.6 % ±1.5 | 12.3 % | 11.6 % |
+
+The three win rates are inside one standard error of each other. A flank does
+happen — one kill in eight is on a target that cannot see its killer — but it
+does not change who wins.
+
+**Two sweeps then found the real cause.** Each one changes one tactic and
+holds the other seven, over 320 rounds.
+
+| `holdPosition` | 0.0 | 0.3 | 0.6 | 0.9 |
+|---|---|---|---|---|
+| Win rate | 30.0 % ±3.6 | 38.4 % ±3.8 | 61.9 % ±3.8 | 69.7 % ±3.6 |
+
+| `itemControl` | 0.0 | 0.3 | 0.6 | 0.9 |
+|---|---|---|---|---|
+| Win rate | 45.6 % ±3.9 | 52.5 % ±3.9 | 56.3 % ±3.9 | 45.6 % ±3.9 |
+
+`holdPosition` rises without a break. `itemControl` is flat: the sweep has no
+trend, and the highest and the lowest setting give the same rate.
+
+**The cause.** A pickup point does nothing. Armor, health, a power-up, and ammo
+all arrive with M8 (Section 7.12). Until then the arena has no reward for
+crossing it. `holdPosition` therefore trades away a benefit of zero and keeps a
+cost of zero, and `itemControl` buys nothing at all. A bot that stands still
+cannot lose ground that is worth nothing, and the bot that walks to a pickup
+point pays in exposure and receives nothing.
+
+**This is why the vision change could not help.** No rule about who sees whom
+can fix a reward that does not exist. The same is true of any counter that
+works by making movement safer.
+
+**What follows from this:**
+
+1. **Do not judge `holdPosition`, `itemControl`, or any preset built from them
+   until the pickups of M8 work.** The current win rates measure a game with
+   one half missing. Section 7.20.9 keeps its targets, but the `anchor` number
+   cannot reach 50 % from weapons alone.
+2. **M6 can still help, but not by itself.** A weapon that hits an area or
+   takes a cell away (Section 7.20.3) raises the cost of standing still. That
+   attacks one side of the trade. M8 raises the reward for moving, which is
+   the other side. Expect the full answer only when both are in.
+3. **Keep a one-tactic sweep in the toolbox.** Two sweeps of 320 rounds each
+   found in two minutes what a matrix of full presets could not: a preset
+   mixes eight tactics, so its win rate cannot say which one carries it.
+4. **Keep the vision change, but switch it off.** It costs about 20 % of the
+   round time (159 ms to 195 ms per round) and it buys nothing today.
+   `perception.directionalVision` is `false`, so the code stays and the cost
+   does not. Turn it on with the pickups of M8: "target unaware" is a real
+   state under the arcs, which the crit rule of Section 7.20.5 wants, and a
+   flank becomes worth something as soon as holding a position stops being
+   free. Measure it again then, against a fresh baseline.
+
+**Update after M8.** The pickups landed and they did give movement its reward:
+`anchor` fell from 81 % to 41.9 % and the mean kills per round rose from 10.9
+to 25.9 (Section 7.20.13). Point 4 is now ready to test. Directional vision is
+still `false`, because M8 changed the baseline it must be measured against;
+turn it on and run the 1080-round batch again before you keep or drop it. The
+batch already reports `kills from behind`, which is the number to read: it sits
+at 9.4 % with 360-degree sight.
 
 ---
 
@@ -888,11 +1701,73 @@ Notes:
 - Show it with the rot.js display.
 - Accept: the arena shows in the browser on desktop and on a phone.
 
+**M1 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `arena/types.ts` | `Tile`, `PickupPoint`, `PickupKind`, `ArenaMap`, and the helpers `cellIndex`, `inBounds`, `tileAt`, `isWalkable`. |
+| `arena/textArena.ts` | `parseArenaText(text, options)`, `ArenaParseError`. |
+| `arena/index.ts` | `loadTestArena()`, `clearArenaCache()`. |
+| `render/display.ts` | `ArenaDisplay` with `draw`, `fit`, `setMap`, `destroy`. Browser only. |
+| `render/theme.ts` | `TILE_STYLES`, `PICKUP_STYLES`, `DISPLAY_BG`. All values TBD. |
+
+Notes:
+
+- `ArenaMap` holds the parts of `Arena` (Section 6.2) that a map file gives:
+  `width`, `height`, `tiles`, `spawns`, and `pickups`, plus `name` and
+  `source`. The generator of M7 adds `seed`, `profile`, `rooms`, `links`, and
+  `metrics` on top of this type. The structure of Section 6.2 does not change.
+- The test arena has 180-degree rotational symmetry (Section 7.2.1). The first
+  version was not symmetric, and the batch results of M4 showed the fault.
+- Map file format: an optional `key: value` header (`name`, `notes`), then a
+  line with `---`, then the map. Glyphs: `#` wall, `.` floor, `,` low cover,
+  `^` hazard, `S` spawn, and `W` `A` `H` `U` `M` for a weapon, armor, health,
+  powerup, or ammo pickup. The parser gives each pickup a `slotId` of
+  `<kind>:<index>` in row-major order.
+- `PickupPoint.respawnTicks` is 0 for a map file. The respawn times arrive with
+  M8 (Section 7.12). TBD
+- The display calculates its font size from the size of its container, so one
+  arena fits a desktop screen and a phone screen. The target grid size per
+  device (Section 7.18) stays open until M7.
+
 ### M2 — Movement and navigation
 
 - Add 6 bots (3v3) that move to random pickup points with A*.
 - Add the fixed tick loop, `step(state)`, and speed controls.
 - Accept: bots move without passing through walls. Speed controls work.
+
+**M2 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `ai/navigation.ts` | `findPath(map, from, to, options)`, `isStepLegal(map, a, b)`. |
+| `sim/state.ts` | `SimState`, `BotState`, `SimConfig`, `createSimState(options)`, `simConfigFromTuning()`, `cellCenter`, `posCell`, `botCell`, `TEAM_IDS`. |
+| `sim/movement.ts` | `advanceBot(state, bot)`. M3 changed the first parameter from the map to the state, because an enemy bot blocks movement. |
+| `sim/round.ts` | `step(state)`, `stepMany(state, ticks)`. |
+| `render/runner.ts` | `SimRunner` with `start`, `stop`, `setSpeed`, `stepOnce`. `SPEEDS`. Browser only. |
+| `render/display.ts` | `setEntities(entities)` draws bots on top of the tiles. |
+| `ui/speedControls.ts` | `createSpeedControls(options)`. Browser only. |
+
+Notes:
+
+- A diagonal step needs both of its shared neighbours to be free. Without this
+  rule A* cuts the corner of a wall. M2 repaired a corner cut after the search;
+  M5 replaced the A* of rot.js with this project's own, which holds the rule
+  inside the neighbour step.
+- `BotState` holds only what movement needs: `id`, `teamId`, `pos`,
+  `moveSpeedPerTick`, `path`, and `goalSlotId`. Health, weapons, and the score
+  arrive with M3. The `Attributes` and `Tactics` of Sections 6.4 arrive with
+  M3 and M4, and `BotState` then points at the `Bot` that holds them.
+- Spawn rule of M2: the first `teamSize` spawn cells of the arena file belong
+  to team A, and the next `teamSize` cells belong to team B. A fair split by
+  distance arrives with the arena generator (M7).
+- The goal of a bot in M2 is a random pickup point. This is a placeholder for
+  the utility AI of M4. The bot selects it with the `sim` stream, so a seed
+  gives the same movement every time.
+- Speed controls: pause, 1×, 4×, and one step. "Skip to end of round" needs the
+  round end condition of M3.
+- The runner uses an accumulator, so the frame rate does not change the result
+  of the simulation (Section 4.4).
 
 ### M3 — Perception and baseline combat
 
@@ -901,11 +1776,93 @@ Notes:
 - Add the round end condition.
 - Accept: bots see and shoot each other. A round ends at a score limit. The determinism test passes.
 
+**M3 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `ai/perception.ts` | `updatePerception(state)`, `canSee(state, viewer, other)`, `isUnaware(state, attacker, target)`, `blocksSight(map, x, y)`. |
+| `sim/combat.ts` | `tryFire(state, bot)`, `respawn(state, bot)`, `selectTarget(state, bot)`, `hitChance(state, shooter, target)`, `rangeBandOf(state, distance)`, `isInCover(state, bot)`. |
+| `sim/round.ts` | `runRound(state)`, `checkRoundEnd(state)`, `RoundResult`. |
+| `sim/state.ts` | `Attributes`, `RoundOutcome`, `defaultAttributes()`, `distanceBetween`, `enemyAt`, `teamSpawns`, `findBot`. |
+| `weapons/types.ts` | `Weapon`, `Archetype`, `Delivery`, `RangeBand`, `DpsProfile`. |
+| `core/data.ts` | `loadBaselineWeapon()`. |
+| `core/cellSet.ts` | `CellSet`, a set of cell indices with no allocation. |
+| `report/killFeed.ts` | `killFeedLine(event)`, `killFeedLines(events, limit)`. |
+| `ui/speedControls.ts` | The options now hold `onSkip`, and the control gives `setEnabled`. |
+
+Notes:
+
+- **Perception cost.** The visible cell set depends only on the cell of the bot
+  and on the walls, so perception calculates it again only after the bot
+  changes cell. This made a round 4.9 times faster (1698 ms to 348 ms), and the
+  results did not change. A system that makes a wall during a round must set
+  `fovCell` of every bot to `null`.
+- **Ammo.** M3 does not count ammo. The baseline weapon must stay a viable
+  fallback (Section 7.3), and the ammo pickups arrive with M8.
+- **"In cover"** in a `Kill` event means that the killer stands on a low cover
+  tile. TBD
+- **A draw.** `RoundOutcome.winnerTeamId` is `null` when the time limit ends a
+  round with an equal score. Section 6.6 gives `winnerTeamId` the type
+  `string`; the type is now `TeamId | null`.
+- Low cover does not block sight. TBD
+- The AI of M3 still moves to a random pickup point. It fires at the nearest
+  visible enemy inside the weapon range, after its reaction time. The utility
+  AI of M4 replaces this behavior.
+
 ### M4 — Utility AI and tactics
 
 - Implement the utility AI with the starting action set.
 - Connect the `Tactics` fields to action weights.
 - Accept: a headless test shows different results for high and low aggression.
+
+**M4 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `ai/utility.ts` | `decide(state, bot)`, `scoreActions(state, bot)`, `applyAction(state, bot, action)`, `actionLabel(action)`, `bestWeaponAt(state, bot, distance)`, `bandDistance`, `healthFraction`, `noteReachedPickup`. Types `Action`, `ScoredAction`. |
+| `ai/navigation.ts` | `findPath` takes `avoidHazard`. |
+| `sim/round.ts` | `enterSuddenDeathIfNeeded(state)`. |
+| `sim/state.ts` | `BotState` holds `tactics`, `action`, `actionScore`, `decisionCooldownTicks`, `weapons`, `spreeCount`, `visitedSlotIds`. `SimState` holds `suddenDeath` and `suddenDeathStartTick`. |
+| `core/data.ts` | `loadDefaultTactics()`, `loadAnnouncements()`. |
+| `report/killFeed.ts` | `announcementLine(event)`, `feedLines(events, limit)`, type `FeedLine`. |
+
+Notes:
+
+- `SimState` is the world view of `decide`. A narrower view can replace it when
+  a system needs the AI without the full state.
+- The role modifier (M8), the trait modifiers (M10), and the team modifier (M8)
+  are hooks in `ai/utility.ts`. Each one gives 1 until its milestone.
+- **What each tactic does, and what it costs:**
+
+  | Tactic | Benefit | Cost |
+  |---|---|---|
+  | `aggression` | Raises `Engage` and `Chase` | Lowers `Retreat`, so the bot fights at low health |
+  | `retreatThreshold` | The bot leaves a lost fight | It gives ground and makes no kills |
+  | `preferredRange` | `Reposition` holds the band of the weapon | The bot moves instead of firing |
+  | `weaponRolePref` | A bias in the weapon choice | It can take a weapon with a lower DPS |
+  | `itemControl` | Raises `SeekPickup` | The bot crosses the open arena |
+  | `holdPosition` | Raises `HoldPosition`, lowers `SeekPickup` and `Follow` | The bot takes no items |
+  | `evasion` | The bot is harder to hit | It lowers the accuracy of the bot itself |
+  | `hazardTolerance` | A short path through a hazard | A long path around it |
+
+- A bot that retreats does not fire. This gives the aggression tactic a real
+  cost. TBD
+- `hazardTolerance` is a yes-or-no rule in M4: a bot below the threshold treats
+  a hazard tile as a wall. The path cost `danger × (1 − hazardTolerance)` of
+  Section 7.10 needs the influence maps of M8.
+- `SwitchWeapon` reads the DPS profile of `bot.weapons`. M4 gives every bot one
+  baseline weapon, so the action never wins. M6 and M8 fill the list.
+- `visitedSlotIds` makes a bot work a route over the pickup points. Without it
+  the bot stops on the first point beside its spawn and the two teams never
+  meet. M8 replaces the memory with the real respawn timers of Section 7.12.
+- **Finding for M5 and M7 (now fixed):** with the same tactics on both teams,
+  the south-east spawn group of the first test arena won 68 % of 60 rounds. The
+  arena is now symmetric, and two faults of the simulation are fixed with it.
+  Section 7.2.1 holds the full record and the rules that follow from it.
+- **Finding for the tuning:** the classic spree counts (5, 10, 15, 20, 25) never
+  happen in a 3v3 round that ends at 15 team kills. The counts are now 3, 5, 7,
+  9, and 12, and the classic words stay. Over 15 rounds the game now announces
+  43 multi-kills, 33 sprees, and 30 ends of a spree.
 
 ### M5 — Headless batch harness
 
@@ -913,12 +1870,169 @@ Notes:
 - Output a simple win-rate table and a CSV file.
 - Accept: 1,000 rounds run headless. The table shows in the terminal.
 
+**M5 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `cli/batch.ts` | `npm run batch -- [--config file] [--rounds n] [--seed n] [--out dir] [--quiet]`. Node only. |
+| `report/batchRunner.ts` | `planRounds(options)`, `runPlannedRound(round, presets, config)`, `runBatch(options)`. |
+| `report/batchStats.ts` | `summarize(records, options)`, `winRate(record)`, `standardError(record)`. Types `RoundRecord`, `BatchSummary`, `WinRecord`. |
+| `report/batchTables.ts` | `formatReport(summary)`, `roundsCsv(records)`, `matchupsCsv(summary)`, `presetsCsv(summary)`. |
+| `core/schemas.ts` | `BatchConfigSchema`, type `BatchConfig`. |
+| `ai/navigation.ts` | The A* is now this project's own. The public interface did not change. |
+
+Notes:
+
+- **A stand-in for a doctrine and for an arena profile.** A doctrine
+  (Section 6.5) arrives with M11, and an arena profile (Section 7.2) arrives
+  with M7. The harness uses a named tactics preset and the name of an arena
+  file in their place. The matrix and the CSV columns keep the same shape, so
+  M7 and M11 only change what fills them.
+- **Every matchup runs in both directions.** Each preset plays as team A and as
+  team B against every preset, itself included. This cancels any side advantage
+  that is left over, and the mirror matchup (a preset against itself) must give
+  50 %, which is a check on the arena and on the simulation.
+- **The seed of a round** comes from the batch seed and the name of the
+  matchup, so the result of a round does not depend on the order of the rounds.
+  A test runs a batch forwards and backwards and compares the records.
+- **Every win rate carries its standard error**, per Section 7.2.1.
+- The batch writes `rounds.csv` (one row per round), `matchups.csv`, and
+  `presets.csv` into the output folder.
+- The report names what it cannot measure yet: the trait distribution (M10),
+  the match length (M8), and the run duration (M11).
+- With `--fail-on-balance` the CLI ends with a non-zero exit code when it finds
+  a balance failure, so a workflow can use it as a gate. The report is the
+  product, so the gate is off by default.
+
+**Speed.** The harness must run thousands of rounds, so two changes came with
+this milestone:
+
+| Change | Effect |
+|---|---|
+| This project's own A* with a binary heap, typed arrays, and a generation stamp, in place of the A* of rot.js | One path across the test arena: 1.83 ms to 0.19 ms |
+| A bot keeps its path when its goal cell did not change | One round: 496 ms to about 200 ms |
+
+The A* of rot.js keeps its open list in a plain array and searches it in a
+straight line. The new one also holds the diagonal corner rule inside the
+neighbour step, so the repair step of M2 is gone, and it takes a cost per cell,
+which the influence maps of M8 need. A test compares its result with an
+independent search, so the path stays the shortest one.
+
+**The first batch: 1000 rounds, 4 presets, 1 arena, 192 s.**
+
+| Preset | Win rate | `holdPosition` | `aggression` |
+|---|---|---|---|
+| anchor | 81.1 % ±1.7 | 0.8 | 0.5 |
+| aggressive | 55.4 % ±2.2 | 0.1 | 0.9 |
+| balanced | 44.2 % ±2.2 | 0.2 | 0.5 |
+| cautious | 19.1 % ±1.8 | 0.3 | 0.2 |
+
+What the first batch says:
+
+1. **The mirror matchups are even.** A preset against itself gives 54.0 %,
+   50.0 %, 48.4 %, and 49.2 %, each with a standard error of 6.3 %. The arena
+   and the tick order are therefore fair, and the win rates above measure the
+   tactics. Keep this check in every batch.
+2. **`holdPosition` is too strong.** The `anchor` preset beats `aggressive`
+   100 % of the time and `balanced` 98.4 % of the time. A bot that holds a
+   sightline shoots a bot that crosses open ground. Team deathmatch gives the
+   moving team nothing in return. This is a balance failure under the rule of
+   this section. It is a tuning question for the AI weights (M4) and for the
+   counters that arrive with the influence maps and the roles (M8), not a
+   fault of the harness.
+3. **A passive preset stalls the round.** 22.5 % of rounds reached the time
+   limit, and 139 rounds made fewer than half the score limit in kills. A bot
+   that retreats does not fire, and no bot can heal before the pickups of M8,
+   so a damaged bot leaves the round. Read this together with point 2: the
+   same rule that makes holding strong makes a round slow.
+
+Do not tune these numbers before M6 and M8 change them again. The value of the
+batch here is the method and the numbers to compare against later.
+
+**M8 answered both.** The pickups gave the moving team something to win, and
+`anchor` fell from 81.1 % to 41.9 %, with 98.1 % of rounds reaching the score
+limit. Section 7.20.13 holds the numbers.
+
+**After this batch** the `cautious` preset was removed from `data/batch.json`.
+It won 19.1 % and it stalled rounds. The default presets are `balanced`,
+`aggressive`, and `anchor`. Section 7.20 holds the design that answers the two
+failures above.
+
+### M5.5 — Directional vision (done)
+
+Built on its own, before M6, so that the batch could say what it changed.
+
+- A facing, a focus arc, a peripheral arc with a delay, and a turn rate
+  (Section 7.20.6). The `awareness` attribute of Section 6.4 sets the width of
+  the peripheral arc, and it has its first use.
+- A bot that takes damage learns where the shot came from.
+- The display shows the facing of a bot with an arrow.
+- The batch harness now reports the share of kills on a target that could not
+  see its killer, which measures a flank.
+- `perception.directionalVision` turns the whole change on and off. It is off,
+  because the measurement says that it moves nothing today.
+- Accept: the batch runs and the measurement is recorded. **The measurement
+  says that the change moved nothing** (Section 7.20.10).
+
 ### M6 — Weapon generation
 
-- Implement archetypes, budget, weapon traits, and DPS profiles.
+Section 7.20 holds the design of this milestone. Read it first, and read
+Section 7.20.10: the batch shows that weapons alone cannot bring the `anchor`
+preset to 50 %, because a pickup point gives nothing until M8.
+
+- Implement the role traits, the seven attack types, the power budget, and the
+  DPS profiles. Derive the archetype label (Section 7.20.2 to 7.20.4).
 - Add projectile, area damage, DoT, hazard, and crit conditions.
+- Add the crit against a target that stands still and the dodge for a target
+  that moves (Section 7.20.5).
+- Give each weapon a reaction per range band, and make the bots act in the
+  order of their reaction speed (Section 7.20.7).
 - Connect AI weapon selection to DPS profiles.
-- Accept: weapon budget tests pass. Bots switch weapons by range.
+- Accept: weapon budget tests pass. Bots switch weapons by range. The mirror
+  matchups stay at 50 %, and the `anchor` win rate falls (Section 7.20.9). It
+  cannot reach 50 % before the pickups of M8.
+
+**M6 result (done).** Interfaces of this milestone:
+
+| Module | Entry points |
+|---|---|
+| `weapons/types.ts` | `RoleTrait`, `AttackType`, `Archetype`, `BandValues`, `Weapon`, `isProjectileType`, `bandOfDistance`. |
+| `weapons/generate.ts` | `generateWeaponSet(rng, count, options)`, `generateWeapon(rng, role, index, options)`, `archetypeOf(role, attackType)`, `costOf`, `fixedCost`, `dpsProfileOf`. |
+| `sim/damage.ts` | `damageBot(state, attacker, target, amount, context)`, `applyDot`, `rangeBandOf`, `isInCover`. Every source of damage ends here. |
+| `sim/attacks.ts` | `applyAreaDamage`, `applyConeDamage`, `applyLineDamage`, `spawnProjectile`, `updateProjectiles`, `createHazard`, `applyHazards`, `applyDots`, `clearLine`. |
+| `sim/combat.ts` | `effectiveReaction(bot, band)`, `currentBand`, `dodgeOf`, `critConditionMet`, plus the earlier entry points. |
+| `sim/state.ts` | `botsInTickOrder` now sorts by reaction speed. `Projectile`, `HazardCell`, `DotEffect`. |
+| `core/data.ts` | `loadWeaponRoles()`. |
+
+Notes:
+
+- **Section 6.3 changed.** `delivery` is now `attackType` with seven values.
+  The weapon carries `role`, `reactionByBand`, `coneHalfAngle`,
+  `ricochetBounces`, `hazardRadius`, and `hazardDamagePerTick`. The archetype
+  list lost `burst` (it is an attack type now) and gained `assault`,
+  `marksman`, and `heavy`.
+- **Section 7.3 changed.** The generator rolls a role trait and an attack type
+  and derives the archetype at the end (Section 7.20.4). The damage is solved,
+  not rolled: the generator picks the damage that puts the cost on the budget
+  target, and it rejects a draft whose damage would fall outside the range of
+  its role.
+- **The DPS profile is the expected damage.** It holds the area, the pierce of
+  a line, the damage over time, the hazard tiles, and how often the attack type
+  lands. The budget prices the same number, so the budget and the AI agree.
+  Section 7.20.11 says what happens when they do not.
+- **Every bot holds every weapon of the run.** This is a stand-in so that the
+  AI can select by DPS profile at all. The pickups of M8 decide who holds what.
+- **Ammo is counted** (Section 7.20.12). A shot spends a round, and an empty
+  weapon drops the bot back to the baseline, which never runs dry. The ammo
+  pickups of M8 refill the rest.
+- **A weapon has a tier.** A run holds one `prize`, one `strong`, and the rest
+  `standard`, so it has a clear ranking.
+- The measurement is in Sections 7.20.11 and 7.20.12. `anchor` fell from
+  82.0 % to 69.1 %, and the highest archetype kill share fell from 80 % to 22 %
+  once the budget traded range, magazine, and cadence and not damage alone.
+
+The advanced tactics layer (Section 7.20.8) is designed but not scheduled. The
+field of view (Section 7.20.6) is built and switched off; see M5.5.
 
 ### M7 — Arena generation
 
@@ -933,6 +2047,36 @@ Notes:
 - Add pickups with respawn timers and one spawn table per match.
 - Add influence maps.
 - Accept: a full best-of-3 match plays in the browser. The batch harness shows different results by role composition.
+
+**Result: done.** `npm run dev` plays a best-of-3 match: the tactics screen
+opens between the rounds and sets the tactics and the roles of team A. The
+batch reports a win rate per role composition, and `standard` beats `turtle`
+60.8 % ±4.5 in their matchup.
+
+New files: `sim/pickups.ts`, `sim/match.ts`, `ai/influence.ts`,
+`arena/spawnOrder.ts`, `ui/tacticsScreen.ts`, `data/pickups.json`,
+`data/roles.json`.
+
+Section 7.20.13 holds the measurement and the two AI faults that the pickups
+found. Section 7.20.14 holds the spawn order fault: a symmetric arena is not a
+fair match, and an M7 generator must pair the slots of the teams, not only the
+shape of the halves.
+
+**What M8 takes from M7, and what stands in for it.** `ArenaMap` has no rooms,
+no links, and no metrics until M7, so three parts of M8 work on the raw grid
+instead of the macro graph:
+
+- Section 7.2 step 5 places pickups on contested cells by betweenness
+  centrality. The test arena places them by hand, symmetrically.
+- Section 7.9 says that `control` is "which team holds each area". An area is a
+  cell here. When M7 gives the arena its rooms, a room value is the mean of its
+  cells.
+- Section 7.11 describes the roles in terms of areas, of "a sightline over a
+  contested pickup", and of side routes. `positionValue` measures the same idea
+  on the grid: a cell is worth holding when a pickup point is near it, when the
+  team holds the ground around it, and when it is not itself dangerous.
+
+None of these blocks M8. Each one is a place to read again after M7.
 
 ### M9 — Reports
 
