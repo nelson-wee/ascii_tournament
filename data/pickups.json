@@ -13,11 +13,11 @@
       "amount": 30
     },
     "ammo": {
-      "respawnTicks": 200,
+      "respawnTicks": 140,
       "amount": 0
     },
     "weapon": {
-      "respawnTicks": 220,
+      "respawnTicks": 150,
       "amount": 0
     },
     "powerup": {

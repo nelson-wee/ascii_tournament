@@ -790,6 +790,119 @@ same shape. It must also hand the two teams their spawn cells in matching slot
 order, or a generated arena will carry this same hidden bias into every
 measurement made on it.
 
+#### 7.20.15 The weapons are gated, and three more numbers stopped lying
+
+The measurement of Section 7.20.13 was made on a game where **every bot spawned
+holding every weapon**. `makeBot` gave each bot the whole run set with a full
+magazine, and a weapon point only refilled ammo. The prize weapon was free, and
+it took 82.7 % of the kills from a 1.26 times edge in damage.
+
+**A bot now spawns with the baseline weapon alone.** A generated weapon comes
+from a weapon point and from nowhere else. A bot keeps what it finds for the
+round; death costs it the armor, the shield, the power-ups, and the ground.
+
+Three more numbers were found to mean something other than their name.
+
+**A cone declared 2.2 times the range it had.** `shape.coneRangeFactor` was
+applied at damage time, on top of the `rangeFactor` of the attack type, so a
+cone with `rangeMax` 12.3 reached 5.5 cells and faded to nothing across them.
+The AI read the declared 12.3 and fired at 10. A cone delivered 1.5 damage per
+shot. The generator now applies both factors, so `rangeMax` is the real reach,
+and `value.coneFadeShare` puts the fade inside the DPS profile.
+
+**The budget paid for reach the arena never uses.** It averaged the three range
+bands equally, while the arena fires 51 % close, 48 % mid and 1 % long. A
+marksman paid 9 of its 100 points for cells it never shot through.
+`value.bandShare` now weighs the bands, for the budget and for the AI alike, and
+`budget.rangeValueCapCells` with `budget.rangeValueTailShare` prices reach past
+the mid band at 45 % — a price, not a wall. A hard wall gave the sniper role its
+9 points back as damage, and it took 29 % of the kills.
+
+**The projectile family paid for a critical hit it could not land.**
+`releaseShot` rolled the crit and then dropped it on every path but `hitscan`
+and `line`. A projectile now carries its crit to the impact. It also leads a
+moving target: a shot flies 4 to 9 ticks at the distance the arena fights at,
+and a bot crosses 1 to 2 cells in that time against a hit radius of half a cell,
+so a shot at the present position missed by default.
+
+**An area weapon is now worth aiming.** `selectTarget` divides the distance to
+an enemy by the number of enemies that one shot would catch, so an enemy behind
+an enemy is worth turning to. Before this, nothing in the code ever tried for a
+multi-hit, and multi-hits still made up 36 % of burst landings and 30 % of line
+landings: they were accidents.
+
+**A pickup point draws its glyph only while it holds its item.** The display
+read the glyph from the map tile, so an empty pad looked the same as a live
+power-up. `readyPickupCells` gives the display the truth, and it lives in the
+simulation so that a test can reach it without a browser.
+
+#### 7.20.16 Three faults that the fixes themselves found
+
+**1. One weapon per point is not fair on a symmetric arena.** No weapon point of
+the test arena is even: the most contested pair still sits 31 steps from one
+team and 51 from the other. Placing one weapon per point therefore handed the
+prize to whichever side won the tie-break, and the mirror matchup read 68 %.
+
+A pair of points that face each other under a half turn now holds the **same**
+weapon, and the strongest weapon takes the most contested pair. The power-up
+points had the same fault — they rolled once per point, so one team could get
+the double damage and the other the shield belt — and they now roll once per
+pair. `pickupEvenness` measures how even a point is by walking the floor from
+the two spawn groups; Section 7.2 step 5 wants betweenness centrality on the
+macro graph, which arrives with M7.
+
+**The rule for M7:** a generated arena must offer both teams the same item on
+the same ground, not only the same shape of ground.
+
+**2. Equipping a weapon was an action, and it always lost.** `SwitchWeapon`
+competed with `Engage` for the one action of a tick, and `Engage` almost always
+scored higher. A bot that ran a weapon dry stayed on the baseline even after an
+ammo point refilled it. The baseline took 50 % of the kills, which is not a
+fallback (Section 7.3).
+
+Equipping the best weapon is now a **rule**, applied at every decision, and
+`SwitchWeapon` is gone from the scored actions. A real bot changes weapon while
+it moves and fires. The baseline fell to 25 %.
+
+**3. Two tactic fixes were measured and one was reverted.** Aggression was flat
+at M8, so it was given a discount on the danger map: a bold bot would walk into
+ground a careful bot walks around. The sweep said aggression 0.9 then lost 17
+points to aggression 0.1. Danger is about the ground, and nothing rewards
+standing in it, so the discount was a cost with no benefit — the same fault the
+rule of Section 7.8 forbids, in the other direction.
+
+Aggression now shortens the aim delay instead (`ai.aggressionReactionDiscount`):
+**a bold bot shoots first.** Its cost is already in place — it fights at low
+health, it does not break off, and it does not walk to the band where its weapon
+is strongest. The sweep now reads 0.1 → 46.2 %, 0.3 → 57.1 %, 0.9 → 50.4 %, so
+the lowest setting is the worst one. That is a choice, not a trap and not a
+dead axis.
+
+The `holdPosition` tactic suppressed every pickup, including the one under the
+bot's feet, so an anchor held ground it could not arm itself from and won
+34.6 %. The suppression now falls to nothing as the point gets closer: a camper
+takes what lands on it, and only the run across the arena is suppressed. That
+one change brought `anchor` back to 46.1 %.
+
+**The state after all of it (1080 rounds).** `aggressive` 46.6 % ±1.8,
+`anchor` 46.1 % ±1.9, `balanced` 57.4 % ±1.9 — the three presets inside 11
+points for the first time, and none of them over the 60 % rule of Section 7.16.
+Kills by archetype: baseline 25.1 %, marksman 23.1 %, precision 12.2 %, heavy
+11.3 %, denial 10.2 %, splash 9.3 %, assault 8.7 %. Every round reaches the
+score limit.
+
+**Two questions stay open, and a weight will not close them.**
+`docs/m8-weapon-analysis.md` Section 5.3 holds them in full:
+
+- **`itemControl` is now structural.** Gating the weapons is what made the arena
+  matter, and it also made item control the price of holding a weapon at all:
+  the spread grew from 19 points to 36. The answer is a bigger arena with more
+  weapon points (M7) or a doctrine that says *which* items a team contests
+  (M11).
+- **`retreatThreshold` is still a cost with no benefit.** Never retreating is
+  worth 28 points. A bot that breaks contact must gain something for it — a
+  heal, a re-arm, a regroup — and that is a mechanic, not a number.
+
 ### 7.3 Weapon generation (`weapons/`)
 
 Purpose: generate readable procedural weapons with clear roles.
@@ -903,8 +1016,12 @@ Actions (starting set):
 - `SeekPickup(pickup)`
 - `HoldPosition(cell)`
 - `Reposition(rangeBand)`
-- `SwitchWeapon(weapon)`
 - `Follow(teammate)` (cohesion)
+
+`SwitchWeapon` was in this list until M8. It is now a **rule**, applied at every
+decision, and not an action: as an action it competed with `Engage` for the one
+action of a tick and always lost, so a bot that ran a weapon dry never picked up
+its refilled weapon again (Section 7.20.16).
 
 Score formula (structure):
 
@@ -1006,6 +1123,13 @@ says whether a role is worth taking.
 
 Rules:
 
+- **A weapon point is the only way to a generated weapon.** A bot spawns with
+  the baseline weapon alone and keeps what it finds for the round. Giving every
+  bot every weapon at spawn made the prize weapon free, and it took 82.7 % of
+  the kills (Section 7.20.15).
+- **A pair of points that face each other holds the same item.** No weapon point
+  of a symmetric arena is even, so one weapon per point hands the prize to one
+  side (Section 7.20.16). The strongest weapon takes the most contested pair.
 - **Ammo is universal.** One ammo point refills every weapon the bot holds, not
   one named weapon. The arena is small, so a weapon-by-weapon supply would send
   a bot across it for a magazine. `ammoPerPickup` and `ammoMax` are generated
@@ -1159,6 +1283,8 @@ start.
 - Arena on one screen. Target size TBD: approximately 100×40 for desktop, approximately 60×30 for phones in landscape. Decide before Milestone M7.
 - Team colors. Short projectile trails. Flash on the hitscan target cell.
 - Side panel: kill feed, score, round number, timer.
+- A pickup point draws its glyph only while it holds its item. An empty point
+  draws the floor, so a viewer can read the arena (Section 7.20.15).
 - Speed controls: pause, 1×, 4×, skip to end of round.
 - Touch-friendly controls for phones.
 - Debug views (toggle): danger map, control map, bot decisions.

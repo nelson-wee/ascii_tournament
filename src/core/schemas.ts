@@ -141,6 +141,25 @@ export const TuningSchema = z
          * alone. TBD
          */
         preferredRangeBias: z.number().min(0),
+        /**
+         * How much the danger of a pickup point lowers its worth. Item control
+         * won 19 points of win rate and never turned over, because a run
+         * across the arena cost nothing (Section 4 of the M8 weapon analysis).
+         * A tactic with only a benefit breaks the rule of Section 7.8. TBD
+         */
+        pickupRiskWeight: z.number().nonnegative(),
+        /**
+         * How much the aggression tactic shortens the aim delay. A bold bot
+         * shoots first; it also fights at low health and does not walk to the
+         * band where its weapon is strongest. Letting aggression discount the
+         * danger map instead was measured and reverted (Section 7.20.16). TBD
+         */
+        aggressionReactionDiscount: unitRange,
+        /**
+         * How much aggression lowers `Reposition`. A bold bot presses the
+         * fight where it stands instead of walking to a better band. TBD
+         */
+        aggressionRepositionDiscount: unitRange,
         /** The base consideration of each action, before the tactics weights. TBD */
         actionBase: z
           .object({
@@ -150,7 +169,6 @@ export const TuningSchema = z
             seekPickup: positiveNumber,
             holdPosition: positiveNumber,
             reposition: positiveNumber,
-            switchWeapon: positiveNumber,
             follow: positiveNumber,
           })
           .strict(),
@@ -454,6 +472,19 @@ export const WeaponRolesSchema = z
         lineTargets: z.number().nonnegative(),
         dotStackCap: positiveNumber,
         hazardOccupancy: unitRange,
+        /**
+         * The share of the damage of a cone that lands, after the fade from
+         * its mouth to its reach (Section 7.20.15). TBD
+         */
+        coneFadeShare: unitRange,
+        /**
+         * How often the arena fires in each band. The power budget and the AI
+         * both weigh a DPS profile with it, so a weapon is worth what the
+         * arena lets it do. Measure it again after M7 changes the arena. TBD
+         */
+        bandShare: z
+          .object({ close: unitRange, mid: unitRange, long: unitRange })
+          .strict(),
       })
       .strict(),
     tiers: z
@@ -483,6 +514,19 @@ export const WeaponRolesSchema = z
         ricochetWeight: z.number().nonnegative(),
         reactionDiscount: z.number().nonnegative(),
         ammoWeight: z.number().nonnegative(),
+        /**
+         * The budget stops paying for reach past this distance, in cells. The
+         * arena fires 1 % of its shots past the mid band, so a weapon that
+         * reaches 46 cells paid 9 points of 100 for nothing (Section 3.2 of
+         * the M8 weapon analysis). Keep it near `combat.rangeBandMidMax`. TBD
+         */
+        rangeValueCapCells: positiveNumber,
+        /**
+         * What a cell of reach past the cap is worth, against a cell inside it.
+         * A hard cut gave the sniper role 9 points of budget back and it took
+         * 29 % of the kills, so the tail has a price, not a wall. TBD
+         */
+        rangeValueTailShare: unitRange,
       })
       .strict(),
   })

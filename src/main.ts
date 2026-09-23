@@ -22,6 +22,7 @@ import {
   botCell,
   createRoundState,
   DEFAULT_ROLES,
+  readyPickupCells,
   rollSpawnTable,
   simConfigFromTuning,
   step,
@@ -158,6 +159,7 @@ try {
   }
 
   function render(): void {
+    display.setReadyPickups(readyPickupCells(state));
     display.setEntities(entities());
 
     const [teamA, teamB] = TEAM_IDS;

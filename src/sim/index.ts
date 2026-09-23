@@ -20,8 +20,10 @@ export {
   applyDots,
   applyHazards,
   applyLineDamage,
+  areaTargetsIfAimedAt,
   clearLine,
   createHazard,
+  leadAngle,
   spawnProjectile,
   updateProjectiles,
 } from "./attacks.js";
@@ -38,6 +40,7 @@ export {
   createPickupStates,
   damageMultiplierOf,
   pickupValue,
+  readyPickupCells,
   rollSpawnTable,
   takePickup,
   updatePickups,

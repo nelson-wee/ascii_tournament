@@ -10,6 +10,21 @@ state of the weapons and the balance after M8 is in
 
 ## Status
 
+**After M8 — the weapon economy.** A bot spawns with the baseline weapon alone
+and takes the generated weapons from the weapon points of the arena, which makes
+the arena decide who is armed. A pair of points that face each other holds the
+same item, so a symmetric arena gives both teams the same offer. A cone now
+declares the range it really has, the power budget weighs the range bands the
+way the arena fires in them, a projectile leads a moving target and carries its
+critical hit, and the AI aims an area weapon at the enemy that lines up two. A
+pickup point shows its glyph only while it holds its item.
+
+The three tactics presets now sit inside 11 points of each other for the first
+time (aggressive 46.6 %, anchor 46.1 %, balanced 57.4 % over 1080 rounds), and
+no archetype takes more than a quarter of the kills.
+[`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md) holds the
+measurements and the two balance questions that are still open.
+
 **Milestone M8 — teams, roles, matches, and pickups.** A full best-of-3 match
 plays in the browser. Between the rounds the tactics screen opens and the
 player sets the tactics and the role of each bot. The arena now gives a reason

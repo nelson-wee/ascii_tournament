@@ -20,6 +20,8 @@ import type { RangeBand, Weapon } from "../weapons/types.js";
 import {
   applyConeDamage,
   applyLineDamage,
+  areaTargetsIfAimedAt,
+  leadAngle,
   spawnProjectile,
 } from "./attacks.js";
 import { damageBot, isInCover, rangeBandOf } from "./damage.js";
@@ -83,8 +85,12 @@ function spendAmmo(state: SimState, bot: BotState): void {
 }
 
 /** The reaction of a bot with its weapon, at a range band (Section 7.20.7). */
-export function effectiveReaction(bot: BotState, band: RangeBand): number {
-  return bot.attributes.reactionTicks + bot.weapon.reactionByBand[band];
+export function effectiveReaction(bot: BotState, band: RangeBand, aggressionDiscount = 0): number {
+  const ticks = bot.attributes.reactionTicks + bot.weapon.reactionByBand[band];
+  // A bold bot shoots first. That is the benefit of aggression. Its cost is
+  // already in place: it fights at low health, it does not break off, and it
+  // does not walk to the band where its weapon is strongest (Section 7.20.16).
+  return Math.max(1, Math.round(ticks * (1 - bot.tactics.aggression * aggressionDiscount)));
 }
 
 /** The range band that a bot is working at: to its target, or its preferred one. */
@@ -153,8 +159,8 @@ export function selectTarget(state: SimState, bot: BotState): BotState | null {
   for (const id of bot.visibleEnemyIds) {
     const enemy = findBot(state, id);
     if (!enemy || !enemy.alive) continue;
-    const distance = distanceBetween(bot, enemy);
-    if (distance > bot.weapon.rangeMax || distance >= bestDistance) continue;
+    const distance = aimCost(state, bot, enemy);
+    if (distanceBetween(bot, enemy) > bot.weapon.rangeMax || distance >= bestDistance) continue;
     best = enemy;
     bestDistance = distance;
   }
@@ -162,13 +168,30 @@ export function selectTarget(state: SimState, bot: BotState): BotState | null {
   if (bot.targetId === null) return best;
   const current = findBot(state, bot.targetId);
   if (!current?.alive || !bot.visibleEnemyIds.includes(current.id)) return best;
-  const currentDistance = distanceBetween(bot, current);
-  if (currentDistance > bot.weapon.rangeMax) return best;
+  if (distanceBetween(bot, current) > bot.weapon.rangeMax) return best;
+  const currentDistance = aimCost(state, bot, current);
   if (best === null || bestDistance > currentDistance * state.config.targetSwitchMargin) {
     return current;
   }
   return best;
 }
+
+/**
+ * What an enemy costs to aim at. The nearest enemy wins, unless an area weapon
+ * catches more than one enemy by aiming at another (Section 7.8).
+ *
+ * The cost is the distance divided by the enemies that the shot would catch, so
+ * a shot that catches two counts as half as far. An enemy behind an enemy is
+ * then worth turning to.
+ */
+function aimCost(state: SimState, bot: BotState, enemy: BotState): number {
+  const distance = distanceBetween(bot, enemy);
+  if (!AREA_ATTACK_TYPES.has(bot.weapon.attackType)) return distance;
+  return distance / areaTargetsIfAimedAt(state, bot, bot.weapon, enemy.pos);
+}
+
+/** The attack types whose shot can catch more than one bot. */
+const AREA_ATTACK_TYPES = new Set(["cone", "line", "burst", "tile"]);
 
 /** Send the shot on its way, by the attack type of the weapon (Section 7.20.3). */
 function releaseShot(state: SimState, bot: BotState, target: BotState): void {
@@ -189,8 +212,9 @@ function releaseShot(state: SimState, bot: BotState, target: BotState): void {
     case "burst":
     case "ricochet":
     case "tile":
-      // A projectile is dodged by moving out of its way, not by a roll.
-      spawnProjectile(state, bot, aimAngle, weapon);
+      // A projectile is dodged by moving out of its way, not by a roll. It
+      // leads a moving target, and it carries the critical hit that it rolled.
+      spawnProjectile(state, bot, leadAngle(bot, target, weapon), weapon, crit);
       return;
     case "hitscan":
     default: {
@@ -243,7 +267,7 @@ export function tryFire(state: SimState, bot: BotState): void {
   }
   bot.aimTicks += 1;
   const band = rangeBandOf(state, distanceBetween(bot, target));
-  if (bot.aimTicks < effectiveReaction(bot, band)) return;
+  if (bot.aimTicks < effectiveReaction(bot, band, state.config.aggressionReactionDiscount)) return;
 
   bot.fireCooldownTicks = bot.weapon.fireIntervalTicks;
   const fired = bot.weapon;
@@ -290,9 +314,13 @@ export function respawn(state: SimState, bot: BotState): void {
   bot.targetId = null;
   bot.aimTicks = 0;
   bot.dots = [];
-  // A round starts the bot on the best weapon it has rounds for.
-  for (const weapon of bot.weapons) bot.ammo.set(weapon.id, weapon.ammoMax);
+  bot.velocity = { x: 0, y: 0 };
+  // A bot keeps the weapons it found, for the round. Dropping them on every
+  // death put the bot back on the baseline for most of its life, and the
+  // baseline took 43 % of the kills, which is not a fallback (Section 7.3).
+  // Death still costs the armor, the shield, the power-ups, and the ground.
   bot.weapon = bot.weapons[0] ?? bot.weapon;
+  bot.ammo.clear();
   bot.lastSeen.clear();
   bot.peripheralEnemyIds = [];
   bot.peripheralTicks.clear();

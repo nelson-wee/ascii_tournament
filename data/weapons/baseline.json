@@ -5,7 +5,7 @@
   "role": null,
   "tier": "baseline",
   "attackType": "hitscan",
-  "damage": 25,
+  "damage": 19,
   "fireIntervalTicks": 12,
   "rangeMax": 30,
   "projectileSpeed": null,
@@ -29,9 +29,9 @@
     "long": 5
   },
   "dpsProfile": {
-    "close": 22.9,
-    "mid": 22.9,
-    "long": 22.9
+    "close": 17.4,
+    "mid": 17.4,
+    "long": 17.4
   },
   "budgetUsed": 0,
   "hazardDamagePerTick": 0

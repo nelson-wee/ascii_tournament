@@ -40,6 +40,9 @@
     "ai.holdBlindShare",
     "ai.holdSuppressesPickup",
     "ai.preferredRangeBias",
+    "ai.pickupRiskWeight",
+    "ai.aggressionReactionDiscount",
+    "ai.aggressionRepositionDiscount",
     "influence"
   ],
   "simulation": {
@@ -87,7 +90,6 @@
       "seekPickup": 0.8,
       "holdPosition": 0.5,
       "reposition": 0.7,
-      "switchWeapon": 0.9,
       "follow": 0.4
     },
     "pickupAnticipationTicks": 220,
@@ -95,7 +97,10 @@
     "holdContactTicks": 150,
     "holdBlindShare": 0.1,
     "holdSuppressesPickup": 0.6,
-    "preferredRangeBias": 0.25
+    "preferredRangeBias": 0.25,
+    "pickupRiskWeight": 0.15,
+    "aggressionReactionDiscount": 0.35,
+    "aggressionRepositionDiscount": 0.6
   },
   "influence": {
     "intervalTicks": 10,

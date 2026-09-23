@@ -419,47 +419,120 @@ Against the rule of Section 7.8 — each tactic has a cost and a benefit:
 
 ---
 
-## 5. The fix list, in order
+## 5. The fixes, and what they measured
 
-**1. Give a bot the baseline weapon only at spawn (Section 0.1).** Then place
-each generated weapon once, without replacement, and put the prize weapon on the
-most contested pair of points. Re-measure everything below afterwards: this
-changes the meaning of every weapon number in this file.
+Every fix below is in the code. The numbers are 1080 rounds unless a line says
+otherwise. Read Section 7.20.16 of the dev guide for the same story in the
+project record.
 
-**2. Fix the cone reach (Section 3.5).** Either drop `coneRangeFactor` and let
-`rangeFactor` carry the whole penalty, or fold both factors and the linear fade
-into the declared `rangeMax` and into `dpsProfile.close`. The AI and the budget
-must read the real reach. This is a bug, not a balance dial.
+| # | Fix | Result |
+|---|---|---|
+| 1 | A bot spawns with the baseline alone; a weapon point gives the weapon | The prize weapon stopped taking 82.7 % of kills. It is now spread across every slot of the run. |
+| 2 | A cone declares its real reach; the fade is inside its DPS profile | `splash` went from 9.3 % of kills at the wrong price to 9.3 % at the right one, with a reach of 5.5 cells that the AI can read. |
+| 3 | The budget and the AI weigh the bands 0.50 / 0.48 / 0.02 | A marksman stopped paying 9 points of 100 for reach it never used. |
+| 4 | A projectile leads a moving target and carries its critical hit | The projectile family stopped paying `critChance` for nothing. |
+| 5 | A pickup glyph shows only while the point holds its item | An empty pad now reads as floor. |
+| 6 | The AI aims an area weapon at the enemy that lines up two | `selectTarget` divides the distance by the enemies a shot would catch. |
+| 7 | Re-measure the tiers | No tier change was needed. Fix 1 broke the monopoly on its own. |
+| 8 | `itemControl` pays for danger; `aggression` shortens the aim delay | Both measured; see the open questions below. |
 
-**3. Price the DPS profile the way the arena fires it (Section 3.2).** Weight
-the bands about 0.5 / 0.48 / 0.02 instead of one third each, or cap the priced
-`rangeMax` at `rangeBandMidMax`. Put the weights in `data/`, because M7 will
-change them.
+Three faults were found while fixing these, and each has its own entry in
+Section 7.20.16 of the dev guide:
 
-**4. Stop charging for an effect a weapon cannot produce (Section 0.2).** Either
-let the projectile family land a critical hit, or take `critChance` out of its
-cost. Add an aim lead for a projectile, or lower `accuracyFactor` for the flying
-types to what they measure.
+- **A weapon point per weapon is not fair on a symmetric arena.** No weapon
+  point of the test arena is even — the best pair is 31 steps from one team and
+  51 from the other — so the tie-break handed the prize to one side and the
+  mirror matchup read 68 %. A pair of points that face each other now holds the
+  same weapon. The power-up points had the same fault and now roll once per
+  pair.
+- **A bot must choose `SwitchWeapon` as its action, and `Engage` always won.**
+  A bot that ran a weapon dry stayed on the baseline even after an ammo point
+  refilled it. Equipping the best weapon is now a rule, not an action, and the
+  baseline fell from 50 % of kills to 25 %.
+- **Dropping every weapon on death made the baseline the main weapon.** A bot
+  now keeps what it found for the round. Death still costs the armor, the
+  shield, the power-ups, and the ground.
 
-**5. Break the prize monopoly (Section 3.3).** After fix 1, measure again. If it
-holds, narrow the tier factors from 1.25 / 1.0 / 0.85 to about 1.10 / 1.0 / 0.92,
-or make weapon choice softer than an argmax, so a 26 % edge in DPS stops
-becoming a 9× edge in kills.
+### 5.1 Where the game stands now
 
-**6. Draw a pickup glyph only when the item is there (Section 0.4).** Take the
-glyph from `state.pickups[i].ready`, not from the map tile. An empty point falls
-back to the floor glyph, or to a dim version of its own glyph so that a player
-can still learn where to wait. Add a test that a taken point stops drawing.
+| Measurement | At M8 | Now |
+|---|---|---|
+| mean kills per round | 25.9 | 25.5 |
+| mean ticks per round | 2035 | 2043 |
+| rounds at the score limit | 98.1 % | **100 %** |
+| `aggressive` win rate | 51.8 % ±1.8 | **46.6 % ±1.8** |
+| `anchor` win rate | 41.9 % ±1.9 | **46.1 % ±1.9** |
+| `balanced` win rate | 56.3 % ±1.9 | **57.4 % ±1.9** |
+| top archetype kill share | 25.8 % (precision) | **25.1 % (baseline)** |
+| prize tier kill share | 82.7 % | spread across every slot |
+| side bias, 1500 mirror rounds | 50.7 % ±2.0 | 52.7 % ±1.3 |
 
-**7. Teach the AI to aim an area weapon (Section 0.3).** Multi-hits happen by
-accident on 36 % of burst landings and 30 % of line landings. Score a shot that
-lines up two enemies above one that does not.
+The three presets sit inside 11 points for the first time. No preset passes the
+60 % rule of Section 7.16.
 
-**8. Give `itemControl` a counter, and give `aggression` a job (Section 4).**
-These are balance questions, not bugs, and they decide whether the tactics
-screen is a real choice.
+Kills by archetype: baseline 25.1 %, marksman 23.1 %, precision 12.2 %, heavy
+11.3 %, denial 10.2 %, splash 9.3 %, assault 8.7 %. The baseline is the weapon a
+bot always has, so a share above an even seventh is expected; a quarter is the
+top of what Section 7.3 can call a fallback, and it is worth watching.
 
-Items 1 to 5 are one failure: **the budget charges for something the simulation
-does not deliver, or the AI reads a number that does not mean what its name
-says.** The measurement that finds them is always the same — compare the
-modelled number against the measured one, per weapon, per band, per shot.
+Role compositions: rush 54.6 % ±1.9, standard 54.2 % ±1.9, turtle 41.3 % ±1.8.
+Two bots that hold a sightline still lose to anything that moves.
+
+### 5.2 The tactics, measured again
+
+Two one-tactic sweeps of 700 rounds, 12 presets each, ±4.6 per cell. **Compare
+inside a sweep, never across two:** a win rate depends on the field it was
+measured against, which is why `base` reads 55.1 % in one sweep and 42.0 % in
+the other.
+
+| tactic | value → win rate | spread | verdict |
+|---|---|---|---|
+| itemControl | 0.1→30.5, 0.3→40.7, 0.5→55.1, 0.7→58.2, 0.9→67.0 | **36 pts** | still dominant, and now structural |
+| retreatThreshold | 0.0→70.3, 0.15→59.3, 0.3→42.0, 0.45→48.2, 0.6→40.6 | **28 pts** | never retreating is still best |
+| hazardTolerance | 0.0→51.7, 0.3→42.0, 0.7→65.3 | 24 pts | **alive**, from flat at M8 |
+| evasion | 0.0→27.7, 0.3→42.0, 0.6→41.2, 0.9→53.8 | 26 pts | a real axis, now rising |
+| holdPosition | 0.0→55.9, 0.2→55.1, 0.4→52.5, 0.8→35.6 | 20 pts | a gentler penalty; 0.4 is nearly free |
+| aggression | 0.1→46.2, 0.3→57.1, 0.5→55.1, 0.7→52.9, 0.9→50.4 | 11 pts | **no longer dead**: 0.1 is now the worst |
+| preferredRange | close→50.8, mid→42.0, long→48.3 | 9 pts | no longer a trap |
+
+Four of the seven moved the right way. `aggression` went from flat to a real
+choice, `hazardTolerance` from dead to a 24-point axis, `holdPosition` from a
+21-point penalty to 20 with a flat shoulder, and `preferredRange` from a
+20-point trap to 9 points of preference.
+
+### 5.3 Two open questions, stated and not hidden
+
+**1. `itemControl` is now structural, not tunable.** Gating the weapons behind
+pickup points is what made the arena matter, and it also made item control the
+price of having a weapon at all: the spread went from 19 points to 36. A weight
+cannot fix this, because the fix is the point of the change. Two honest ways
+forward, neither of which belongs in a tuning pass:
+
+- **M7.** A larger arena with more weapon points lowers the cost of a run, so
+  the tactic becomes a preference again instead of a requirement.
+- **M11.** A doctrine can say *which* items a team contests. "Hold the power-up
+  and leave the ammo" is a real choice; "take 10 % of the items" is not.
+
+Two things were tried and measured in the meantime. Making a pickup run pay for
+the danger it crosses (`ai.pickupRiskWeight`) punished the poor bot rather than
+pricing the rich one, and it is now a small term. Letting a camper take the item
+at its own feet, and only suppressing the run across the arena, is what brought
+`anchor` from 34.6 % back to 46.1 %.
+
+**2. `retreatThreshold` is still a cost with no benefit.** Never retreating is
+worth 28 points. A bot that retreats does not fire and gives ground, and nothing
+pays it back. The counter is a mechanic, not a number: a bot that breaks contact
+should heal, re-arm, or rejoin its team with an advantage. That is progression
+(M10) or a real cover rule, not a weight.
+
+### 5.4 What still needs a measurement after M7
+
+- The band shares in `data/weapon-roles.json` are measured on one hand-made
+  arena. A generated arena will fire in different bands, and the budget reads
+  them, so re-measure `value.bandShare` and `budget.rangeValueCapCells` then.
+- `pickupEvenness` stands in for the betweenness centrality of Section 7.2 step
+  5. When the arena has a macro graph, the placement of the prize weapon should
+  use it.
+- The mirror matchups sit at 52.7 % ±1.3 over 1500 rounds. That is inside the
+  5 % rule of Section 7.2.1 and it is two standard errors from even, so it is
+  worth one look before it is called noise.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { findPath } from "../src/ai/navigation.js";
 import { updatePerception } from "../src/ai/perception.js";
+import { dangerFor, updateInfluence } from "../src/ai/influence.js";
 import {
   actionLabel,
   applyAction,
@@ -8,6 +9,7 @@ import {
   bestWeaponAt,
   bestWeaponOverall,
   decide,
+  equipBestWeapon,
   positionValue,
   wantedBand,
   noteReachedPickup,
@@ -22,6 +24,7 @@ import {
   botCell,
   cellCenter,
   createSimState,
+  effectiveReaction,
   hitChance,
   runRound,
   step,
@@ -281,12 +284,20 @@ describe("applyAction", () => {
     expect(state.map.spawns.slice(0, 3)).toContainEqual(last);
   });
 
-  it("SwitchWeapon puts the weapon in the hands of the bot", () => {
+  it("equipBestWeapon puts the best weapon in the hands of the bot", () => {
+    // Section 7.20.16: this is a rule, not an action. As an action it competed
+    // with Engage for the one action of a tick and it always lost.
     const state = roomState();
     const bot = state.bots[0] as BotState;
-    const other = { ...loadBaselineWeapon(), id: "other-gun" };
-    bot.weapons = [bot.weapon, other];
-    applyAction(state, bot, { kind: "SwitchWeapon", weaponId: "other-gun" });
+    const better = {
+      ...loadBaselineWeapon(),
+      id: "other-gun",
+      rangeMax: 100,
+      dpsProfile: { close: 99, mid: 99, long: 99 },
+    };
+    bot.weapons = [bot.weapon, better];
+    bot.ammo.set("other-gun", 50);
+    equipBestWeapon(state, bot);
     expect(bot.weapon.id).toBe("other-gun");
   });
 
@@ -511,7 +522,7 @@ describe("bestWeaponOverall", () => {
       ...bot.weapon,
       id: "short",
       rangeMax: bandDistance(state, "close"),
-      dpsProfile: { close: 40, mid: 0, long: 0 },
+      dpsProfile: { close: 25, mid: 0, long: 0 },
     };
     const allRound = {
       ...bot.weapon,
@@ -524,6 +535,30 @@ describe("bestWeaponOverall", () => {
     bot.ammo.set("all-round", 50);
     bot.tactics = { ...bot.tactics, preferredRange: "close" };
     expect(bestWeaponOverall(state, bot).id).toBe("all-round");
+  });
+
+  it("weighs a band by how often the arena fires in it", () => {
+    // Section 7.20.15: the AI and the power budget read one number. The long
+    // band is 1 % of shots, so a weapon that only shines there is not the pick.
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const longOnly = {
+      ...bot.weapon,
+      id: "long-only",
+      rangeMax: 100,
+      dpsProfile: { close: 0, mid: 0, long: 300 },
+    };
+    const midWeapon = {
+      ...bot.weapon,
+      id: "mid",
+      rangeMax: 100,
+      dpsProfile: { close: 0, mid: 30, long: 0 },
+    };
+    bot.weapons = [longOnly, midWeapon];
+    bot.ammo.set("long-only", 50);
+    bot.ammo.set("mid", 50);
+    bot.tactics = { ...bot.tactics, preferredRange: "mid" };
+    expect(bestWeaponOverall(state, bot).id).toBe("mid");
   });
 
   it("never takes an empty weapon", () => {
@@ -540,5 +575,59 @@ describe("bestWeaponOverall", () => {
     bot.ammo.set("full", 10);
     bot.ammo.set("empty", 0);
     expect(bestWeaponOverall(state, bot).id).toBe("full");
+  });
+});
+
+describe("a tactic has a cost and a benefit", () => {
+  it("makes a bold bot shoot sooner than a careful one", () => {
+    // Section 7.20.16: the job of aggression is in the fight. Letting it
+    // discount the danger map instead lost 17 points of win rate.
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const discount = state.config.aggressionReactionDiscount;
+
+    bot.tactics = { ...bot.tactics, aggression: 0.1 };
+    const careful = effectiveReaction(bot, "mid", discount);
+    bot.tactics = { ...bot.tactics, aggression: 0.9 };
+    expect(effectiveReaction(bot, "mid", discount)).toBeLessThan(careful);
+  });
+
+  it("keeps the danger map a question of the ground alone", () => {
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    updateInfluence(state);
+    const cell = botCell(state.bots[3] as BotState);
+
+    bot.tactics = { ...bot.tactics, aggression: 0.1, hazardTolerance: 0.3 };
+    const careful = dangerFor(state, bot, cell);
+    bot.tactics = { ...bot.tactics, aggression: 0.9, hazardTolerance: 0.3 };
+    expect(dangerFor(state, bot, cell)).toBe(careful);
+    bot.tactics = { ...bot.tactics, hazardTolerance: 0.9 };
+    expect(dangerFor(state, bot, cell)).toBeLessThan(careful);
+  });
+
+  it("makes a pickup on dangerous ground worth less", () => {
+    // Section 7.8: a run across the arena is the cost of item control.
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const pickup = state.pickups.find((candidate) => candidate.point.kind === "health");
+    expect(pickup).toBeDefined();
+    bot.health = 10;
+    // Commit the bot to this point, so both readings score the same run.
+    bot.action = { kind: "SeekPickup", slotId: pickup!.point.slotId };
+
+    updateInfluence(state);
+    const safe = scoreOf(state, bot, "SeekPickup");
+
+    // Put every enemy on the point, which makes the ground dangerous.
+    for (const enemy of state.bots.filter((other) => other.teamId !== bot.teamId)) {
+      enemy.pos = cellCenter(pickup!.point.cell);
+    }
+    state.influence.updatedAtTick = -1;
+    updateInfluence(state);
+    const risky = scoreOf(state, bot, "SeekPickup");
+
+    expect(safe).toBeGreaterThan(0);
+    expect(risky).toBeLessThan(safe);
   });
 });
