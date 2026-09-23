@@ -11,11 +11,14 @@ import rolesJson from "../../data/roles.json";
 import tacticsJson from "../../data/tactics.json";
 import weaponRolesJson from "../../data/weapon-roles.json";
 import tuningJson from "../../data/tuning.json";
+import arenaProfilesJson from "../../data/arena-profiles.json";
 import baselineWeaponJson from "../../data/weapons/baseline.json";
 import redeemerWeaponJson from "../../data/weapons/redeemer.json";
 import type { Weapon } from "../weapons/types.js";
 import {
   AnnouncementsSchema,
+  ArenaProfilesSchema,
+  type ArenaProfiles,
   TacticsFileSchema,
   TuningSchema,
   WeaponSchema,
@@ -57,6 +60,7 @@ export function parseData<T>(
 }
 
 let tuningCache: Tuning | null = null;
+let arenaProfilesCache: ArenaProfiles | null = null;
 let baselineWeaponCache: Weapon | null = null;
 let redeemerWeaponCache: Weapon | null = null;
 let announcementsCache: Announcements | null = null;
@@ -75,6 +79,16 @@ export function loadTuning(): Tuning {
  * The fixed baseline weapon (Section 7.3). It must stay a viable fallback.
  * The generated weapons arrive with Milestone M6.
  */
+export function loadArenaProfiles(): ArenaProfiles {
+  arenaProfilesCache ??= parseData(
+    "data/arena-profiles.json",
+    ArenaProfilesSchema,
+    arenaProfilesJson,
+  );
+  return arenaProfilesCache;
+}
+
+/** The fixed Redeemer weapon (Section 7.20.18). */
 export function loadRedeemerWeapon(): Weapon {
   redeemerWeaponCache ??= parseData(
     "data/weapons/redeemer.json",
@@ -131,6 +145,7 @@ export function loadRoles(): Roles {
 /** Forget the cached data files. The tests use this. */
 export function clearDataCache(): void {
   tuningCache = null;
+  arenaProfilesCache = null;
   baselineWeaponCache = null;
   redeemerWeaponCache = null;
   announcementsCache = null;

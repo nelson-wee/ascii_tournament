@@ -611,3 +611,49 @@ export const WeaponSchema = z
     projectileHealth: z.number().nonnegative().optional(),
   })
   .strict();
+
+/** `data/arena-profiles.json`: the generator profiles of Section 7.2. */
+export const ArenaRulesSchema = z
+  .object({
+    minFloorCycles: nonNegativeInt,
+    maxSpawnFairness: z.number().nonnegative(),
+    minLongSightline: positiveNumber,
+    maxCloseSightline: positiveNumber,
+    minOpenAreaRatio: unitRange,
+    maxOpenAreaRatio: unitRange,
+    minFloorCells: positiveInt,
+  })
+  .strict();
+
+
+export const ArenaProfileSchema = z
+  .object({
+    id: z.string().min(1),
+    style: z.enum(["bastion", "openfield", "cavern"]),
+    width: positiveInt,
+    height: positiveInt,
+    coverDensity: unitRange,
+    hazardDensity: unitRange,
+    roomsAcross: positiveInt.optional(),
+    roomsDown: positiveInt.optional(),
+    extraDoorChance: unitRange.optional(),
+    obstacleDensity: unitRange.optional(),
+    obstacleSize: z.tuple([positiveInt, positiveInt]).optional(),
+    noiseDensity: unitRange.optional(),
+    smoothPasses: nonNegativeInt.optional(),
+    /** Rules that this style replaces (Section 7.20.19). */
+    rules: ArenaRulesSchema.partial().optional(),
+  })
+  .strict();
+
+export const ArenaProfilesSchema = z
+  .object({
+    _notes: z.string().optional(),
+    schemaVersion: z.literal(1),
+    tbd: z.array(z.string()),
+    rules: ArenaRulesSchema,
+    profiles: z.record(z.string().min(1), ArenaProfileSchema),
+  })
+  .strict();
+
+export type ArenaProfiles = z.infer<typeof ArenaProfilesSchema>;

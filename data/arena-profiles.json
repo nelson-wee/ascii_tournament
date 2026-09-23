@@ -1,0 +1,68 @@
+{
+  "_notes": "Arena generation profiles (dev-guide Sections 7.2 and 7.20.19). One profile per style. The sizes follow Section 7.18: about 60x30 for a phone in landscape. Every number is a placeholder. TBD",
+  "schemaVersion": 1,
+  "tbd": [
+    "every profile value",
+    "rules"
+  ],
+  "rules": {
+    "minFloorCycles": 20,
+    "maxSpawnFairness": 2,
+    "minLongSightline": 14,
+    "maxCloseSightline": 9,
+    "minOpenAreaRatio": 0.28,
+    "maxOpenAreaRatio": 0.82,
+    "minFloorCells": 500
+  },
+  "profiles": {
+    "bastion": {
+      "id": "bastion",
+      "style": "bastion",
+      "width": 60,
+      "height": 30,
+      "coverDensity": 0.06,
+      "hazardDensity": 0.008,
+      "roomsAcross": 6,
+      "roomsDown": 4,
+      "extraDoorChance": 0.45,
+      "rules": {
+        "minLongSightline": 18,
+        "maxOpenAreaRatio": 0.5,
+        "maxCloseSightline": 8
+      }
+    },
+    "openfield": {
+      "id": "openfield",
+      "style": "openfield",
+      "width": 60,
+      "height": 30,
+      "coverDensity": 0.035,
+      "hazardDensity": 0.01,
+      "obstacleDensity": 0.17,
+      "obstacleSize": [
+        2,
+        5
+      ],
+      "rules": {
+        "minLongSightline": 40,
+        "minOpenAreaRatio": 0.55,
+        "maxCloseSightline": 16
+      }
+    },
+    "cavern": {
+      "id": "cavern",
+      "style": "cavern",
+      "width": 60,
+      "height": 30,
+      "coverDensity": 0.05,
+      "hazardDensity": 0.012,
+      "noiseDensity": 0.45,
+      "smoothPasses": 4,
+      "rules": {
+        "minLongSightline": 18,
+        "minFloorCycles": 10,
+        "maxCloseSightline": 10
+      }
+    }
+  }
+}

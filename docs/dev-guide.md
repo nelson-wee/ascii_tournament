@@ -1064,6 +1064,100 @@ it is the number to watch after M7 gives the arena more ground to fight over.
 The preset balance did not move: `aggressive` 53.9 % ±1.8, `anchor` 40.9 % ±1.8,
 `balanced` 55.0 % ±1.9, with no balance failure.
 
+#### 7.20.19 Three arena styles, three shapes of fight
+
+Milestone M7, first pass. Three generators, chosen so that each one makes a
+different fight and not only a different picture.
+
+| Style | Algorithm | Intent |
+|---|---|---|
+| `bastion` | a grid of rooms, carved, with corridors and extra doors | closed, many corners, short range |
+| `openfield` | one open field, with obstacles dropped into it | open, with fire lanes kept on purpose |
+| `cavern` | noise, then a cellular automaton | organic, no straight lane, a wide middle |
+
+**One pipeline, because fairness is not a style question.** Every style writes
+into the same grid and then runs the same steps: close the edge, turn the first
+half onto the second, join what the turn broke, place the spawns and the
+pickups, measure, and reject an arena that fails a rule. The generator takes the
+`arena` stream of Section 7.1, so one seed gives one arena, and it never touches
+the global rot.js RNG.
+
+The symmetry is exact by construction. In scan order the cell `i` and the cell
+`total - 1 - i` are the two ends of a half turn, so copying the first half over
+the second gives the 180-degree symmetry of Section 7.2.1 with no rounding and
+no seam to check. The spawns go through `orderSpawnsForFairness`, and the
+pickups are placed as pairs, so a cover cell never lands where a spawn faces it.
+
+**The acceptance rules of Section 7.20.17 are wired in.** Every generated arena
+must pass `checkArenaFairness`: a power-up point and one weapon point sit on
+ground that both teams reach together, and every pickup point has a partner of
+its own kind. The generator looks for those cells first — the even line that
+runs through the middle of a symmetric arena — and puts the power-up and the
+prize weapon pair there before it places anything else.
+
+**A style may replace a rule.** A closed arena cannot meet the sightline rule of
+an open one, and it is not meant to. `data/arena-profiles.json` holds the shared
+rules and the per-style replacements.
+
+**What the shapes measure**, over 25 seeds each:
+
+| Style | floor | open | cycles | chokepoints | mean sightline | 90th | longest |
+|---|---|---|---|---|---|---|---|
+| `bastion` | 756 | 42 % | 417 | 15 | 14.5 | 37.5 | 40.6 |
+| `cavern` | 1087 | 60 % | 844 | 9 | 18.5 | 29.5 | 33.0 |
+| `openfield` | 1307 | 73 % | 1030 | 0 | 27.6 | 45.4 | 58.0 |
+
+**What the shapes play like**, over 810 rounds each (270 per seed, three seeds
+per style), against 270 on the hand-made arena:
+
+| Arena | mean kill distance | close | mid | long | kills per round | ticks |
+|---|---|---|---|---|---|---|
+| `bastion` | **8.4** | 57.3 % | 41.6 % | 1.2 % | 24.8 | 2896 |
+| hand-made | 9.3 | 50.1 % | 48.3 % | 1.6 % | 25.1 | 1955 |
+| `cavern` | 10.6 | 40.9 % | 53.9 % | 5.2 % | 24.4 | 2486 |
+| `openfield` | **11.4** | 35.2 % | 58.5 % | **6.3 %** | 25.0 | 2331 |
+
+The styles separate in play, not only on paper. `bastion` fights 3 cells closer
+than `openfield` and takes 57 % of its kills at close range. `openfield` takes
+**five times** the long-range share of the hand-made arena, which is what the
+fire lanes were for. Every style keeps about 25 kills a round, so the pace of
+Section 2.1 holds, and the side bias stays near even (51.7 %, 50.7 %, 47.0 %),
+which says the symmetry works.
+
+A generated arena runs a round 400 to 900 ticks slower than the hand-made one.
+They are larger and more open, so a bot walks further between fights. That is
+worth watching, not fixing: the score limit is still reached.
+
+**Two faults found while building this.**
+
+- **The sightline metric counted low cover as a screen.** It is not:
+  `blocksSight` of Section 7.7 stops at a wall alone, so low cover is a shooting
+  position. With cover counted, all three styles measured the same, and the
+  difference between them vanished. This is the pattern of Section 7.20.13
+  again — a number that does not mean what its name says — this time in a
+  metric rather than in the AI.
+- **Rooms on a line give an arena a fire lane across its whole width.** The
+  first `bastion` rolled a room's size and its position together, so the centres
+  of two rooms in a row lined up and the corridor between them ran the full
+  width of the map. The closed style measured a 51-cell sightline. The size and
+  the position are now rolled apart, and a large room gets a pillar.
+
+**What this pass does not build.** Section 7.2 step 1 asks for a **macro graph**
+of rooms and links. Only `bastion` has rooms at all, and it does not export
+them, so `ArenaMap` still carries no `rooms` or `links`. Three things wait on
+that graph and use a grid measure in its place today:
+
+- Section 7.2 step 5 wants betweenness centrality to find contested rooms. The
+  generator uses the distance from the two spawn groups instead
+  (`pickupEvenness`), which is the same idea with no graph.
+- Section 7.9 wants control per **area**. An area is one cell until then.
+- Section 7.11 describes the roles in terms of areas and side routes.
+
+The metrics also carry a crude `floorCycles`, the cyclomatic number of the floor
+graph. An open field has a thousand cycles and a maze has few, so it separates a
+tree-like arena from every other kind and little else. The route count that
+Section 7.2 asks for needs the macro graph as well.
+
 ### 7.3 Weapon generation (`weapons/`)
 
 Purpose: generate readable procedural weapons with clear roles.
@@ -2336,6 +2430,23 @@ field of view (Section 7.20.6) is built and switched off; see M5.5.
   hand-made arena. A larger generated arena fires at other distances, and the
   power budget reads those shares, so measure them again and re-tune
   `value.bandShare` and `budget.rangeValueCapCells`.
+
+**Result: the first pass is built.** Three styles generate, each with its own
+algorithm and its own shape of fight: `bastion` fights at 8.4 cells, `cavern` at
+10.6, `openfield` at 11.4 with five times the long-range share of the hand-made
+arena. Every style passes `checkArenaFairness` and the metric rules, and the
+side bias stays near even. Section 7.20.19 holds the measurements.
+
+New files: `arena/generate.ts`, `arena/metrics.ts`, `data/arena-profiles.json`,
+`cli/arena.ts` (`npm run arena`). The batch harness takes `gen:<style>:<seed>`
+as an arena, so a style can be measured in play and not only on paper.
+
+**What is left of M7.** The macro graph of step 1 is not built: only `bastion`
+has rooms, and `ArenaMap` carries no `rooms` or `links`. The generator uses the
+distance from the two spawn groups in place of betweenness centrality for step
+5, and Sections 7.9 and 7.11 still treat one cell as one area. The pre-match
+screen does not show the metrics yet, though `describeArena` writes them in
+plain words and the CLI prints them.
 
 ### M8 — Teams, roles, matches, and pickups
 

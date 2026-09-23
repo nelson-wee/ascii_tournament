@@ -13,7 +13,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { parseArenaText } from "../arena/textArena.js";
 import type { ArenaMap } from "../arena/types.js";
-import { parseData } from "../core/data.js";
+import { loadArenaProfiles, parseData } from "../core/data.js";
+import { createRng, deriveSeed } from "../core/rng.js";
+import { generateArena } from "../arena/generate.js";
 import { BatchConfigSchema, type BatchConfig } from "../core/schemas.js";
 import { runBatch, type BatchArena } from "../report/batchRunner.js";
 import { summarize } from "../report/batchStats.js";
@@ -83,10 +85,27 @@ function loadConfig(path: string): BatchConfig {
   return parseData(path, BatchConfigSchema, JSON.parse(text) as unknown);
 }
 
-function loadArena(path: string): BatchArena {
-  const text = readFileSync(resolve(path), "utf8");
-  const map: ArenaMap = parseArenaText(text, { source: path });
-  return { name: basename(path, ".txt"), map };
+/**
+ * Load one arena of a batch.
+ *
+ * A plain path reads a hand-made file. `gen:<style>:<seed>` generates one
+ * instead, so a batch can measure how a style of Section 7.20.19 plays and not
+ * only how it looks. `gen:<style>` alone uses the seed of the batch.
+ */
+function loadArena(spec: string, batchSeed: number): BatchArena {
+  if (spec.startsWith("gen:")) {
+    const [, style, seedText] = spec.split(":");
+    const data = loadArenaProfiles();
+    const profile = style === undefined ? undefined : data.profiles[style];
+    if (!profile) throw new Error(`Unknown arena style in "${spec}".`);
+    const seed = seedText === undefined ? batchSeed : Number(seedText);
+    const rng = createRng(deriveSeed(seed, `arena:${profile.style}`), "arena");
+    const map = generateArena(profile, rng, seed, { rules: data.rules });
+    return { name: `${profile.style}-${seed}`, map };
+  }
+  const text = readFileSync(resolve(spec), "utf8");
+  const map: ArenaMap = parseArenaText(text, { source: spec });
+  return { name: basename(spec, ".txt"), map };
 }
 
 /** A progress line that stays on one row. */
@@ -109,7 +128,7 @@ function main(): void {
   const seed = options.seed ?? config.seed;
   const outDir = options.out ?? config.outDir;
 
-  const arenas = config.arenas.map(loadArena);
+  const arenas = config.arenas.map((spec) => loadArena(spec, seed));
   const simConfig = simConfigFromTuning();
 
   if (!options.quiet) {

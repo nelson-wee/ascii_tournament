@@ -43,6 +43,21 @@ measurements and the questions that are still open.
 [`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md) holds the
 measurements and the two balance questions that are still open.
 
+**Milestone M7 (first pass) — arena generation.** Three generators, each with
+its own algorithm and its own shape of fight: `bastion` carves a grid of rooms
+and corridors and fights at 8.4 cells, `cavern` grows a cave from noise with a
+cellular automaton and fights at 10.6, and `openfield` starts from an open field
+and drops obstacles into it, which keeps the fire lanes and gives it five times
+the long-range share of the hand-made arena. Every style runs one pipeline —
+turn the first half onto the second, join what the turn broke, place the spawns
+and the pickups on ground both teams reach together, measure, and reject an
+arena that fails a rule — so fairness is not a style question.
+
+`npm run arena` prints an arena and its metrics. `npm run arena -- --stats 25`
+compares the styles. The batch harness takes `gen:<style>:<seed>` as an arena,
+so a style can be measured in play. The macro graph of Section 7.2 step 1 is
+still to come.
+
 **Milestone M8 — teams, roles, matches, and pickups.** A full best-of-3 match
 plays in the browser. Between the rounds the tactics screen opens and the
 player sets the tactics and the role of each bot. The arena now gives a reason
@@ -111,6 +126,7 @@ and FOV, the baseline weapon, and the round end condition (M3).
 | `npm run typecheck` | Typecheck only. |
 | `npm run lint` | Run ESLint. |
 | `npm run batch` | Run the headless batch harness (see below). |
+| `npm run arena` | Print a generated arena and its metrics (see below). |
 
 ## Rules for the code
 
@@ -154,6 +170,30 @@ so the number passes 1.
 It writes `rounds.csv`, `matchups.csv`, and `presets.csv` into the output
 folder. With `--fail-on-balance` the command ends with a non-zero exit code
 when it finds a balance failure, so a workflow can use it as a gate.
+
+## Arena generation
+
+`npm run arena` builds an arena and prints it in the glyphs of the map files, so
+a generated arena can be read by eye and saved as a hand-made one.
+
+```
+npm run arena                                # one of each style
+npm run arena -- --style cavern --seed 7
+npm run arena -- --style openfield --count 3
+npm run arena -- --stats 40                  # metrics over 40 seeds per style
+```
+
+| Style | Algorithm | Fight |
+|---|---|---|
+| `bastion` | a grid of rooms, carved, with corridors and extra doors | closed, 8.4 cells, 57 % close range |
+| `cavern` | noise, then a cellular automaton | organic, 10.6 cells |
+| `openfield` | an open field with obstacles dropped into it | open, 11.4 cells, 6.3 % long range |
+
+`data/arena-profiles.json` holds the parameters and the rules. A style may
+replace a rule, because a closed arena cannot meet the sightline rule of an open
+one. Every arena must pass `checkArenaFairness`: a power-up point and one weapon
+point on ground that both teams reach together, and every pickup point paired
+with the point it faces.
 
 ## Arena map files
 
