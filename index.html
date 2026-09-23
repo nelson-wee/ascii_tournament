@@ -203,6 +203,33 @@
         border-radius: 5px;
         padding: 0 6px;
       }
+      .menu-group {
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .menu-group h3 {
+        margin: 0;
+        font-size: 0.8rem;
+        letter-spacing: 0.06em;
+        color: var(--fg);
+      }
+      .menu-styles { display: flex; flex-wrap: wrap; gap: 6px; }
+      .screen .choice {
+        min-height: 40px;
+        padding: 0 14px;
+        font: inherit;
+        font-size: 0.76rem;
+        text-align: left;
+        color: var(--fg);
+        background: #161c22;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      .screen .choice:hover { border-color: var(--accent); }
       .screen .start {
         align-self: flex-start;
         min-height: 40px;
