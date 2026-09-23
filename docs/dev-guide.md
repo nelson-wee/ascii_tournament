@@ -1158,6 +1158,47 @@ graph. An open field has a thousand cycles and a maze has few, so it separates a
 tree-like arena from every other kind and little else. The route count that
 Section 7.2 asks for needs the macro graph as well.
 
+#### 7.20.20 A session: the game does not stop on a loss
+
+The browser used to play one match on the hand-made arena and then stand still.
+It now opens a **main menu** with two modes, and a match is followed by another
+one, on new ground, whoever won.
+
+**Tournament.** Best-of-3 matches, one after another. Every match builds a new
+arena, and the three styles of Section 7.20.19 take their turn: `bastion`, then
+`openfield`, then `cavern`, then round again. A match that is lost is followed
+by the next one, which is the point: a session is a tour of every kind of
+ground, not a gate that the player has to pass.
+
+**Test arena.** One style, chosen from the menu, with a new arena and a new
+weapon set on every press. It is the mode to watch a change in.
+
+**Where the rules live.** `meta/session.ts` holds the mode, the seed, the style
+to use next, and the tally. It is simulation code, not screen code: a test runs
+a whole session with no browser. `ui/menu.ts` holds the two screens, and
+`main.ts` joins them to the match loop.
+
+Every part of a match takes its own sub-seed from the session seed
+(`match:<n>`, then `arena`, `weapons` and `spawnTable` under it), so one session
+seed replays a whole session, which is the rule of Section 7.1.
+
+`nextMatch` builds a match but does not advance the session. `recordMatch`
+advances it. A match that the player leaves from the menu therefore does not
+skip a number, and the arena that the match-over screen describes is the arena
+that the next match really plays on: it is built before the screen opens, so the
+screen can name its shape.
+
+**The match-over screen** says who won, how the session stands, and what the
+ground ahead looks like, in the plain words of `describeArena`
+("Long fire lanes. Broken ground. 14 chokepoints."). That is the pre-match
+screen of Section 7.2, in the place where it is first needed.
+
+**This is not the run of Section 7.15.** A run has opponent teams with
+doctrines, an adaptation record, generated names, and an end. A session has none
+of those. It is the loop that carries the game between matches until M11 gives
+it a shape, and nothing here writes a save. When M11 lands, `newRun` should
+replace `createSession` and keep its seeding rule.
+
 ### 7.3 Weapon generation (`weapons/`)
 
 Purpose: generate readable procedural weapons with clear roles.
@@ -1459,6 +1500,12 @@ Scope is limited. Implement only this:
 Do not implement: promotions, off-screen events, scouting intel, barks with memory, or betrayal.
 
 ### 7.15 Run and championship (`meta/`)
+
+> **A first piece is built.** `meta/session.ts` chains matches so the browser
+> never stops: a match ends, a new arena is generated, and the next match
+> begins (Section 7.20.20). It is not a run — no opponent doctrines, no
+> adaptation record, no names, no end — and `newRun` should replace it at M11
+> and keep its seeding rule.
 
 **Run.** Entry point: `newRun(teamName, seed): Run`
 

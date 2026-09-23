@@ -43,6 +43,14 @@ measurements and the questions that are still open.
 [`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md) holds the
 measurements and the two balance questions that are still open.
 
+**A main menu, and matches that follow each other.** `npm run dev` opens a menu
+with two modes. **Tournament** plays best-of-3 matches one after another: every
+match builds a new arena and the three styles take their turn, so a match that
+is lost is followed by the next one instead of an end screen. **Test arena**
+holds one style and builds a new arena and a new weapon set on every press.
+Between matches a screen says who won, how the session stands, and what the
+ground ahead looks like in plain words.
+
 **Milestone M7 (first pass) — arena generation.** Three generators, each with
 its own algorithm and its own shape of fight: `bastion` carves a grid of rooms
 and corridors and fights at 8.4 cells, `cavern` grows a cave from noise with a
