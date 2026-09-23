@@ -38,6 +38,8 @@ export class ArenaDisplay {
   private frame = 0;
   private entities: readonly EntityGlyph[] = [];
   private entityCells: number[] = [];
+  /** The cells that hold an item right now. Empty means every point is bare. */
+  private readyPickups: ReadonlySet<number> = new Set<number>();
 
   constructor(
     private readonly container: HTMLElement,
@@ -89,6 +91,29 @@ export class ArenaDisplay {
     }
     this.entities = entities;
     this.entityCells = [];
+    this.drawEntities();
+  }
+
+  /**
+   * Say which pickup points hold an item now (Section 7.12).
+   *
+   * A point with no item draws the floor. The glyph used to come from the map
+   * tile, so an empty pad looked the same as a live power-up and a viewer could
+   * not read the arena (Section 0.4 of the M8 weapon analysis).
+   */
+  setReadyPickups(ready: ReadonlySet<number>): void {
+    const changed: number[] = [];
+    for (const index of this.pickupByIndex.keys()) {
+      const was = this.readyPickups.has(index);
+      if (was !== ready.has(index)) changed.push(index);
+    }
+    this.readyPickups = ready;
+    if (changed.length === 0) return;
+
+    for (const index of changed) {
+      this.drawTile(index % this.map.width, Math.floor(index / this.map.width));
+    }
+    // A bot can stand on the point that changed, so draw the entities again.
     this.drawEntities();
   }
 
@@ -148,10 +173,13 @@ export class ArenaDisplay {
   }
 
   private styleAt(x: number, y: number): GlyphStyle {
-    const tile = (this.map.tiles[cellIndex(this.map, x, y)] ?? Tile.Wall) as Tile;
+    const index = cellIndex(this.map, x, y);
+    const tile = (this.map.tiles[index] ?? Tile.Wall) as Tile;
     if (tile === Tile.Pickup) {
-      const kind = this.pickupByIndex.get(cellIndex(this.map, x, y));
-      if (kind !== undefined) return PICKUP_STYLES[kind];
+      const kind = this.pickupByIndex.get(index);
+      // Only a point that holds its item shows a glyph. A bare point is floor.
+      if (kind !== undefined && this.readyPickups.has(index)) return PICKUP_STYLES[kind];
+      return TILE_STYLES[Tile.Floor] ?? TILE_STYLES[Tile.Wall];
     }
     return TILE_STYLES[tile] ?? TILE_STYLES[Tile.Wall];
   }

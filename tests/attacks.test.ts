@@ -19,6 +19,7 @@ import {
   critConditionMet,
   damageBot,
   dodgeOf,
+  leadAngle,
   effectiveReaction,
   spawnProjectile,
   updateProjectiles,
@@ -150,8 +151,10 @@ describe("applyConeDamage", () => {
     const far = 100 - b.health;
     expect(far).toBeLessThan(near);
 
-    // The reach of a cone is a part of the range of the weapon.
-    b.pos = cellCenter({ x: 20, y: 1 });
+    // `rangeMax` is the real reach of a cone: the generator already applied
+    // `shape.coneRangeFactor`, and nothing cuts it a second time here
+    // (Section 7.20.15).
+    b.pos = cellCenter({ x: 23, y: 1 });
     b.health = 100;
     applyConeDamage(state, a, 0, weapon);
     expect(b.health).toBe(100);
@@ -402,5 +405,70 @@ describe("damageBot", () => {
     expect(kill?.data["weaponArchetype"]).toBe("splash");
     expect(kill?.data["attackType"]).toBe("burst");
     expect(kill?.data["source"]).toBe("area");
+  });
+});
+
+describe("leadAngle", () => {
+  it("aims ahead of a moving target", () => {
+    const state = hallState();
+    const [a, b] = pair(state);
+    a.pos = cellCenter({ x: 2, y: 1 });
+    b.pos = cellCenter({ x: 12, y: 1 });
+    const weapon = weaponWith({ attackType: "projectile", projectileSpeed: 2, rangeMax: 40 });
+
+    b.velocity = { x: 0, y: 0 };
+    expect(leadAngle(a, b, weapon)).toBeCloseTo(0, 6);
+
+    // The target crosses the line of the shot, so the angle turns with it.
+    b.velocity = { x: 0, y: 0.2 };
+    expect(leadAngle(a, b, weapon)).toBeGreaterThan(0);
+  });
+
+  it("aims at the target itself when the weapon is hitscan", () => {
+    const state = hallState();
+    const [a, b] = pair(state);
+    a.pos = cellCenter({ x: 2, y: 1 });
+    b.pos = cellCenter({ x: 12, y: 1 });
+    b.velocity = { x: 0, y: 0.5 };
+    expect(leadAngle(a, b, weaponWith({ projectileSpeed: null }))).toBeCloseTo(0, 6);
+  });
+
+  it("makes a projectile catch a target that moves across it", () => {
+    // Section 7.20.15: a shot at the present position of a moving target
+    // misses by default, not by chance.
+    const state = hallState();
+    const [a, b] = pair(state);
+    a.pos = cellCenter({ x: 2, y: 1 });
+    b.pos = cellCenter({ x: 14, y: 1 });
+    b.velocity = { x: 0.2, y: 0 };
+    const weapon = weaponWith({ attackType: "projectile", projectileSpeed: 2, rangeMax: 40, damage: 25 });
+
+    spawnProjectile(state, a, leadAngle(a, b, weapon), weapon);
+    for (let tick = 0; tick < 40 && state.projectiles.length > 0; tick += 1) {
+      b.pos = { x: b.pos.x + b.velocity.x, y: b.pos.y };
+      updateProjectiles(state);
+    }
+    expect(b.health).toBeLessThan(100);
+  });
+});
+
+describe("a critical hit on a projectile", () => {
+  it("reaches the target, instead of being dropped at the muzzle", () => {
+    const state = hallState();
+    const [a, b] = pair(state);
+    a.pos = cellCenter({ x: 2, y: 1 });
+    b.pos = cellCenter({ x: 10, y: 1 });
+    const weapon = weaponWith({ attackType: "projectile", projectileSpeed: 2, rangeMax: 30, damage: 20 });
+
+    b.health = 100;
+    spawnProjectile(state, a, 0, weapon, false);
+    for (let tick = 0; tick < 40 && state.projectiles.length > 0; tick += 1) updateProjectiles(state);
+    const plain = 100 - b.health;
+
+    b.pos = cellCenter({ x: 10, y: 1 });
+    b.health = 100;
+    spawnProjectile(state, a, 0, weapon, true);
+    for (let tick = 0; tick < 40 && state.projectiles.length > 0; tick += 1) updateProjectiles(state);
+    expect(100 - b.health).toBeCloseTo(plain * state.config.critMultiplier, 5);
   });
 });

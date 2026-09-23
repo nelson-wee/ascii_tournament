@@ -66,6 +66,7 @@ export function applyAreaDamage(
   radius: number,
   damage: number,
   weapon: Weapon,
+  crit = false,
 ): void {
   if (radius <= 0) return;
   for (const target of enemiesOf(state, shooter.teamId)) {
@@ -73,7 +74,7 @@ export function applyAreaDamage(
     if (distance > radius) continue;
     if (!clearLine(state, centre, target.pos)) continue;
     const share = 1 - (distance / radius) * 0.5;
-    damageBot(state, shooter, target, damage * share, contextOf(weapon, "area"));
+    damageBot(state, shooter, target, damage * share, contextOf(weapon, "area", crit));
     applyDot(target, weapon, shooter.id);
   }
 }
@@ -85,7 +86,11 @@ export function applyConeDamage(
   aimAngle: number,
   weapon: Weapon,
 ): void {
-  const reach = weapon.rangeMax * state.config.coneRangeFactor;
+  // `rangeMax` is the real reach of the cone: the generator already applied
+  // `shape.coneRangeFactor`. A second cut here made a cone declare 2.2 times
+  // the range it had, and the AI read the declared one (Section 3.5 of the M8
+  // weapon analysis).
+  const reach = weapon.rangeMax;
   for (const target of enemiesOf(state, shooter.teamId)) {
     const dx = target.pos.x - shooter.pos.x;
     const dy = target.pos.y - shooter.pos.y;
@@ -136,12 +141,78 @@ export function applyLineDamage(
   }
 }
 
+/**
+ * How many enemies one shot catches, if the bot aims at `aim` (Section 7.8).
+ *
+ * The AI reads this so that an area weapon is worth aiming, not only worth
+ * carrying. Multi-hits happened on 36 % of burst landings and 30 % of line
+ * landings while nothing in the code ever tried for one (Section 0.3 of the M8
+ * weapon analysis): they were accidents.
+ *
+ * It repeats the geometry of the damage code above. That is on purpose: if the
+ * two ever part, the AI aims at a shot the simulation does not fire, which is
+ * the fault that Section 7.20.13 keeps finding.
+ */
+export function areaTargetsIfAimedAt(
+  state: SimState,
+  shooter: BotState,
+  weapon: Weapon,
+  aim: Vec2,
+): number {
+  const aimAngle = Math.atan2(aim.y - shooter.pos.y, aim.x - shooter.pos.x);
+  const enemies = enemiesOf(state, shooter.teamId);
+  let caught = 0;
+
+  for (const target of enemies) {
+    const dx = target.pos.x - shooter.pos.x;
+    const dy = target.pos.y - shooter.pos.y;
+    const distance = Math.hypot(dx, dy);
+
+    switch (weapon.attackType) {
+      case "cone": {
+        if (distance > weapon.rangeMax || distance < 1e-9) continue;
+        if (Math.abs(wrapAngle(Math.atan2(dy, dx) - aimAngle)) > weapon.coneHalfAngle) continue;
+        if (!clearLine(state, shooter.pos, target.pos)) continue;
+        caught += 1;
+        break;
+      }
+      case "line": {
+        if (distance > weapon.rangeMax) continue;
+        const offset = wrapAngle(Math.atan2(dy, dx) - aimAngle);
+        if (Math.abs(Math.sin(offset)) * distance > HIT_RADIUS) continue;
+        if (!clearLine(state, shooter.pos, target.pos)) continue;
+        caught += 1;
+        break;
+      }
+      case "burst":
+      case "tile": {
+        if (Math.hypot(target.pos.x - aim.x, target.pos.y - aim.y) > weapon.aoeRadius) continue;
+        if (!clearLine(state, aim, target.pos)) continue;
+        caught += 1;
+        break;
+      }
+      default:
+        return 1;
+    }
+  }
+  return Math.max(1, caught);
+}
+
+/** Put an angle into the range from minus pi to pi. */
+function wrapAngle(angle: number): number {
+  let value = angle;
+  while (value > Math.PI) value -= Math.PI * 2;
+  while (value < -Math.PI) value += Math.PI * 2;
+  return value;
+}
+
 /** Put a shot into the arena. */
 export function spawnProjectile(
   state: SimState,
   shooter: BotState,
   aimAngle: number,
   weapon: Weapon,
+  crit = false,
 ): void {
   const speed = weapon.projectileSpeed ?? 1;
   state.projectiles.push({
@@ -149,12 +220,36 @@ export function spawnProjectile(
     shooterId: shooter.id,
     teamId: shooter.teamId,
     weapon,
+    crit,
+    health: weapon.projectileHealth ?? 0,
+    homingTurnRate: weapon.homingTurnRate ?? 0,
     pos: { x: shooter.pos.x, y: shooter.pos.y },
     velocity: { x: Math.cos(aimAngle) * speed, y: Math.sin(aimAngle) * speed },
     rangeLeft: weapon.rangeMax,
     bouncesLeft: weapon.ricochetBounces,
   });
   state.nextProjectileId += 1;
+}
+
+/**
+ * The angle to fire a projectile at, to meet a moving target.
+ *
+ * A shot flies 4 to 9 ticks at the distance the arena fights at, and a bot
+ * crosses 1 to 2 cells in that time against a hit radius of half a cell. So a
+ * shot at the target's present position misses a moving target by default, not
+ * by chance (Section 7.20.15). One step of iteration is enough: the flight time
+ * changes little when the lead is a cell or two.
+ */
+export function leadAngle(shooter: BotState, target: BotState, weapon: Weapon): number {
+  const speed = weapon.projectileSpeed ?? 0;
+  const dx = target.pos.x - shooter.pos.x;
+  const dy = target.pos.y - shooter.pos.y;
+  if (speed <= 0) return Math.atan2(dy, dx);
+
+  const ticks = Math.hypot(dx, dy) / speed;
+  const aimX = target.pos.x + target.velocity.x * ticks;
+  const aimY = target.pos.y + target.velocity.y * ticks;
+  return Math.atan2(aimY - shooter.pos.y, aimX - shooter.pos.x);
 }
 
 /** Make hazard tiles around a point (Section 7.6). */
@@ -199,22 +294,98 @@ function onImpact(state: SimState, projectile: Projectile, at: Vec2, hit: BotSta
   const shooter = state.bots.find((bot) => bot.id === projectile.shooterId);
   if (!shooter) return;
 
+  // A projectile carries the critical hit that its shot rolled. Without this
+  // the budget charged `critChance` for an effect that never happened
+  // (Section 7.20.15).
+  const damage = weapon.damage * (projectile.crit ? state.config.critMultiplier : 1);
+
   if (weapon.attackType === "burst") {
-    applyAreaDamage(state, shooter, at, weapon.aoeRadius, weapon.damage, weapon);
+    applyAreaDamage(state, shooter, at, weapon.aoeRadius, damage, weapon, projectile.crit);
     return;
   }
   if (weapon.attackType === "tile") {
     if (hit) {
-      damageBot(state, shooter, hit, weapon.damage, contextOf(weapon, "shot"));
+      damageBot(state, shooter, hit, damage, contextOf(weapon, "shot", projectile.crit));
       applyDot(hit, weapon, shooter.id);
     }
     createHazard(state, shooter, at, weapon);
     return;
   }
   if (hit) {
-    damageBot(state, shooter, hit, weapon.damage, contextOf(weapon, "shot"));
+    damageBot(state, shooter, hit, damage, contextOf(weapon, "shot", projectile.crit));
     applyDot(hit, weapon, shooter.id);
   }
+}
+
+/**
+ * Turn a homing shot toward the enemy it is nearest to (Section 7.20.18).
+ *
+ * The turn rate is what makes a Redeemer dodgeable: it follows, but it cannot
+ * follow a bot that breaks hard around cover. A shot with no turn rate flies
+ * straight, which is every other weapon.
+ */
+function steerProjectile(state: SimState, projectile: Projectile): void {
+  if (projectile.homingTurnRate <= 0) return;
+  const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
+  if (speed < 1e-9) return;
+
+  let best: BotState | null = null;
+  let bestDistance = Infinity;
+  for (const bot of enemiesOf(state, projectile.teamId)) {
+    const distance = Math.hypot(bot.pos.x - projectile.pos.x, bot.pos.y - projectile.pos.y);
+    if (distance >= bestDistance) continue;
+    if (!clearLine(state, projectile.pos, bot.pos)) continue;
+    best = bot;
+    bestDistance = distance;
+  }
+  if (!best) return;
+
+  const wanted = Math.atan2(best.pos.y - projectile.pos.y, best.pos.x - projectile.pos.x);
+  const now = Math.atan2(projectile.velocity.y, projectile.velocity.x);
+  let offset = wanted - now;
+  while (offset > Math.PI) offset -= Math.PI * 2;
+  while (offset < -Math.PI) offset += Math.PI * 2;
+  const turn = Math.max(-projectile.homingTurnRate, Math.min(projectile.homingTurnRate, offset));
+  const heading = now + turn;
+  projectile.velocity = { x: Math.cos(heading) * speed, y: Math.sin(heading) * speed };
+}
+
+/**
+ * Damage a shot that is in the air. It detonates where it flies when its own
+ * health runs out (Section 7.20.18).
+ *
+ * This is what makes a Redeemer a decision for the other team and not only for
+ * the bot that fired it: scatter, shoot it down, or push while it flies.
+ */
+export function damageProjectile(state: SimState, projectile: Projectile, damage: number): boolean {
+  if (projectile.health <= 0) return false;
+  projectile.health -= damage;
+  if (projectile.health > 0) return false;
+
+  state.bus.emit("HazardCreated", state.tick, state.roundNumber, {
+    shooterId: projectile.shooterId,
+    cell: posCell(projectile.pos),
+    radius: projectile.weapon.aoeRadius,
+    ticks: 0,
+    reason: "projectileDestroyed",
+  });
+  onImpact(state, projectile, projectile.pos, null);
+  state.projectiles = state.projectiles.filter((other) => other !== projectile);
+  return true;
+}
+
+/** Every shot in the air that a bot can shoot down, nearest first. */
+export function interceptableProjectiles(state: SimState, bot: BotState): Projectile[] {
+  return state.projectiles
+    .filter((projectile) => projectile.health > 0 && projectile.teamId !== bot.teamId)
+    .map((projectile) => ({
+      projectile,
+      distance: Math.hypot(projectile.pos.x - bot.pos.x, projectile.pos.y - bot.pos.y),
+    }))
+    .filter((entry) => entry.distance <= bot.weapon.rangeMax)
+    .filter((entry) => clearLine(state, bot.pos, entry.projectile.pos))
+    .sort((a, b) => a.distance - b.distance)
+    .map((entry) => entry.projectile);
 }
 
 /** The live enemy that a projectile touches at a point, or `null`. */
@@ -236,6 +407,7 @@ export function updateProjectiles(state: SimState): void {
   const left: Projectile[] = [];
 
   for (const projectile of state.projectiles) {
+    steerProjectile(state, projectile);
     const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
     if (speed < 1e-9) continue;
     const steps = Math.max(1, Math.ceil(speed / STEP));

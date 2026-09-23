@@ -70,6 +70,15 @@ export interface Projectile {
   shooterId: string;
   teamId: TeamId;
   weapon: Weapon;
+  /** True if the shot that made it rolled a critical hit. */
+  crit: boolean;
+  /**
+   * The damage the shot itself can take before it detonates early. 0 means
+   * nothing can shoot it down (Section 7.20.18).
+   */
+  health: number;
+  /** Radians of turn per tick toward the nearest enemy. 0 means it flies straight. */
+  homingTurnRate: number;
   pos: Vec2;
   /** Cells per tick. */
   velocity: Vec2;
@@ -138,11 +147,16 @@ export interface BotState {
   shield: number;
   /** The power-ups that the bot holds, by name, with the tick that each ends. */
   powerups: Map<string, number>;
+  /**
+   * How far the bot moved on the last tick, in cells. A projectile leads a
+   * moving target with it (Section 7.20.15).
+   */
+  velocity: Vec2;
   /** The tick of the respawn. Only valid while `alive` is false. */
   respawnAtTick: number;
   /** Every weapon that the bot holds. M3 and M4 give one baseline weapon. */
   weapons: Weapon[];
-  /** The weapon in the hands of the bot. `SwitchWeapon` changes it. */
+  /** The weapon in the hands of the bot. `equipBestWeapon` chooses it. */
   weapon: Weapon;
   /**
    * Rounds left, by weapon id. The baseline weapon is the fallback of
@@ -207,13 +221,18 @@ export interface SimConfig {
   critMultiplier: number;
   stationaryTicksForCrit: number;
   dodgeRampTicks: number;
-  coneRangeFactor: number;
+  /** How often the arena fires in each band (Section 7.20.15). */
+  bandShare: { close: number; mid: number; long: number };
   pickupAnticipationTicks: number;
   pickupAnticipationShare: number;
   holdContactTicks: number;
   holdBlindShare: number;
   holdSuppressesPickup: number;
   preferredRangeBias: number;
+  weaponRolePrefBonus: number;
+  pickupRiskWeight: number;
+  aggressionReactionDiscount: number;
+  aggressionRepositionDiscount: number;
   influenceIntervalTicks: number;
   influenceControlRadius: number;
   influenceDangerRadius: number;
@@ -238,6 +257,8 @@ export interface SimConfig {
   actionBase: Readonly<Record<string, number>>;
   evasionLateralFactor: number;
   evasionAccuracyPenalty: number;
+  weaponSwapTicks: number;
+  weaponSwapPayoffTicks: number;
   targetSwitchMargin: number;
   /** The kill announcement tiers (Section 7.17). */
   multiKillTiers: readonly { count: number; text: string }[];
@@ -286,6 +307,11 @@ export interface SimState {
   pickupTables: Pickups;
   /** The spawn table of the match. It does not change between rounds. */
   spawnTable: SpawnTable;
+  /**
+   * Every weapon of the run, including the baseline at index 0. A bot holds a
+   * part of this list: a weapon point is what adds one (Section 7.12).
+   */
+  runWeapons: readonly Weapon[];
   /** The influence maps of Section 7.9. */
   influence: InfluenceMaps;
   /** Where bots died lately. The danger map reads it. */
@@ -302,9 +328,9 @@ export interface CreateSimStateOptions {
   config?: SimConfig;
   bus?: EventBus;
   /**
-   * The weapons that every bot holds. M6 gives all bots the full set of the
-   * run, so that the AI can select by DPS profile. The pickups of M8 decide
-   * who holds what.
+   * The weapons of the run. A bot starts with the first one, which is the
+   * baseline fallback of Section 7.3, and takes the others from the weapon
+   * points of the arena (Section 7.12).
    */
   weapons?: readonly Weapon[];
   attributes?: Attributes;
@@ -343,13 +369,17 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     critMultiplier: tuning.combat.critMultiplier,
     stationaryTicksForCrit: tuning.combat.stationaryTicksForCrit,
     dodgeRampTicks: tuning.combat.dodgeRampTicks,
-    coneRangeFactor: loadWeaponRoles().shape.coneRangeFactor,
+    bandShare: { ...loadWeaponRoles().value.bandShare },
     pickupAnticipationTicks: tuning.ai.pickupAnticipationTicks,
     pickupAnticipationShare: tuning.ai.pickupAnticipationShare,
     holdContactTicks: tuning.ai.holdContactTicks,
     holdBlindShare: tuning.ai.holdBlindShare,
     holdSuppressesPickup: tuning.ai.holdSuppressesPickup,
     preferredRangeBias: tuning.ai.preferredRangeBias,
+    weaponRolePrefBonus: tuning.ai.weaponRolePrefBonus,
+    pickupRiskWeight: tuning.ai.pickupRiskWeight,
+    aggressionReactionDiscount: tuning.ai.aggressionReactionDiscount,
+    aggressionRepositionDiscount: tuning.ai.aggressionRepositionDiscount,
     influenceIntervalTicks: tuning.influence.intervalTicks,
     influenceControlRadius: tuning.influence.controlRadius,
     influenceDangerRadius: tuning.influence.dangerRadius,
@@ -374,6 +404,8 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     actionBase: tuning.ai.actionBase,
     evasionLateralFactor: tuning.movement.evasionLateralFactor,
     evasionAccuracyPenalty: tuning.combat.evasionAccuracyPenalty,
+    weaponSwapTicks: tuning.combat.weaponSwapTicks,
+    weaponSwapPayoffTicks: tuning.combat.weaponSwapPayoffTicks,
     targetSwitchMargin: tuning.combat.targetSwitchMargin,
     multiKillTiers: loadAnnouncements().multiKill,
     spreeTiers: loadAnnouncements().spree,
@@ -554,10 +586,13 @@ function makeBot(options: MakeBotOptions): BotState {
     armor: 0,
     shield: 0,
     powerups: new Map<string, number>(),
+    velocity: { x: 0, y: 0 },
     respawnAtTick: 0,
-    weapons: [...options.weapons],
+    // A bot starts with the baseline weapon alone. A generated weapon comes
+    // from a weapon point, so the arena decides who holds what (Section 7.12).
+    weapons: [options.weapons[0] as Weapon],
     weapon: options.weapons[0] as Weapon,
-    ammo: new Map(options.weapons.map((weapon) => [weapon.id, weapon.ammoMax])),
+    ammo: new Map<string, number>(),
     fireCooldownTicks: 0,
     targetId: null,
     aimTicks: 0,
@@ -657,6 +692,7 @@ export function createSimState(options: CreateSimStateOptions): SimState {
     pickupByCell: new Map<number, PickupState>(),
     pickupTables,
     spawnTable,
+    runWeapons: weapons,
     influence: createInfluenceMaps(map),
     recentDeaths: [],
     rng,

@@ -3,6 +3,7 @@ import {
   ArenaParseError,
   Tile,
   cellIndex,
+  checkArenaFairness,
   clearArenaCache,
   inBounds,
   isWalkable,
@@ -325,3 +326,40 @@ describe("orderSpawnsForFairness", () => {
 function byCell(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return a.y - b.y || a.x - b.x;
 }
+
+describe("checkArenaFairness", () => {
+  it("passes the test arena", () => {
+    // These are the acceptance rules that the generator of M7 must meet.
+    const report = checkArenaFairness(loadTestArena());
+    expect(report.failures).toEqual([]);
+  });
+
+  it("puts a power-up and a weapon point in a conflict zone", () => {
+    const map = loadTestArena();
+    const report = checkArenaFairness(map);
+    const kindOf = (slotId: string): string =>
+      map.pickups.find((point) => point.slotId === slotId)?.kind ?? "";
+    expect(report.contested.some((slotId) => kindOf(slotId) === "powerup")).toBe(true);
+    expect(report.contested.some((slotId) => kindOf(slotId) === "weapon")).toBe(true);
+  });
+
+  it("names a power-up that one team owns", () => {
+    // A power-up in a corner is a free run for the near team, not a contest.
+    const unfair = [
+      "##############",
+      "#SSS.......SS#",
+      "#U..........S#",
+      "#............#",
+      "#...........U#",
+      "##############",
+    ].join("\n");
+    const report = checkArenaFairness(parseArenaText(unfair, { source: "unfair" }));
+    expect(report.failures.join(" ")).toContain("power-up");
+  });
+
+  it("names a pickup point with no partner", () => {
+    const lopsided = ["##########", "#SSS..SSS#", "#H.......#", "##########"].join("\n");
+    const report = checkArenaFairness(parseArenaText(lopsided, { source: "lopsided" }));
+    expect(report.failures.join(" ")).toContain("partner");
+  });
+});

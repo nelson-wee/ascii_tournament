@@ -2,7 +2,6 @@
   "_notes": "Tactics presets. The player sets these values before a match. Every number is a placeholder. TBD",
   "default": {
     "aggression": 0.5,
-    "retreatThreshold": 0.3,
     "preferredRange": "mid",
     "weaponRolePref": null,
     "itemControl": 0.5,

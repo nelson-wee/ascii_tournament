@@ -5,6 +5,7 @@ import { EventBus } from "../src/core/events.js";
 import { loadBaselineWeapon } from "../src/core/data.js";
 import { killFeedLine, killFeedLines } from "../src/report/killFeed.js";
 import {
+  areaTargetsIfAimedAt,
   cellCenter,
   createSimState,
   effectiveReaction,
@@ -142,8 +143,8 @@ describe("tryFire", () => {
     const state = rangeState(1, bus);
     const [a, b] = face(state, 5);
     const band = rangeBandOf(state, Math.abs(b.pos.x - a.pos.x));
-    const reaction = effectiveReaction(a, band);
-    expect(reaction).toBeGreaterThan(a.attributes.reactionTicks);
+    const reaction = effectiveReaction(a, band, state.config.aggressionReactionDiscount);
+    expect(reaction).toBeGreaterThan(0);
     for (let i = 0; i < reaction; i += 1) tryFire(state, a);
     expect(bus.filter("Shot")).toHaveLength(0);
     tryFire(state, a);
@@ -155,7 +156,8 @@ describe("tryFire", () => {
     const state = rangeState(1, bus);
     const [a, b] = face(state, 5);
     const band = rangeBandOf(state, Math.abs(b.pos.x - a.pos.x));
-    for (let i = 0; i <= effectiveReaction(a, band); i += 1) tryFire(state, a);
+    const wait = effectiveReaction(a, band, state.config.aggressionReactionDiscount);
+    for (let i = 0; i <= wait; i += 1) tryFire(state, a);
     expect(bus.filter("Shot")).toHaveLength(1);
     expect(a.fireCooldownTicks).toBe(a.weapon.fireIntervalTicks);
     tryFire(state, a);
@@ -327,5 +329,78 @@ describe("killFeedLine", () => {
     const lines = killFeedLines(bus.log, 3);
     expect(lines).toHaveLength(3);
     expect(lines[2]).toContain("A11");
+  });
+});
+
+/** A wide open room, so that nothing blocks a shot by accident. */
+const OPEN = [
+  "##########################################",
+  "#SSS...................................SS#",
+  "#........................................#",
+  "#........................................#",
+  "#......................................S.#",
+  "#........................................#",
+  "##########################################",
+].join("\n");
+
+function openState(seed = 1): SimState {
+  return createSimState({ map: parseArenaText(OPEN, { source: "open" }), seed, bus: new EventBus() });
+}
+
+describe("aiming an area weapon", () => {
+  it("counts the enemies that one shot would catch", () => {
+    const state = openState();
+    const a = state.bots[0] as BotState;
+    const first = state.bots[3] as BotState;
+    const second = state.bots[4] as BotState;
+    const third = state.bots[5] as BotState;
+    a.pos = cellCenter({ x: 2, y: 1 });
+    first.pos = cellCenter({ x: 8, y: 1 });
+    second.pos = cellCenter({ x: 14, y: 1 });
+    third.pos = cellCenter({ x: 8, y: 5 });
+
+    const line = { ...a.weapon, attackType: "line" as const, rangeMax: 40 };
+    // Two enemies stand on the same line, and the third does not.
+    expect(areaTargetsIfAimedAt(state, a, line, first.pos)).toBe(2);
+    expect(areaTargetsIfAimedAt(state, a, line, third.pos)).toBe(1);
+
+    const burst = { ...a.weapon, attackType: "burst" as const, aoeRadius: 4, rangeMax: 40 };
+    expect(areaTargetsIfAimedAt(state, a, burst, cellCenter({ x: 11, y: 1 }))).toBe(2);
+    expect(areaTargetsIfAimedAt(state, a, burst, cellCenter({ x: 30, y: 1 }))).toBe(1);
+  });
+
+  it("gives a plain shot one target, whatever stands behind", () => {
+    const state = openState();
+    const a = state.bots[0] as BotState;
+    const first = state.bots[3] as BotState;
+    const second = state.bots[4] as BotState;
+    a.pos = cellCenter({ x: 2, y: 1 });
+    first.pos = cellCenter({ x: 8, y: 1 });
+    second.pos = cellCenter({ x: 14, y: 1 });
+    const hitscan = { ...a.weapon, attackType: "hitscan" as const, rangeMax: 40 };
+    expect(areaTargetsIfAimedAt(state, a, hitscan, first.pos)).toBe(1);
+  });
+
+  it("turns an area weapon onto the enemy that lines up two", () => {
+    // Section 7.8: an area weapon is worth aiming, not only worth carrying.
+    const state = openState();
+    const a = state.bots[0] as BotState;
+    const near = state.bots[3] as BotState;
+    const far = state.bots[4] as BotState;
+    const behindFar = state.bots[5] as BotState;
+    a.pos = cellCenter({ x: 2, y: 1 });
+    // The nearest enemy stands alone. The two others line up behind each other.
+    near.pos = cellCenter({ x: 6, y: 3 });
+    far.pos = cellCenter({ x: 10, y: 1 });
+    behindFar.pos = cellCenter({ x: 16, y: 1 });
+
+    a.weapon = { ...a.weapon, attackType: "line", rangeMax: 40 };
+    a.visibleEnemyIds = [near.id, far.id, behindFar.id];
+    a.targetId = null;
+    expect(selectTarget(state, a)?.id).toBe(far.id);
+
+    // A plain weapon takes the nearest enemy instead.
+    a.weapon = { ...a.weapon, attackType: "hitscan" };
+    expect(selectTarget(state, a)?.id).toBe(near.id);
   });
 });

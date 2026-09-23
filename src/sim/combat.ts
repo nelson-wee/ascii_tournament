@@ -16,10 +16,14 @@
  * (Section 7.3), and the ammo pickups arrive with M8.
  */
 import { canSee, isUnaware } from "../ai/perception.js";
-import type { RangeBand, Weapon } from "../weapons/types.js";
+import { POWERUP_TIER, type RangeBand, type Weapon } from "../weapons/types.js";
 import {
   applyConeDamage,
   applyLineDamage,
+  areaTargetsIfAimedAt,
+  damageProjectile,
+  interceptableProjectiles,
+  leadAngle,
   spawnProjectile,
 } from "./attacks.js";
 import { damageBot, isInCover, rangeBandOf } from "./damage.js";
@@ -83,8 +87,12 @@ function spendAmmo(state: SimState, bot: BotState): void {
 }
 
 /** The reaction of a bot with its weapon, at a range band (Section 7.20.7). */
-export function effectiveReaction(bot: BotState, band: RangeBand): number {
-  return bot.attributes.reactionTicks + bot.weapon.reactionByBand[band];
+export function effectiveReaction(bot: BotState, band: RangeBand, aggressionDiscount = 0): number {
+  const ticks = bot.attributes.reactionTicks + bot.weapon.reactionByBand[band];
+  // A bold bot shoots first. That is the benefit of aggression. Its cost is
+  // already in place: it fights at low health, it does not break off, and it
+  // does not walk to the band where its weapon is strongest (Section 7.20.16).
+  return Math.max(1, Math.round(ticks * (1 - bot.tactics.aggression * aggressionDiscount)));
 }
 
 /** The range band that a bot is working at: to its target, or its preferred one. */
@@ -153,8 +161,8 @@ export function selectTarget(state: SimState, bot: BotState): BotState | null {
   for (const id of bot.visibleEnemyIds) {
     const enemy = findBot(state, id);
     if (!enemy || !enemy.alive) continue;
-    const distance = distanceBetween(bot, enemy);
-    if (distance > bot.weapon.rangeMax || distance >= bestDistance) continue;
+    const distance = aimCost(state, bot, enemy);
+    if (distanceBetween(bot, enemy) > bot.weapon.rangeMax || distance >= bestDistance) continue;
     best = enemy;
     bestDistance = distance;
   }
@@ -162,13 +170,30 @@ export function selectTarget(state: SimState, bot: BotState): BotState | null {
   if (bot.targetId === null) return best;
   const current = findBot(state, bot.targetId);
   if (!current?.alive || !bot.visibleEnemyIds.includes(current.id)) return best;
-  const currentDistance = distanceBetween(bot, current);
-  if (currentDistance > bot.weapon.rangeMax) return best;
+  if (distanceBetween(bot, current) > bot.weapon.rangeMax) return best;
+  const currentDistance = aimCost(state, bot, current);
   if (best === null || bestDistance > currentDistance * state.config.targetSwitchMargin) {
     return current;
   }
   return best;
 }
+
+/**
+ * What an enemy costs to aim at. The nearest enemy wins, unless an area weapon
+ * catches more than one enemy by aiming at another (Section 7.8).
+ *
+ * The cost is the distance divided by the enemies that the shot would catch, so
+ * a shot that catches two counts as half as far. An enemy behind an enemy is
+ * then worth turning to.
+ */
+function aimCost(state: SimState, bot: BotState, enemy: BotState): number {
+  const distance = distanceBetween(bot, enemy);
+  if (!AREA_ATTACK_TYPES.has(bot.weapon.attackType)) return distance;
+  return distance / areaTargetsIfAimedAt(state, bot, bot.weapon, enemy.pos);
+}
+
+/** The attack types whose shot can catch more than one bot. */
+const AREA_ATTACK_TYPES = new Set(["cone", "line", "burst", "tile"]);
 
 /** Send the shot on its way, by the attack type of the weapon (Section 7.20.3). */
 function releaseShot(state: SimState, bot: BotState, target: BotState): void {
@@ -189,8 +214,9 @@ function releaseShot(state: SimState, bot: BotState, target: BotState): void {
     case "burst":
     case "ricochet":
     case "tile":
-      // A projectile is dodged by moving out of its way, not by a roll.
-      spawnProjectile(state, bot, aimAngle, weapon);
+      // A projectile is dodged by moving out of its way, not by a roll. It
+      // leads a moving target, and it carries the critical hit that it rolled.
+      spawnProjectile(state, bot, leadAngle(bot, target, weapon), weapon, crit);
       return;
     case "hitscan":
     default: {
@@ -215,14 +241,7 @@ function releaseShot(state: SimState, bot: BotState, target: BotState): void {
 export function tryFire(state: SimState, bot: BotState): void {
   if (!bot.alive) return;
   if (bot.fireCooldownTicks > 0) return;
-  // A bot that retreats breaks contact. It does not fire. This gives the
-  // aggression tactic a cost and a benefit. TBD
-  if (bot.action.kind === "Retreat") {
-    bot.targetId = null;
-    bot.aimTicks = 0;
-    return;
-  }
-
+  if (tryIntercept(state, bot)) return;
   const target = selectTarget(state, bot);
   if (!target) {
     // The aim falls away, it does not vanish. A bot that walks behind a pillar
@@ -243,7 +262,7 @@ export function tryFire(state: SimState, bot: BotState): void {
   }
   bot.aimTicks += 1;
   const band = rangeBandOf(state, distanceBetween(bot, target));
-  if (bot.aimTicks < effectiveReaction(bot, band)) return;
+  if (bot.aimTicks < effectiveReaction(bot, band, state.config.aggressionReactionDiscount)) return;
 
   bot.fireCooldownTicks = bot.weapon.fireIntervalTicks;
   const fired = bot.weapon;
@@ -256,6 +275,56 @@ export function tryFire(state: SimState, bot: BotState): void {
   });
   releaseShot(state, bot, target);
   if (bot.weapon.id === fired.id) spendAmmo(state, bot);
+}
+
+/**
+ * Shoot down an enemy shot that is in the air, if one is worth shooting
+ * (Section 7.20.18).
+ *
+ * A Redeemer flying at a team is a bigger problem than the bot that fired it,
+ * so a bot that can reach it stops what it is doing and fires at it. It takes
+ * the reaction of the bot, like any other shot: a bot that has just turned
+ * around cannot answer in time.
+ *
+ * Returns true when the bot spent its shot on the interception.
+ */
+function tryIntercept(state: SimState, bot: BotState): boolean {
+  const [shot] = interceptableProjectiles(state, bot);
+  if (!shot) return false;
+
+  // The bot aims at the shot as it would aim at a bot. `targetId` holds the id
+  // of the shot, so a bot that changes from a bot to a shot starts its aim
+  // again, and the reaction is honest.
+  const id = `projectile:${shot.id}`;
+  if (bot.targetId !== id) {
+    bot.targetId = id;
+    bot.aimTicks = 0;
+    return true;
+  }
+  bot.aimTicks += 1;
+  const distance = Math.hypot(shot.pos.x - bot.pos.x, shot.pos.y - bot.pos.y);
+  const band = rangeBandOf(state, distance);
+  if (bot.aimTicks < effectiveReaction(bot, band, state.config.aggressionReactionDiscount)) {
+    return true;
+  }
+
+  bot.fireCooldownTicks = bot.weapon.fireIntervalTicks;
+  state.bus.emit("Shot", state.tick, state.roundNumber, {
+    shooterId: bot.id,
+    targetId: id,
+    weaponId: bot.weapon.id,
+    attackType: bot.weapon.attackType,
+    rangeBand: band,
+  });
+  // A shot in the air is a small target, and the bot is not one: the hit
+  // chance falls with the distance alone.
+  const chance = Math.max(
+    state.config.minHitChance,
+    bot.attributes.accuracy * (1 - state.config.distanceFalloff * (distance / bot.weapon.rangeMax)),
+  );
+  if (state.rng.bool(chance)) damageProjectile(state, shot, bot.weapon.damage);
+  spendAmmo(state, bot);
+  return true;
 }
 
 /** Put a dead bot back on a spawn cell of its team. */
@@ -290,9 +359,18 @@ export function respawn(state: SimState, bot: BotState): void {
   bot.targetId = null;
   bot.aimTicks = 0;
   bot.dots = [];
-  // A round starts the bot on the best weapon it has rounds for.
-  for (const weapon of bot.weapons) bot.ammo.set(weapon.id, weapon.ammoMax);
+  bot.velocity = { x: 0, y: 0 };
+  // A bot keeps the weapons it found, for the round. Dropping them on every
+  // death put the bot back on the baseline for most of its life, and the
+  // baseline took 43 % of the kills, which is not a fallback (Section 7.3).
+  // Death still costs the armor, the shield, the power-ups, and the ground.
+  //
+  // A power-up weapon is a power-up, so it goes with them. Without this a bot
+  // could fire its Redeemer, die, and come back holding another one: an empty
+  // ammo map reads as a full magazine (Section 7.20.18).
+  bot.weapons = bot.weapons.filter((weapon) => weapon.tier !== POWERUP_TIER);
   bot.weapon = bot.weapons[0] ?? bot.weapon;
+  bot.ammo.clear();
   bot.lastSeen.clear();
   bot.peripheralEnemyIds = [];
   bot.peripheralTicks.clear();

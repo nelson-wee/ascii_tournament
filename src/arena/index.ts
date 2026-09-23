@@ -7,6 +7,14 @@ export * from "./types.js";
 export { parseArenaText, ArenaParseError } from "./textArena.js";
 export type { ParseArenaOptions } from "./textArena.js";
 export { orderSpawnsForFairness } from "./spawnOrder.js";
+export {
+  CONTESTED_STEPS,
+  checkArenaFairness,
+  distanceField,
+  isContested,
+  pickupEvenness,
+  type ArenaFairness,
+} from "./contested.js";
 
 let testArenaCache: ArenaMap | null = null;
 

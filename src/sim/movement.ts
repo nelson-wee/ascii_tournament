@@ -75,6 +75,7 @@ export function advanceBot(state: SimState, bot: BotState): void {
   }
 
   applyEvasion(state, bot, start);
+  bot.velocity = { x: bot.pos.x - start.x, y: bot.pos.y - start.y };
   bot.movedLastTick = bot.pos.x !== start.x || bot.pos.y !== start.y;
   updateFacing(state, bot, { x: bot.pos.x - start.x, y: bot.pos.y - start.y });
 }

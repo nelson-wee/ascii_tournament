@@ -98,6 +98,20 @@ export const TuningSchema = z
         /** How much the evasion of a bot lowers its own accuracy. TBD */
         evasionAccuracyPenalty: unitRange,
         /**
+         * Ticks that a bot cannot fire after it changes weapon. A swap that
+         * costs nothing makes the choice of weapon free, so a bot always holds
+         * the best one and the tactics that pick a weapon mean nothing. With a
+         * cost, firing a weapon that is merely good is sometimes right
+         * (Section 7.20.17). TBD
+         */
+        weaponSwapTicks: nonNegativeInt,
+        /**
+         * How long a bot expects an engagement to last, in ticks. It decides
+         * whether a swap pays for itself: a long fight is worth changing for,
+         * a short one is not. TBD
+         */
+        weaponSwapPayoffTicks: positiveInt,
+        /**
          * A new target must be this much nearer than the current one, as a
          * part of the current distance. 0.8 means 20 % nearer. TBD
          */
@@ -141,16 +155,41 @@ export const TuningSchema = z
          * alone. TBD
          */
         preferredRangeBias: z.number().min(0),
+        /**
+         * How much the `weaponRolePref` tactic raises the weapon it names. It
+         * is the tournament weapon priority of Section 7.20.8, and it is what a
+         * player sets to give a role its own weapon. A swap costs firing ticks
+         * (`combat.weaponSwapTicks`), so a bot armed by its doctrine out of the
+         * fight keeps that weapon in it (Section 7.20.17). TBD
+         */
+        weaponRolePrefBonus: z.number().min(0),
+        /**
+         * How much the danger of a pickup point lowers its worth. Item control
+         * won 19 points of win rate and never turned over, because a run
+         * across the arena cost nothing (Section 4 of the M8 weapon analysis).
+         * A tactic with only a benefit breaks the rule of Section 7.8. TBD
+         */
+        pickupRiskWeight: z.number().nonnegative(),
+        /**
+         * How much the aggression tactic shortens the aim delay. A bold bot
+         * shoots first; it also fights at low health and does not walk to the
+         * band where its weapon is strongest. Letting aggression discount the
+         * danger map instead was measured and reverted (Section 7.20.16). TBD
+         */
+        aggressionReactionDiscount: unitRange,
+        /**
+         * How much aggression lowers `Reposition`. A bold bot presses the
+         * fight where it stands instead of walking to a better band. TBD
+         */
+        aggressionRepositionDiscount: unitRange,
         /** The base consideration of each action, before the tactics weights. TBD */
         actionBase: z
           .object({
             engage: positiveNumber,
             chase: positiveNumber,
-            retreat: positiveNumber,
             seekPickup: positiveNumber,
             holdPosition: positiveNumber,
             reposition: positiveNumber,
-            switchWeapon: positiveNumber,
             follow: positiveNumber,
           })
           .strict(),
@@ -219,7 +258,6 @@ export type Tuning = z.infer<typeof TuningSchema>;
 export const TacticsSchema = z
   .object({
     aggression: unitRange,
-    retreatThreshold: unitRange,
     preferredRange: z.enum(["close", "mid", "long"]),
     weaponRolePref: z
       .enum([
@@ -327,6 +365,12 @@ export const PickupsSchema = z
           durationTicks: nonNegativeInt,
           damageMultiplier: positiveNumber.optional(),
           shield: z.number().nonnegative().optional(),
+          /**
+           * The id of a weapon file that the point hands over, with one
+           * magazine. The Redeemer of Section 7.20.18 arrives this way: it is
+           * a power-up, so the power budget of Section 7.3 never prices it.
+           */
+          weapon: z.string().min(1).optional(),
           weight: z.number().positive(),
         })
         .strict(),
@@ -454,6 +498,19 @@ export const WeaponRolesSchema = z
         lineTargets: z.number().nonnegative(),
         dotStackCap: positiveNumber,
         hazardOccupancy: unitRange,
+        /**
+         * The share of the damage of a cone that lands, after the fade from
+         * its mouth to its reach (Section 7.20.15). TBD
+         */
+        coneFadeShare: unitRange,
+        /**
+         * How often the arena fires in each band. The power budget and the AI
+         * both weigh a DPS profile with it, so a weapon is worth what the
+         * arena lets it do. Measure it again after M7 changes the arena. TBD
+         */
+        bandShare: z
+          .object({ close: unitRange, mid: unitRange, long: unitRange })
+          .strict(),
       })
       .strict(),
     tiers: z
@@ -483,6 +540,19 @@ export const WeaponRolesSchema = z
         ricochetWeight: z.number().nonnegative(),
         reactionDiscount: z.number().nonnegative(),
         ammoWeight: z.number().nonnegative(),
+        /**
+         * The budget stops paying for reach past this distance, in cells. The
+         * arena fires 1 % of its shots past the mid band, so a weapon that
+         * reaches 46 cells paid 9 points of 100 for nothing (Section 3.2 of
+         * the M8 weapon analysis). Keep it near `combat.rangeBandMidMax`. TBD
+         */
+        rangeValueCapCells: positiveNumber,
+        /**
+         * What a cell of reach past the cap is worth, against a cell inside it.
+         * A hard cut gave the sniper role 9 points of budget back and it took
+         * 29 % of the kills, so the tail has a price, not a wall. TBD
+         */
+        rangeValueTailShare: unitRange,
       })
       .strict(),
   })
@@ -504,6 +574,7 @@ export const WeaponSchema = z
       "denial",
       "versatile",
       "baseline",
+      "redeemer",
     ]),
     role: z.enum(["precise", "assault", "sniper", "heavy"]).nullable(),
     tier: z.string().min(1),
@@ -521,7 +592,12 @@ export const WeaponSchema = z
     hazardRadius: z.number().nonnegative(),
     hazardDamagePerTick: z.number().nonnegative(),
     /** Rounds that one universal ammo pickup gives this weapon. */
-    ammoPerPickup: positiveInt,
+    /**
+     * Rounds that one universal ammo pickup gives this weapon. 0 means an ammo
+     * point does not refill it, which is what makes the Redeemer one shot
+     * (Section 7.20.18).
+     */
+    ammoPerPickup: nonNegativeInt,
     critChance: unitRange,
     critConditions: z.array(z.string()),
     ammoMax: positiveInt,
@@ -529,5 +605,55 @@ export const WeaponSchema = z
     reactionByBand: bandValues,
     dpsProfile: bandValues,
     budgetUsed: z.number().nonnegative(),
+    /** Radians of turn per tick toward the target. Only the Redeemer uses it. */
+    homingTurnRate: z.number().nonnegative().optional(),
+    /** Damage that the shot itself takes before it detonates early. */
+    projectileHealth: z.number().nonnegative().optional(),
   })
   .strict();
+
+/** `data/arena-profiles.json`: the generator profiles of Section 7.2. */
+export const ArenaRulesSchema = z
+  .object({
+    minFloorCycles: nonNegativeInt,
+    maxSpawnFairness: z.number().nonnegative(),
+    minLongSightline: positiveNumber,
+    maxCloseSightline: positiveNumber,
+    minOpenAreaRatio: unitRange,
+    maxOpenAreaRatio: unitRange,
+    minFloorCells: positiveInt,
+  })
+  .strict();
+
+
+export const ArenaProfileSchema = z
+  .object({
+    id: z.string().min(1),
+    style: z.enum(["bastion", "openfield", "cavern"]),
+    width: positiveInt,
+    height: positiveInt,
+    coverDensity: unitRange,
+    hazardDensity: unitRange,
+    roomsAcross: positiveInt.optional(),
+    roomsDown: positiveInt.optional(),
+    extraDoorChance: unitRange.optional(),
+    obstacleDensity: unitRange.optional(),
+    obstacleSize: z.tuple([positiveInt, positiveInt]).optional(),
+    noiseDensity: unitRange.optional(),
+    smoothPasses: nonNegativeInt.optional(),
+    /** Rules that this style replaces (Section 7.20.19). */
+    rules: ArenaRulesSchema.partial().optional(),
+  })
+  .strict();
+
+export const ArenaProfilesSchema = z
+  .object({
+    _notes: z.string().optional(),
+    schemaVersion: z.literal(1),
+    tbd: z.array(z.string()),
+    rules: ArenaRulesSchema,
+    profiles: z.record(z.string().min(1), ArenaProfileSchema),
+  })
+  .strict();
+
+export type ArenaProfiles = z.infer<typeof ArenaProfilesSchema>;

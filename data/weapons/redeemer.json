@@ -1,0 +1,38 @@
+{
+  "id": "redeemer",
+  "name": "Redeemer",
+  "archetype": "redeemer",
+  "role": null,
+  "tier": "powerup",
+  "attackType": "burst",
+  "damage": 120,
+  "fireIntervalTicks": 20,
+  "rangeMax": 60,
+  "projectileSpeed": 0.85,
+  "aoeRadius": 6,
+  "coneHalfAngle": 0,
+  "ricochetBounces": 0,
+  "dotDamage": 0,
+  "dotTicks": 0,
+  "hazardTicks": 0,
+  "hazardRadius": 0,
+  "hazardDamagePerTick": 0,
+  "critChance": 0,
+  "critConditions": [],
+  "ammoMax": 1,
+  "ammoPerPickup": 0,
+  "traits": [],
+  "reactionByBand": {
+    "close": 6,
+    "mid": 5,
+    "long": 5
+  },
+  "dpsProfile": {
+    "close": 120,
+    "mid": 120,
+    "long": 120
+  },
+  "budgetUsed": 0,
+  "homingTurnRate": 0.09,
+  "projectileHealth": 18
+}

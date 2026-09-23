@@ -16,12 +16,25 @@
  * point where it lands is worth a fight.
  */
 import { cellIndex } from "../arena/types.js";
-import { loadPickups } from "../core/data.js";
+import { isContested, pickupEvenness } from "../arena/contested.js";
+import { loadPickups, loadRedeemerWeapon } from "../core/data.js";
 import type { Pickups } from "../core/schemas.js";
 import type { Rng } from "../core/rng.js";
 import type { ArenaMap, PickupPoint } from "../arena/types.js";
 import type { Weapon } from "../weapons/types.js";
 import { botCell, botsInTickOrder, type BotState, type SimState } from "./state.js";
+
+/**
+ * The fixed weapon that a power-up hands over, by its id.
+ *
+ * These weapons sit outside the power budget of Section 7.3 on purpose. A
+ * Redeemer is one shot that ends a fight, not a damage-per-second profile, so
+ * pricing it against the budget would either make it useless or make
+ * `expectedTargets` lie again (Section 7.20.18).
+ */
+function powerupWeapon(id: string): Weapon | null {
+  return id === "redeemer" ? loadRedeemerWeapon() : null;
+}
 
 /** The item that each pickup slot gives, for a whole match (Section 7.12). */
 export interface SpawnTable {
@@ -52,34 +65,125 @@ export function rollSpawnTable(
   tables: Pickups = loadPickups(),
 ): SpawnTable {
   const slots: Record<string, string> = {};
-  // The baseline weapon is the fallback that every bot already holds, so a
-  // weapon point gives one of the others.
-  const offered = weapons.length > 1 ? weapons.slice(1) : weapons;
   const powerupNames = Object.keys(tables.powerups);
   const powerupWeights = powerupNames.map((name) => tables.powerups[name]?.weight ?? 1);
 
-  for (const point of map.pickups) {
-    if (point.kind === "weapon") {
-      slots[point.slotId] = (rng.pick(offered) as Weapon).id;
-      continue;
-    }
-    if (point.kind === "powerup") {
-      const total = powerupWeights.reduce((sum, weight) => sum + weight, 0);
-      let roll = rng.float(0, total);
-      let chosen = powerupNames[powerupNames.length - 1] as string;
-      for (const [index, name] of powerupNames.entries()) {
-        roll -= powerupWeights[index] as number;
-        if (roll <= 0) {
-          chosen = name;
-          break;
-        }
+  for (const [slotId, weaponId] of placeWeapons(map, weapons, rng)) slots[slotId] = weaponId;
+
+  // A power-up point rolls once per facing pair, so both teams get the same
+  // power-up on the same ground. A roll per point gave one team the double
+  // damage and the other the shield belt (Section 7.2.1).
+  const powerupPoints = map.pickups.filter((point) => point.kind === "powerup");
+  for (const pair of pairFacingPoints(map, powerupPoints)) {
+    const total = powerupWeights.reduce((sum, weight) => sum + weight, 0);
+    let roll = rng.float(0, total);
+    let chosen = powerupNames[powerupNames.length - 1] as string;
+    for (const [index, name] of powerupNames.entries()) {
+      roll -= powerupWeights[index] as number;
+      if (roll <= 0) {
+        chosen = name;
+        break;
       }
-      slots[point.slotId] = chosen;
-      continue;
     }
+    for (const point of pair) slots[point.slotId] = chosen;
+  }
+
+  for (const point of map.pickups) {
+    if (point.kind === "weapon" || point.kind === "powerup") continue;
     slots[point.slotId] = point.kind;
   }
   return { slots };
+}
+
+/**
+ * Put the generated weapons on the weapon points of the arena.
+ *
+ * Three rules, from Section 3.1 of the M8 weapon analysis and Section 7.2.1:
+ *
+ * 1. **The strongest weapon takes the most contested point.** A prize weapon on
+ *    ground that one team owns is not a prize, it is a head start. An arena is
+ *    expected to offer a conflict zone for it; `checkArenaFairness` is the
+ *    acceptance rule, and M7 must meet it.
+ * 2. **A point in a conflict zone holds its own weapon.** Both teams arrive
+ *    there at about the same moment, so the point is fair on its own and the
+ *    run can offer more of what it generated.
+ * 3. **A point outside a conflict zone is mirrored with the point it faces.**
+ *    It belongs to whichever team is nearer, so the only fair answer is to give
+ *    the other team the same weapon at the same distance. Without this the
+ *    mirror matchup read 68 %.
+ *
+ * The baseline weapon is the fallback that every bot already carries
+ * (Section 7.3), so no point gives it.
+ */
+function placeWeapons(
+  map: ArenaMap,
+  weapons: readonly Weapon[],
+  rng: Rng,
+): Map<string, string> {
+  const placed = new Map<string, string>();
+  const points = map.pickups.filter((point) => point.kind === "weapon");
+  const offered = weapons.length > 1 ? weapons.slice(1) : weapons;
+  if (points.length === 0 || offered.length === 0) return placed;
+
+  const evenness = pickupEvenness(map);
+  // A contested point stands alone. Every other point joins the point it faces.
+  const contested = points.filter((point) => isContested(evenness, point.slotId));
+  const rest = points.filter((point) => !isContested(evenness, point.slotId));
+  const groups: PickupPoint[][] = [
+    ...contested.map((point) => [point]),
+    ...pairFacingPoints(map, rest),
+  ];
+
+  groups.sort((a, b) => {
+    const left = Math.min(...a.map((point) => evenness.get(point.slotId) ?? Infinity));
+    const right = Math.min(...b.map((point) => evenness.get(point.slotId) ?? Infinity));
+    return left - right || (a[0] as PickupPoint).slotId.localeCompare((b[0] as PickupPoint).slotId);
+  });
+
+  // The strongest weapon first, by what the budget paid for it.
+  const byPower = [...offered].sort((a, b) => b.budgetUsed - a.budgetUsed || a.id.localeCompare(b.id));
+  const order: Weapon[] = [...byPower];
+  while (order.length < groups.length) order.push(...rng.shuffle(byPower));
+
+  for (const [index, group] of groups.entries()) {
+    const weapon = order[index] as Weapon;
+    for (const point of group) placed.set(point.slotId, weapon.id);
+  }
+  return placed;
+}
+
+/**
+ * Group the points into the pairs that face each other under a half turn.
+ * A point with no partner makes a group of one, so an arena that is not
+ * symmetric still gets every point filled.
+ */
+function pairFacingPoints(
+  map: ArenaMap,
+  points: readonly PickupPoint[],
+): PickupPoint[][] {
+  const left = [...points];
+  const groups: PickupPoint[][] = [];
+
+  while (left.length > 0) {
+    const point = left.shift() as PickupPoint;
+    const image = { x: map.width - 1 - point.cell.x, y: map.height - 1 - point.cell.y };
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    for (const [index, other] of left.entries()) {
+      const distance = (other.cell.x - image.x) ** 2 + (other.cell.y - image.y) ** 2;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+    if (bestIndex < 0) {
+      groups.push([point]);
+      continue;
+    }
+    const partner = left.splice(bestIndex, 1)[0] as PickupPoint;
+    groups.push([point, partner]);
+  }
+  return groups;
 }
 
 /** The pickup points of a round, all ready. */
@@ -128,6 +232,26 @@ export function pickupValue(state: SimState, bot: BotState, pickup: PickupState)
   return worth * nearness * state.config.pickupAnticipationShare;
 }
 
+/**
+ * The damage per second of a weapon, over the bands that the arena fires in
+ * (Section 7.20.15). The AI and the power budget read the same weights.
+ */
+export function meanDps(state: SimState, weapon: Weapon): number {
+  const share = state.config.bandShare;
+  return (
+    weapon.dpsProfile.close * share.close +
+    weapon.dpsProfile.mid * share.mid +
+    weapon.dpsProfile.long * share.long
+  );
+}
+
+/** The best weapon that a bot holds, by the same measure. */
+function bestHeldDps(state: SimState, bot: BotState): number {
+  let best = 0;
+  for (const weapon of bot.weapons) best = Math.max(best, meanDps(state, weapon));
+  return best;
+}
+
 /** What a pickup point is worth to a bot when it is ready. */
 function readyValue(state: SimState, bot: BotState, pickup: PickupState): number {
   const tables = state.pickupTables;
@@ -149,12 +273,30 @@ function readyValue(state: SimState, bot: BotState, pickup: PickupState): number
       }
       return need * 1.2;
     }
-    case "powerup":
-      // A power-up is always worth taking, and it is rare.
+    case "powerup": {
+      // A power-up is always worth taking, and it is rare. A power-up that
+      // hands over a weapon is worth nothing to a bot that already holds it
+      // with a round in the magazine.
+      const weaponId = state.pickupTables.powerups[pickup.itemId]?.weapon;
+      if (weaponId !== undefined) {
+        const held = bot.weapons.find((candidate) => candidate.id === weaponId);
+        if (held && (bot.ammo.get(held.id) ?? held.ammoMax) > 0) return 0;
+        return 2.2;
+      }
       return 1.5;
+    }
     case "weapon": {
-      const weapon = bot.weapons.find((candidate) => candidate.id === pickup.itemId);
-      if (!weapon) return 0.8;
+      const weapon = state.runWeapons.find((candidate) => candidate.id === pickup.itemId);
+      if (!weapon) return 0;
+      const held = bot.weapons.some((candidate) => candidate.id === weapon.id);
+      if (!held) {
+        // A weapon the bot does not hold is worth what it adds over the best
+        // weapon it does hold. A flat guess here sent bots to a point that
+        // gave them nothing better (Section 3.1 of the M8 weapon analysis).
+        const best = bestHeldDps(state, bot);
+        const gain = meanDps(state, weapon) / Math.max(1, best);
+        return Math.max(0, Math.min(1.6, (gain - 1) * 1.6 + 0.3));
+      }
       const left = bot.ammo.get(weapon.id) ?? weapon.ammoMax;
       return (1 - left / weapon.ammoMax) * 1.0;
     }
@@ -185,6 +327,9 @@ export function takePickup(state: SimState, bot: BotState, pickup: PickupState):
     }
     case "ammo": {
       for (const weapon of bot.weapons.slice(1)) {
+        // A weapon that an ammo point does not refill: the Redeemer is one
+        // shot, and an ammo point must not make it two.
+        if (weapon.ammoPerPickup <= 0) continue;
         const left = bot.ammo.get(weapon.id) ?? weapon.ammoMax;
         if (left >= weapon.ammoMax) continue;
         bot.ammo.set(weapon.id, Math.min(weapon.ammoMax, left + weapon.ammoPerPickup));
@@ -193,8 +338,17 @@ export function takePickup(state: SimState, bot: BotState, pickup: PickupState):
       break;
     }
     case "weapon": {
-      const weapon = bot.weapons.find((candidate) => candidate.id === pickup.itemId);
+      const weapon = state.runWeapons.find((candidate) => candidate.id === pickup.itemId);
       if (!weapon) break;
+      const held = bot.weapons.some((candidate) => candidate.id === weapon.id);
+      if (!held) {
+        // The point gives the weapon itself, with a full magazine. This is the
+        // only way a bot gets a generated weapon (Section 7.12).
+        bot.weapons.push(weapon);
+        bot.ammo.set(weapon.id, weapon.ammoMax);
+        took = true;
+        break;
+      }
       const left = bot.ammo.get(weapon.id) ?? weapon.ammoMax;
       if (left >= weapon.ammoMax) break;
       bot.ammo.set(weapon.id, weapon.ammoMax);
@@ -209,6 +363,20 @@ export function takePickup(state: SimState, bot: BotState, pickup: PickupState):
       }
       if (powerup.durationTicks > 0) {
         bot.powerups.set(pickup.itemId, state.tick + powerup.durationTicks);
+      }
+      if (powerup.weapon !== undefined) {
+        // A power-up that hands over a weapon: the Redeemer (Section 7.20.18).
+        // It carries one round, so the bot fires it once and falls back.
+        const weapon = powerupWeapon(powerup.weapon);
+        if (!weapon) break;
+        const held = bot.weapons.find((candidate) => candidate.id === weapon.id);
+        // A bot that still has the shot takes nothing, and the point stays for
+        // a teammate or for the other team.
+        if (held && (bot.ammo.get(held.id) ?? held.ammoMax) > 0) break;
+        if (!held) bot.weapons.push(weapon);
+        bot.ammo.set(weapon.id, weapon.ammoMax);
+        took = true;
+        break;
       }
       took = true;
       break;
@@ -248,6 +416,22 @@ export function applyPickups(state: SimState): void {
     const pickup = state.pickupByCell.get(index);
     if (pickup) takePickup(state, bot, pickup);
   }
+}
+
+/**
+ * The cells of the pickup points that hold their item now, by cell index.
+ *
+ * The display draws a glyph only for these, so a bare point reads as floor
+ * (Section 7.12). It lives here, and not in the display, because it is a rule
+ * of the simulation and a test must reach it without a browser.
+ */
+export function readyPickupCells(state: SimState): Set<number> {
+  const ready = new Set<number>();
+  for (const pickup of state.pickups) {
+    if (!pickup.ready) continue;
+    ready.add(cellIndex(state.map, pickup.point.cell.x, pickup.point.cell.y));
+  }
+  return ready;
 }
 
 /** Drop a power-up whose time ran out. */

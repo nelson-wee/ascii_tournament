@@ -24,6 +24,13 @@ export const TILE_STYLES: Readonly<Record<Tile, GlyphStyle>> = {
   [Tile.Pickup]: { char: "?", fg: "#c8d0d8", bg: "" },
 };
 
+/**
+ * A shot that is crossing the arena (Section 7.18). A Redeemer gets its own
+ * glyph, because the other team must see it to answer it (Section 7.20.18).
+ */
+export const PROJECTILE_STYLE: GlyphStyle = { char: "•", fg: "#e0d49a", bg: "" };
+export const REDEEMER_PROJECTILE_STYLE: GlyphStyle = { char: "☢", fg: "#ff7a4a", bg: "#2a1510" };
+
 export const PICKUP_STYLES: Readonly<Record<PickupKind, GlyphStyle>> = {
   weapon: { char: "†", fg: "#d9c15a", bg: "" },
   armor: { char: "◘", fg: "#7fd6a0", bg: "" },

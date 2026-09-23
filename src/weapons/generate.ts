@@ -136,12 +136,30 @@ export interface WeaponDraft {
  * The cost of everything that does not depend on the damage.
  * A cost that is a discount lowers the total, so a slow weapon may hit harder.
  */
+/**
+ * The mean of a band value, weighted by how often the arena fires in each band
+ * (Section 7.20.15).
+ *
+ * A flat mean of three bands prices a weapon for a fight that does not happen:
+ * the arena fires 1 % of its shots past the mid band, so a marksman paid 9 of
+ * its 100 points for reach it never used.
+ */
+export function bandMean(values: BandValues, tables: WeaponRoles): number {
+  const share = tables.value.bandShare;
+  const total = share.close + share.mid + share.long;
+  if (total <= 0) return (values.close + values.mid + values.long) / 3;
+  return (values.close * share.close + values.mid * share.mid + values.long * share.long) / total;
+}
+
 export function fixedCost(draft: WeaponDraft, tables: WeaponRoles): number {
   const { budget } = tables;
-  const meanReaction =
-    (draft.reactionByBand.close + draft.reactionByBand.mid + draft.reactionByBand.long) / 3;
+  const meanReaction = bandMean(draft.reactionByBand, tables);
   let cost = 0;
-  cost += draft.rangeMax * budget.rangeWeight;
+  // Reach past the distance the arena uses is worth less, not nothing: the
+  // long band is 1 % of shots, and a weapon that covers it still covers it.
+  const inside = Math.min(draft.rangeMax, budget.rangeValueCapCells);
+  const tail = Math.max(0, draft.rangeMax - budget.rangeValueCapCells);
+  cost += (inside + tail * budget.rangeValueTailShare) * budget.rangeWeight;
   cost += draft.critChance * budget.critWeight;
   // A line and a ricochet reach past a wall or a corner. The DPS profile does
   // not hold that, so the budget charges for it here.
@@ -156,8 +174,7 @@ export function fixedCost(draft: WeaponDraft, tables: WeaponRoles): number {
 
 /** The full cost of a weapon at a damage value. */
 export function costOf(draft: WeaponDraft, damage: number, tables: WeaponRoles): number {
-  const meanDps =
-    ((draft.perDamageDps.close + draft.perDamageDps.mid + draft.perDamageDps.long) / 3) * damage;
+  const meanDps = bandMean(draft.perDamageDps, tables) * damage;
   return fixedCost(draft, tables) + meanDps * tables.budget.dpsWeight;
 }
 
@@ -198,7 +215,11 @@ function buildDraft(rng: Rng, role: RoleTrait, tables: WeaponRoles, ticksPerSeco
     1,
     Math.round(rollIntRange(rng, roleData.fireIntervalTicks as Range) * attackData.intervalFactor),
   );
-  const rangeMax = rollRange(rng, roleData.rangeMax as Range) * attackData.rangeFactor;
+  // A cone takes its own reach factor here, and not at damage time, so that
+  // `rangeMax` is the distance the weapon really covers. The AI reads it to
+  // decide whether it can fire, and the budget prices it.
+  const coneReach = attackType === "cone" ? shape.coneRangeFactor : 1;
+  const rangeMax = rollRange(rng, roleData.rangeMax as Range) * attackData.rangeFactor * coneReach;
   const ammoMax = Math.max(
     1,
     Math.round(rollIntRange(rng, roleData.ammoMax as Range) * attackData.ammoFactor),
@@ -250,7 +271,11 @@ function buildDraft(rng: Rng, role: RoleTrait, tables: WeaponRoles, ticksPerSeco
   };
 
   const targets = expectedTargets(partial, tables);
-  const accuracy = attackData.accuracyFactor;
+  // A cone fades to nothing at its reach, so a shot that lands delivers only a
+  // share of its damage. The DPS profile must hold that, or the AI reads a
+  // number that the simulation never pays out.
+  const accuracy =
+    attackData.accuracyFactor * (attackType === "cone" ? tables.value.coneFadeShare : 1);
   const perDamageDps: BandValues = {
     close: dpsPerDamage("close", roleData.bandMultiplier, attackData.bandMultiplier, fireIntervalTicks, ticksPerSecond, targets, accuracy),
     mid: dpsPerDamage("mid", roleData.bandMultiplier, attackData.bandMultiplier, fireIntervalTicks, ticksPerSecond, targets, accuracy),
@@ -315,8 +340,7 @@ export function generateWeapon(
 
   for (let attempt = 0; attempt < maxTries; attempt += 1) {
     const draft = buildDraft(rng, role, tables, ticksPerSecond);
-    const meanPerDamage =
-      (draft.perDamageDps.close + draft.perDamageDps.mid + draft.perDamageDps.long) / 3;
+    const meanPerDamage = bandMean(draft.perDamageDps, tables);
     if (meanPerDamage <= 0) continue;
 
     // Solve for the damage that puts the cost on the budget of the tier.

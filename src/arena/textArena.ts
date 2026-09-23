@@ -165,3 +165,46 @@ export function parseArenaText(text: string, options: ParseArenaOptions = {}): A
     pickups,
   };
 }
+
+/**
+ * Write an arena back to the text format of this module.
+ *
+ * A generated arena can then be saved, read by eye, and hand-edited into a
+ * fixed arena file (Section 7.2).
+ */
+export function arenaToText(map: ArenaMap): string {
+  const tileGlyph = new Map<Tile, string>([
+    [Tile.Wall, "#"],
+    [Tile.Floor, "."],
+    [Tile.CoverLow, ","],
+    [Tile.Hazard, "^"],
+    [Tile.Spawn, "S"],
+  ]);
+  const pickupGlyph: Readonly<Record<PickupKind, string>> = {
+    weapon: "W",
+    armor: "A",
+    health: "H",
+    powerup: "U",
+    ammo: "M",
+  };
+  const byCell = new Map<number, PickupKind>();
+  for (const point of map.pickups) {
+    byCell.set(point.cell.y * map.width + point.cell.x, point.kind);
+  }
+
+  const rows: string[] = [];
+  for (let y = 0; y < map.height; y += 1) {
+    let row = "";
+    for (let x = 0; x < map.width; x += 1) {
+      const index = y * map.width + x;
+      const kind = byCell.get(index);
+      if (kind !== undefined) {
+        row += pickupGlyph[kind];
+        continue;
+      }
+      row += tileGlyph.get((map.tiles[index] ?? Tile.Wall) as Tile) ?? "#";
+    }
+    rows.push(row);
+  }
+  return [`name: ${map.name}`, `notes: ${map.source}`, "---", ...rows].join("\n");
+}

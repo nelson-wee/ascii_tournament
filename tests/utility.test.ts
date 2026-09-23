@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { findPath } from "../src/ai/navigation.js";
 import { updatePerception } from "../src/ai/perception.js";
+import { dangerFor, updateInfluence } from "../src/ai/influence.js";
 import {
   actionLabel,
   applyAction,
@@ -8,6 +9,7 @@ import {
   bestWeaponAt,
   bestWeaponOverall,
   decide,
+  equipBestWeapon,
   positionValue,
   wantedBand,
   noteReachedPickup,
@@ -17,11 +19,15 @@ import {
 import { loadTestArena, parseArenaText, Tile, tileAt } from "../src/arena/index.js";
 import { loadBaselineWeapon, loadDefaultTactics } from "../src/core/data.js";
 import { EventBus } from "../src/core/events.js";
+import { createRng, deriveSeed } from "../src/core/rng.js";
+import { generateWeaponSet } from "../src/weapons/generate.js";
+import type { Weapon } from "../src/weapons/types.js";
 import type { Tactics } from "../src/core/schemas.js";
 import {
   botCell,
   cellCenter,
   createSimState,
+  effectiveReaction,
   hitChance,
   runRound,
   step,
@@ -73,7 +79,6 @@ describe("actionLabel", () => {
     expect(actionLabel({ kind: "Engage", targetId: "B1" })).toBe("Engage(B1)");
     expect(actionLabel({ kind: "SeekPickup", slotId: "armor:0" })).toBe("SeekPickup(armor:0)");
     expect(actionLabel({ kind: "Reposition", band: "long" })).toBe("Reposition(long)");
-    expect(actionLabel({ kind: "Retreat" })).toBe("Retreat");
   });
 });
 
@@ -108,26 +113,7 @@ describe("scoreActions", () => {
 });
 
 describe("tactics change the weights", () => {
-  it("aggression raises Engage and lowers Retreat", () => {
-    const high = roomState({ aggression: 0.95 });
-    const low = roomState({ aggression: 0.05 });
-    const [highBot] = face(high, 4);
-    const [lowBot] = face(low, 4);
-    expect(scoreOf(high, highBot, "Engage")).toBeGreaterThan(scoreOf(low, lowBot, "Engage"));
 
-    highBot.health = high.config.healthMax * 0.1;
-    lowBot.health = low.config.healthMax * 0.1;
-    expect(scoreOf(low, lowBot, "Retreat")).toBeGreaterThan(scoreOf(high, highBot, "Retreat"));
-  });
-
-  it("retreatThreshold decides when Retreat appears", () => {
-    const state = roomState({ retreatThreshold: 0.5 });
-    const [bot] = face(state, 4);
-    bot.health = state.config.healthMax * 0.8;
-    expect(scoreOf(state, bot, "Retreat")).toBe(0);
-    bot.health = state.config.healthMax * 0.2;
-    expect(scoreOf(state, bot, "Retreat")).toBeGreaterThan(0);
-  });
 
   it("holdPosition raises HoldPosition and lowers SeekPickup", () => {
     const holding = roomState({ holdPosition: 0.9 });
@@ -272,21 +258,21 @@ describe("applyAction", () => {
     expect(bot.path).toHaveLength(0);
   });
 
-  it("Retreat walks to a spawn cell of its own team", () => {
-    const state = roomState();
-    const bot = state.bots[0] as BotState;
-    bot.pos = cellCenter({ x: 9, y: 3 });
-    applyAction(state, bot, { kind: "Retreat" });
-    const last = bot.path[bot.path.length - 1];
-    expect(state.map.spawns.slice(0, 3)).toContainEqual(last);
-  });
 
-  it("SwitchWeapon puts the weapon in the hands of the bot", () => {
+  it("equipBestWeapon puts the best weapon in the hands of the bot", () => {
+    // Section 7.20.16: this is a rule, not an action. As an action it competed
+    // with Engage for the one action of a tick and it always lost.
     const state = roomState();
     const bot = state.bots[0] as BotState;
-    const other = { ...loadBaselineWeapon(), id: "other-gun" };
-    bot.weapons = [bot.weapon, other];
-    applyAction(state, bot, { kind: "SwitchWeapon", weaponId: "other-gun" });
+    const better = {
+      ...loadBaselineWeapon(),
+      id: "other-gun",
+      rangeMax: 100,
+      dpsProfile: { close: 99, mid: 99, long: 99 },
+    };
+    bot.weapons = [bot.weapon, better];
+    bot.ammo.set("other-gun", 50);
+    equipBestWeapon(state, bot);
     expect(bot.weapon.id).toBe("other-gun");
   });
 
@@ -359,21 +345,32 @@ describe("the decision timer", () => {
 });
 
 describe("aggression changes the result of a round", () => {
-  it("makes a bolder team shoot more and win", () => {
+  it("makes a bolder team shoot more", () => {
     // The acceptance test of Milestone M4. One round is noisy, so this sums
     // several rounds: the question is whether aggression changes the result,
     // not whether it changes one round by a set amount.
+    //
+    // Aggression used to work through `Retreat`: a careful bot broke contact
+    // and stopped firing. `Retreat` is gone (Section 7.20.17). A bold bot now
+    // shoots sooner, because aggression shortens the aim delay, and it stands
+    // its ground instead of walking to a better band.
     const base = loadDefaultTactics();
     const shots = { A: 0, B: 0 };
     const score = { A: 0, B: 0 };
 
-    for (const seed of [4, 5, 6, 7]) {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       const bus = new EventBus();
+      // A run has weapons from M6 on, so the round must have them too: with
+      // the baseline alone a bot has no better band to walk to, and the
+      // `Reposition` half of aggression does nothing.
       const result = runRound(
         createSimState({
           map: loadTestArena(),
           seed,
           bus,
+          weapons: generateWeaponSet(createRng(deriveSeed(seed, "weapons"), "weapons"), 5, {
+            ticksPerSecond: 20,
+          }),
           tactics: {
             A: { ...base, aggression: 0.95 },
             B: { ...base, aggression: 0.05 },
@@ -511,7 +508,7 @@ describe("bestWeaponOverall", () => {
       ...bot.weapon,
       id: "short",
       rangeMax: bandDistance(state, "close"),
-      dpsProfile: { close: 40, mid: 0, long: 0 },
+      dpsProfile: { close: 25, mid: 0, long: 0 },
     };
     const allRound = {
       ...bot.weapon,
@@ -524,6 +521,30 @@ describe("bestWeaponOverall", () => {
     bot.ammo.set("all-round", 50);
     bot.tactics = { ...bot.tactics, preferredRange: "close" };
     expect(bestWeaponOverall(state, bot).id).toBe("all-round");
+  });
+
+  it("weighs a band by how often the arena fires in it", () => {
+    // Section 7.20.15: the AI and the power budget read one number. The long
+    // band is 1 % of shots, so a weapon that only shines there is not the pick.
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const longOnly = {
+      ...bot.weapon,
+      id: "long-only",
+      rangeMax: 100,
+      dpsProfile: { close: 0, mid: 0, long: 300 },
+    };
+    const midWeapon = {
+      ...bot.weapon,
+      id: "mid",
+      rangeMax: 100,
+      dpsProfile: { close: 0, mid: 30, long: 0 },
+    };
+    bot.weapons = [longOnly, midWeapon];
+    bot.ammo.set("long-only", 50);
+    bot.ammo.set("mid", 50);
+    bot.tactics = { ...bot.tactics, preferredRange: "mid" };
+    expect(bestWeaponOverall(state, bot).id).toBe("mid");
   });
 
   it("never takes an empty weapon", () => {
@@ -540,5 +561,166 @@ describe("bestWeaponOverall", () => {
     bot.ammo.set("full", 10);
     bot.ammo.set("empty", 0);
     expect(bestWeaponOverall(state, bot).id).toBe("full");
+  });
+});
+
+describe("a tactic has a cost and a benefit", () => {
+  it("makes a bold bot shoot sooner than a careful one", () => {
+    // Section 7.20.16: the job of aggression is in the fight. Letting it
+    // discount the danger map instead lost 17 points of win rate.
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const discount = state.config.aggressionReactionDiscount;
+
+    bot.tactics = { ...bot.tactics, aggression: 0.1 };
+    const careful = effectiveReaction(bot, "mid", discount);
+    bot.tactics = { ...bot.tactics, aggression: 0.9 };
+    expect(effectiveReaction(bot, "mid", discount)).toBeLessThan(careful);
+  });
+
+  it("keeps the danger map a question of the ground alone", () => {
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    updateInfluence(state);
+    const cell = botCell(state.bots[3] as BotState);
+
+    bot.tactics = { ...bot.tactics, aggression: 0.1, hazardTolerance: 0.3 };
+    const careful = dangerFor(state, bot, cell);
+    bot.tactics = { ...bot.tactics, aggression: 0.9, hazardTolerance: 0.3 };
+    expect(dangerFor(state, bot, cell)).toBe(careful);
+    bot.tactics = { ...bot.tactics, hazardTolerance: 0.9 };
+    expect(dangerFor(state, bot, cell)).toBeLessThan(careful);
+  });
+
+  it("makes a pickup on dangerous ground worth less", () => {
+    // Section 7.8: a run across the arena is the cost of item control.
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const pickup = state.pickups.find((candidate) => candidate.point.kind === "health");
+    expect(pickup).toBeDefined();
+    bot.health = 10;
+    // Commit the bot to this point, so both readings score the same run.
+    bot.action = { kind: "SeekPickup", slotId: pickup!.point.slotId };
+
+    updateInfluence(state);
+    const safe = scoreOf(state, bot, "SeekPickup");
+
+    // Put every enemy on the point, which makes the ground dangerous.
+    for (const enemy of state.bots.filter((other) => other.teamId !== bot.teamId)) {
+      enemy.pos = cellCenter(pickup!.point.cell);
+    }
+    state.influence.updatedAtTick = -1;
+    updateInfluence(state);
+    const risky = scoreOf(state, bot, "SeekPickup");
+
+    expect(safe).toBeGreaterThan(0);
+    expect(risky).toBeLessThan(safe);
+  });
+});
+
+describe("healing is for between fights", () => {
+  it("leaves a health point alone while an enemy is in sight", () => {
+    // Section 2.1 wants fast combat. A bot that breaks off to heal in the
+    // middle of a fight makes the round slow and the fighting careful.
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const enemy = state.bots[3] as BotState;
+    bot.health = 10;
+    updatePerception(state);
+
+    bot.visibleEnemyIds = [];
+    const alone = scoreOf(state, bot, "SeekPickup");
+    expect(alone).toBeGreaterThan(0);
+
+    bot.visibleEnemyIds = [enemy.id];
+    for (const entry of scoreActions(state, bot)) {
+      const action = entry.action;
+      if (action.kind !== "SeekPickup") continue;
+      const kind = state.pickups.find((p) => p.point.slotId === action.slotId)?.point.kind;
+      expect(["health", "armor"]).not.toContain(kind);
+    }
+  });
+
+  it("still contests a weapon, its ammo, and a power-up under fire", () => {
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const enemy = state.bots[3] as BotState;
+    bot.visibleEnemyIds = [enemy.id];
+    updatePerception(state);
+
+    const contestable = state.pickups.filter(
+      (pickup) => !["health", "armor"].includes(pickup.point.kind),
+    );
+    if (contestable.length === 0) return;
+    // Nothing removes these kinds from the list that the bot scores.
+    for (const entry of scoreActions(state, bot)) {
+      const action = entry.action;
+      if (action.kind !== "SeekPickup") continue;
+      const kind = state.pickups.find((p) => p.point.slotId === action.slotId)?.point.kind;
+      expect(["health", "armor"]).not.toContain(kind);
+    }
+  });
+});
+
+describe("a weapon swap has a cost", () => {
+  function twoWeapons(bot: BotState): { held: Weapon; better: Weapon } {
+    const held = { ...bot.weapon, id: "held", rangeMax: 100, dpsProfile: { close: 20, mid: 20, long: 20 } };
+    const better = { ...bot.weapon, id: "better", rangeMax: 100, dpsProfile: { close: 22, mid: 22, long: 22 } };
+    bot.weapons = [bot.weapon, held, better];
+    bot.weapon = held;
+    bot.ammo.set("held", 50);
+    bot.ammo.set("better", 50);
+    return { held, better };
+  }
+
+  it("swaps for free when the bot sees nobody", () => {
+    // This is where a role and a doctrine arm a bot (Section 7.20.17).
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    twoWeapons(bot);
+    bot.visibleEnemyIds = [];
+    equipBestWeapon(state, bot);
+    expect(bot.weapon.id).toBe("better");
+    expect(bot.fireCooldownTicks).toBe(0);
+  });
+
+  it("keeps a weapon that is only a little worse while a fight runs", () => {
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const enemy = state.bots[3] as BotState;
+    twoWeapons(bot);
+    bot.pos = cellCenter({ x: enemy.pos.x, y: enemy.pos.y });
+    bot.visibleEnemyIds = [enemy.id];
+    equipBestWeapon(state, bot);
+    expect(bot.weapon.id).toBe("held");
+  });
+
+  it("pays the cost for a weapon that is clearly better", () => {
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const enemy = state.bots[3] as BotState;
+    const { better } = twoWeapons(bot);
+    better.dpsProfile = { close: 90, mid: 90, long: 90 };
+    bot.weapons = [bot.weapons[0]!, bot.weapon, better];
+    bot.visibleEnemyIds = [enemy.id];
+    equipBestWeapon(state, bot);
+    expect(bot.weapon.id).toBe("better");
+    expect(bot.fireCooldownTicks).toBe(state.config.weaponSwapTicks);
+    expect(bot.aimTicks).toBe(0);
+  });
+
+  it("raises the weapon that the tournament priority names", () => {
+    const state = roomState();
+    const bot = state.bots[0] as BotState;
+    const plain = { ...bot.weapon, id: "plain", archetype: "assault" as const, rangeMax: 100, dpsProfile: { close: 30, mid: 30, long: 30 } };
+    const wanted = { ...bot.weapon, id: "wanted", archetype: "marksman" as const, rangeMax: 100, dpsProfile: { close: 22, mid: 22, long: 22 } };
+    bot.weapons = [plain, wanted];
+    bot.ammo.set("plain", 50);
+    bot.ammo.set("wanted", 50);
+
+    bot.tactics = { ...bot.tactics, weaponRolePref: null };
+    expect(bestWeaponAt(state, bot, 10).id).toBe("plain");
+    bot.tactics = { ...bot.tactics, weaponRolePref: "marksman" };
+    expect(bestWeaponAt(state, bot, 10).id).toBe("wanted");
   });
 });

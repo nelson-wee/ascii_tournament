@@ -2,7 +2,13 @@
  * Pickups, power-ups, and the spawn table (dev-guide Section 7.12, M8).
  */
 import { describe, expect, it } from "vitest";
-import { loadTestArena, parseArenaText } from "../src/arena/index.js";
+import {
+  cellIndex,
+  isContested,
+  loadTestArena,
+  parseArenaText,
+  pickupEvenness,
+} from "../src/arena/index.js";
 import { loadPickups } from "../src/core/data.js";
 import { EventBus } from "../src/core/events.js";
 import { createRng } from "../src/core/rng.js";
@@ -13,7 +19,9 @@ import {
   createSimState,
   damageMultiplierOf,
   pickupValue,
+  readyPickupCells,
   rollSpawnTable,
+  respawn,
   takePickup,
   updatePickups,
   updatePowerups,
@@ -127,7 +135,10 @@ describe("takePickup", () => {
     // Section 7.12: the ammo is universal, not weapon by weapon.
     const state = itemState();
     const bot = firstBot(state);
-    for (const weapon of bot.weapons.slice(1)) bot.ammo.set(weapon.id, 0);
+    for (const weapon of state.runWeapons.slice(1)) {
+      bot.weapons.push(weapon);
+      bot.ammo.set(weapon.id, 0);
+    }
     expect(takePickup(state, bot, pickupOf(state, "ammo"))).toBe(true);
     for (const weapon of bot.weapons.slice(1)) {
       const left = bot.ammo.get(weapon.id) ?? 0;
@@ -135,15 +146,43 @@ describe("takePickup", () => {
     }
   });
 
-  it("gives a weapon point its full magazine", () => {
+  it("gives the weapon itself, with a full magazine", () => {
+    // Section 7.12: a weapon point is the only way to a generated weapon.
     const state = itemState();
     const bot = firstBot(state);
     const pickup = pickupOf(state, "weapon");
-    const weapon = bot.weapons.find((candidate) => candidate.id === pickup.itemId);
+    const weapon = state.runWeapons.find((candidate) => candidate.id === pickup.itemId);
     expect(weapon).toBeDefined();
-    bot.ammo.set(weapon!.id, 0);
+    expect(bot.weapons).toHaveLength(1);
+
     expect(takePickup(state, bot, pickup)).toBe(true);
+    expect(bot.weapons.map((held) => held.id)).toContain(weapon!.id);
     expect(bot.ammo.get(weapon!.id)).toBe(weapon!.ammoMax);
+  });
+
+  it("refills a weapon that the bot already carries", () => {
+    const state = itemState();
+    const bot = firstBot(state);
+    const pickup = pickupOf(state, "weapon");
+    takePickup(state, bot, pickup);
+    pickup.ready = true;
+    const held = bot.weapons.length;
+    bot.ammo.set(pickup.itemId, 0);
+
+    expect(takePickup(state, bot, pickup)).toBe(true);
+    expect(bot.weapons).toHaveLength(held);
+    const weapon = state.runWeapons.find((candidate) => candidate.id === pickup.itemId);
+    expect(bot.ammo.get(pickup.itemId)).toBe(weapon!.ammoMax);
+  });
+
+  it("gives nothing when the bot already carries a full one", () => {
+    const state = itemState();
+    const bot = firstBot(state);
+    const pickup = pickupOf(state, "weapon");
+    takePickup(state, bot, pickup);
+    pickup.ready = true;
+    expect(takePickup(state, bot, pickup)).toBe(false);
+    expect(pickup.ready).toBe(true);
   });
 
   it("emits one event with the team that took the item", () => {
@@ -295,5 +334,185 @@ describe("applyPickups", () => {
       takenBy.add(winner?.teamId ?? "none");
     }
     expect(takenBy.size).toBeGreaterThan(1);
+  });
+});
+
+describe("the weapon economy", () => {
+  it("starts a bot on the baseline weapon alone", () => {
+    // Section 7.12: the arena decides who holds what. Before this, every bot
+    // spawned with every weapon, so a weapon point only refilled ammo and the
+    // prize weapon was free (Section 3.1 of the M8 weapon analysis).
+    const state = itemState();
+    for (const bot of state.bots) {
+      expect(bot.weapons).toHaveLength(1);
+      expect(bot.weapons[0]!.id).toBe(state.runWeapons[0]!.id);
+      expect(bot.weapon.id).toBe(state.runWeapons[0]!.id);
+    }
+    expect(state.runWeapons.length).toBeGreaterThan(1);
+  });
+
+  it("keeps the weapons it found when a bot dies, and starts on the baseline", () => {
+    // Section 7.3: the baseline is a fallback. Dropping every weapon on death
+    // made it the main weapon, at 43 % of the kills.
+    const state = itemState();
+    const bot = firstBot(state);
+    takePickup(state, bot, pickupOf(state, "weapon"));
+    const held = bot.weapons.length;
+    expect(held).toBeGreaterThan(1);
+
+    bot.alive = false;
+    bot.health = 0;
+    respawn(state, bot);
+    expect(bot.weapons).toHaveLength(held);
+    expect(bot.weapon.id).toBe(state.runWeapons[0]!.id);
+  });
+
+  it("wants a weapon that beats the one it holds, and not one that does not", () => {
+    const state = itemState();
+    const bot = firstBot(state);
+    const pickup = pickupOf(state, "weapon");
+    const weapon = state.runWeapons.find((candidate) => candidate.id === pickup.itemId)!;
+
+    const strong = { ...weapon, dpsProfile: { close: 200, mid: 200, long: 200 } };
+    const weak = { ...weapon, dpsProfile: { close: 1, mid: 1, long: 1 } };
+    state.runWeapons = [state.runWeapons[0]!, strong];
+    pickup.itemId = strong.id;
+    const worthTaking = pickupValue(state, bot, pickup);
+
+    state.runWeapons = [state.runWeapons[0]!, weak];
+    const notWorthTaking = pickupValue(state, bot, pickup);
+
+    expect(worthTaking).toBeGreaterThan(notWorthTaking);
+    expect(worthTaking).toBeGreaterThan(0.5);
+  });
+});
+
+describe("rollSpawnTable placement", () => {
+  it("mirrors a weapon point that one team reaches first", () => {
+    // Section 7.2.1: a point outside a conflict zone belongs to the nearer
+    // team, so the only fair answer is the same weapon at the same distance.
+    const map = loadTestArena();
+    const weapons = generateWeaponSet(createRng(5, "weapons"), 5, { ticksPerSecond: 20 });
+    const table = rollSpawnTable(map, weapons, createRng(5, "weapons"));
+    const evenness = pickupEvenness(map);
+    const points = map.pickups.filter((point) => point.kind === "weapon");
+
+    for (const point of points) {
+      if (isContested(evenness, point.slotId)) continue;
+      const image = { x: map.width - 1 - point.cell.x, y: map.height - 1 - point.cell.y };
+      const partner = points.find(
+        (other) => other.cell.x === image.x && other.cell.y === image.y,
+      );
+      expect(partner, `the point ${point.slotId} has no partner`).toBeDefined();
+      expect(table.slots[partner!.slotId]).toBe(table.slots[point.slotId]);
+    }
+  });
+
+  it("lets a weapon point in a conflict zone hold its own weapon", () => {
+    // Both teams arrive together, so the point is fair on its own and the run
+    // can offer more of what it generated.
+    const map = loadTestArena();
+    const evenness = pickupEvenness(map);
+    const contested = map.pickups.filter(
+      (point) => point.kind === "weapon" && isContested(evenness, point.slotId),
+    );
+    expect(contested.length).toBeGreaterThan(1);
+
+    const weapons = generateWeaponSet(createRng(11, "weapons"), 5, { ticksPerSecond: 20 });
+    const table = rollSpawnTable(map, weapons, createRng(11, "weapons"));
+    const offered = contested.map((point) => table.slots[point.slotId]);
+    expect(new Set(offered).size).toBe(offered.length);
+  });
+
+  it("never offers the baseline weapon, and offers every weapon it can", () => {
+    const map = loadTestArena();
+    const weapons = generateWeaponSet(createRng(5, "weapons"), 5, { ticksPerSecond: 20 });
+    const table = rollSpawnTable(map, weapons, createRng(5, "weapons"));
+    const placed = map.pickups
+      .filter((point) => point.kind === "weapon")
+      .map((point) => table.slots[point.slotId]);
+    expect(placed).not.toContain(weapons[0]!.id);
+    expect(new Set(placed).size).toBe(weapons.length - 1);
+  });
+
+  it("puts the best weapon on the most contested pair", () => {
+    // Section 7.12: the prize must not favour one side.
+    const map = loadTestArena();
+    const weapons = generateWeaponSet(createRng(9, "weapons"), 5, { ticksPerSecond: 20 });
+    const table = rollSpawnTable(map, weapons, createRng(9, "weapons"));
+    const best = [...weapons.slice(1)].sort(
+      (a, b) => b.budgetUsed - a.budgetUsed || a.id.localeCompare(b.id),
+    )[0]!;
+
+    const points = map.pickups.filter((point) => point.kind === "weapon");
+    const evenness = pickupEvenness(map);
+    const chosen = points.filter((point) => table.slots[point.slotId] === best.id);
+    expect(chosen.length).toBeGreaterThan(0);
+    const chosenScore = Math.min(...chosen.map((point) => evenness.get(point.slotId) ?? Infinity));
+    for (const point of points) {
+      expect(chosenScore).toBeLessThanOrEqual((evenness.get(point.slotId) ?? Infinity) + 1e-9);
+    }
+  });
+});
+
+describe("readyPickupCells", () => {
+  it("holds every point at the start of a round", () => {
+    const state = itemState();
+    expect(readyPickupCells(state).size).toBe(state.pickups.length);
+  });
+
+  it("drops a point that a bot emptied, and takes it back on the timer", () => {
+    // Section 7.12: the display draws a glyph only for a point that holds its
+    // item, so a bare pad reads as floor.
+    const state = itemState();
+    const bot = firstBot(state);
+    const pickup = pickupOf(state, "health");
+    const cell = cellIndex(state.map, pickup.point.cell.x, pickup.point.cell.y);
+    expect(readyPickupCells(state).has(cell)).toBe(true);
+
+    bot.health = 10;
+    takePickup(state, bot, pickup);
+    expect(readyPickupCells(state).has(cell)).toBe(false);
+
+    state.tick = pickup.readyAtTick;
+    updatePickups(state);
+    expect(readyPickupCells(state).has(cell)).toBe(true);
+  });
+});
+
+describe("the spawn table is symmetric", () => {
+  it("gives the two power-up points that face each other the same power-up", () => {
+    // Section 7.2.1: a roll per point gave one team the double damage and the
+    // other the shield belt.
+    const map = loadTestArena();
+    const weapons = generateWeaponSet(createRng(1, "weapons"), 5, { ticksPerSecond: 20 });
+    for (let seed = 1; seed <= 20; seed += 1) {
+      const table = rollSpawnTable(map, weapons, createRng(seed, "weapons"));
+      const points = map.pickups.filter((point) => point.kind === "powerup");
+      for (const point of points) {
+        const image = { x: map.width - 1 - point.cell.x, y: map.height - 1 - point.cell.y };
+        const partner = points.find(
+          (other) => other.cell.x === image.x && other.cell.y === image.y,
+        );
+        expect(partner).toBeDefined();
+        expect(table.slots[partner!.slotId]).toBe(table.slots[point.slotId]);
+      }
+    }
+  });
+
+  it("gives both teams the same offer on every point that one team owns", () => {
+    const map = loadTestArena();
+    const evenness = pickupEvenness(map);
+    const weapons = generateWeaponSet(createRng(3, "weapons"), 5, { ticksPerSecond: 20 });
+    const table = rollSpawnTable(map, weapons, createRng(3, "weapons"));
+    for (const point of map.pickups) {
+      if (isContested(evenness, point.slotId)) continue;
+      const image = { x: map.width - 1 - point.cell.x, y: map.height - 1 - point.cell.y };
+      const partner = map.pickups.find(
+        (other) => other.cell.x === image.x && other.cell.y === image.y,
+      );
+      expect(partner, `the point ${point.slotId} has no partner`).toBeDefined();
+      expect(table.slots[partner!.slotId]).toBe(table.slots[point.slotId]);
+    }
   });
 });

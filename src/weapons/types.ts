@@ -55,7 +55,9 @@ export type Archetype =
   | "splash"
   | "denial"
   | "versatile"
-  | "baseline";
+  | "baseline"
+  /** The Redeemer of Section 7.20.18. It is not generated and not priced. */
+  | "redeemer";
 
 /** The distance bands of a DPS profile and of a kill event. */
 export type RangeBand = "close" | "mid" | "long";
@@ -119,7 +121,24 @@ export interface Weapon {
   reactionByBand: BandValues;
   dpsProfile: DpsProfile;
   budgetUsed: number;
+  /**
+   * How far the shot turns toward its target each tick, in radians. 0 or absent
+   * means the shot flies straight. Only the Redeemer uses it
+   * (Section 7.20.18); the generator never sets it.
+   */
+  homingTurnRate?: number;
+  /**
+   * How much damage the shot itself takes before it detonates early. 0 or
+   * absent means nothing can shoot it down.
+   */
+  projectileHealth?: number;
 }
+
+/**
+ * The tier of a weapon that a power-up hands over. It sits outside the power
+ * budget of Section 7.3, and a bot loses it when it dies (Section 7.20.18).
+ */
+export const POWERUP_TIER = "powerup";
 
 /** The range band of a distance, from the two limits. */
 export function bandOfDistance(distance: number, closeMax: number, midMax: number): RangeBand {

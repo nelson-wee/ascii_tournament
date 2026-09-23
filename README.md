@@ -4,9 +4,59 @@ An ASCII team shooter tournament with indirect control. The player sets the
 tactics of a team of three bots. The bots fight. The player does not control a
 bot directly.
 
-The full design is in [`docs/dev-guide.md`](docs/dev-guide.md).
+The full design is in [`docs/dev-guide.md`](docs/dev-guide.md). The measured
+state of the weapons and the balance after M8 is in
+[`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md).
 
 ## Status
+
+**After M8 — the weapon economy.** A bot spawns with the baseline weapon alone
+and takes the generated weapons from the weapon points of the arena, which makes
+the arena decide who is armed. A pair of points that face each other holds the
+same item, so a symmetric arena gives both teams the same offer. A cone now
+declares the range it really has, the power budget weighs the range bands the
+way the arena fires in them, a projectile leads a moving target and carries its
+critical hit, and the AI aims an area weapon at the enemy that lines up two. A
+pickup point shows its glyph only while it holds its item.
+
+A second pass made the arena decide the contest and gave a weapon choice a
+price. An arena must now pass `checkArenaFairness`: a power-up and at least one
+weapon point sit on ground that both teams reach together, which is an
+acceptance rule for the generator of Milestone M7. The `retreatThreshold` tactic
+is gone — a bot takes health or armour only when it has no enemy to engage,
+while weapons, ammo and power-ups stay worth fighting for — and a weapon swap
+costs firing ticks inside a fight but nothing outside one, so a team arms itself
+by its role and its doctrine before contact.
+
+A third pass added the **Redeemer**: a power-up that hands over one shot, a slow
+homing projectile with a six-cell blast that kills a whole bot at the centre,
+leaves one alive at the edge, and can be shot down in the air — where it
+detonates on the spot. It is a fixed file outside the power budget, because a
+single event is not a damage-per-second profile. Power-ups now spawn about three
+times in a round, and one match in four offers a Redeemer.
+
+Over 1080 rounds: aggressive 53.9 %, anchor 40.9 %, balanced 55.0 %, no balance
+failure, and every round reaches the score limit. The tournament weapon priority
+is now worth 11 points of win rate, and item control fell from a 36-point spread
+to 20. [`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md) holds the
+measurements and the questions that are still open.
+[`docs/m8-weapon-analysis.md`](docs/m8-weapon-analysis.md) holds the
+measurements and the two balance questions that are still open.
+
+**Milestone M7 (first pass) — arena generation.** Three generators, each with
+its own algorithm and its own shape of fight: `bastion` carves a grid of rooms
+and corridors and fights at 8.4 cells, `cavern` grows a cave from noise with a
+cellular automaton and fights at 10.6, and `openfield` starts from an open field
+and drops obstacles into it, which keeps the fire lanes and gives it five times
+the long-range share of the hand-made arena. Every style runs one pipeline —
+turn the first half onto the second, join what the turn broke, place the spawns
+and the pickups on ground both teams reach together, measure, and reject an
+arena that fails a rule — so fairness is not a style question.
+
+`npm run arena` prints an arena and its metrics. `npm run arena -- --stats 25`
+compares the styles. The batch harness takes `gen:<style>:<seed>` as an arena,
+so a style can be measured in play. The macro graph of Section 7.2 step 1 is
+still to come.
 
 **Milestone M8 — teams, roles, matches, and pickups.** A full best-of-3 match
 plays in the browser. Between the rounds the tactics screen opens and the
@@ -76,6 +126,7 @@ and FOV, the baseline weapon, and the round end condition (M3).
 | `npm run typecheck` | Typecheck only. |
 | `npm run lint` | Run ESLint. |
 | `npm run batch` | Run the headless batch harness (see below). |
+| `npm run arena` | Print a generated arena and its metrics (see below). |
 
 ## Rules for the code
 
@@ -119,6 +170,30 @@ so the number passes 1.
 It writes `rounds.csv`, `matchups.csv`, and `presets.csv` into the output
 folder. With `--fail-on-balance` the command ends with a non-zero exit code
 when it finds a balance failure, so a workflow can use it as a gate.
+
+## Arena generation
+
+`npm run arena` builds an arena and prints it in the glyphs of the map files, so
+a generated arena can be read by eye and saved as a hand-made one.
+
+```
+npm run arena                                # one of each style
+npm run arena -- --style cavern --seed 7
+npm run arena -- --style openfield --count 3
+npm run arena -- --stats 40                  # metrics over 40 seeds per style
+```
+
+| Style | Algorithm | Fight |
+|---|---|---|
+| `bastion` | a grid of rooms, carved, with corridors and extra doors | closed, 8.4 cells, 57 % close range |
+| `cavern` | noise, then a cellular automaton | organic, 10.6 cells |
+| `openfield` | an open field with obstacles dropped into it | open, 11.4 cells, 6.3 % long range |
+
+`data/arena-profiles.json` holds the parameters and the rules. A style may
+replace a rule, because a closed arena cannot meet the sightline rule of an open
+one. Every arena must pass `checkArenaFairness`: a power-up point and one weapon
+point on ground that both teams reach together, and every pickup point paired
+with the point it faces.
 
 ## Arena map files
 

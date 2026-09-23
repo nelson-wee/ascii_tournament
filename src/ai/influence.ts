@@ -142,5 +142,10 @@ export function updateInfluence(state: SimState): void {
  * Section 7.9: the tactic controls how much a bot avoids danger.
  */
 export function dangerFor(state: SimState, bot: BotState, cell: Cell): number {
+  // Only `hazardTolerance` decides how much danger a bot sees. Letting
+  // `aggression` discount it as well was measured and reverted: a bold bot
+  // walked into danger and died, and aggression 0.9 lost 17 points of win rate
+  // to aggression 0.1 (Section 7.20.16). Danger is about the ground; the job of
+  // aggression is in the fight, in `effectiveReaction`.
   return dangerAt(state.influence, cell.x, cell.y) * (1 - bot.tactics.hazardTolerance);
 }
