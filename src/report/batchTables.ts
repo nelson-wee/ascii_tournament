@@ -228,6 +228,7 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       ...roles.map((role) => `kills_role_${role}`),
       ...roles.map((role) => `deaths_role_${role}`),
       ...kinds.map((kind) => `pickups_${kind}`),
+      "archetypesInSet",
       ...archetypes.map((archetype) => `kills_${archetype}`),
     ],
   ];
@@ -254,6 +255,7 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       ...roles.map((role) => round.killsByRole[role] ?? 0),
       ...roles.map((role) => round.deathsByRole[role] ?? 0),
       ...kinds.map((kind) => round.pickupsByKind[kind] ?? 0),
+      round.weaponArchetypes.join(";"),
       ...archetypes.map((archetype) => round.killsByArchetype[archetype] ?? 0),
     ]);
   }

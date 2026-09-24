@@ -136,6 +136,8 @@ interface StyleResult {
   pickupsPerRound: Map<string, number>;
   /** Win rate of each tactics preset with each role mix. */
   byPresetComposition: Map<string, WinRecord>;
+  /** Rounds that held each archetype, and the kills it made in them. */
+  byArchetype: Map<string, { rounds: number; kills: number }>;
 }
 
 function bump<K>(map: Map<K, number>, key: K, by: number): void {
@@ -172,6 +174,16 @@ function measure(
   let distanceSum = 0;
   let kills = 0;
 
+  const byArchetype = new Map<string, { rounds: number; kills: number }>();
+  const archetype = (name: string): { rounds: number; kills: number } => {
+    let value = byArchetype.get(name);
+    if (!value) {
+      value = { rounds: 0, kills: 0 };
+      byArchetype.set(name, value);
+    }
+    return value;
+  };
+
   const role = (name: string): { kills: number; deaths: number; botRounds: number } => {
     let value = byRole.get(name);
     if (!value) {
@@ -194,6 +206,14 @@ function measure(
     for (const name of compositions[round.compA] ?? STANDARD_COMPOSITION) role(name).botRounds += 1;
     for (const name of compositions[round.compB] ?? STANDARD_COMPOSITION) role(name).botRounds += 1;
 
+    // A share of the kills says how much fighting an archetype did. Kills over
+    // the rounds that held it say how good it is, which is not the same thing:
+    // the generator makes some archetypes far more often than others.
+    for (const name of round.weaponArchetypes) archetype(name).rounds += 1;
+    for (const [name, count] of Object.entries(round.killsByArchetype)) {
+      archetype(name).kills += count;
+    }
+
     const resultA = round.winner === "A" ? "win" : round.winner === "B" ? "loss" : "draw";
     const resultB = round.winner === "B" ? "win" : round.winner === "A" ? "loss" : "draw";
     tally(byPresetComposition, `${round.teamA}|${round.compA}`, resultA);
@@ -215,6 +235,7 @@ function measure(
     byRole,
     pickupsPerRound,
     byPresetComposition,
+    byArchetype,
   };
 }
 
@@ -382,6 +403,34 @@ function report(results: StyleResult[]): string {
           }),
         ]),
         [false, ...styles.map(() => true)],
+      ),
+  );
+
+  parts.push(
+    "WEAPONS: kills in one round that held the archetype, and how often it is made\n" +
+      table(
+        [
+          "archetype",
+          ...styles.flatMap((style) => [`${style} in set`, `${style} kills/round`]),
+        ],
+        archetypes.map((name) => [
+          name,
+          ...results.flatMap((result) => {
+            const value = result.byArchetype.get(name);
+            if (!value || value.rounds === 0) {
+              // An archetype that no weapon set held still takes kills: the
+              // Redeemer comes from a power-up, not from the set.
+              const kills = result.summary.killsByArchetype.get(name) ?? 0;
+              const rounds = Math.max(1, result.summary.rounds);
+              return ["not in a set", (kills / rounds).toFixed(2)];
+            }
+            return [
+              percent(value.rounds / Math.max(1, result.summary.rounds)),
+              (value.kills / value.rounds).toFixed(2),
+            ];
+          }),
+        ]),
+        [false, ...styles.flatMap(() => [true, true])],
       ),
   );
 

@@ -198,6 +198,7 @@ export function runPlannedRound(
     killsByRole,
     deathsByRole,
     pickupsByKind,
+    weaponArchetypes: [...new Set(weapons.map((weapon) => weapon.archetype))].sort(),
   };
 }
 

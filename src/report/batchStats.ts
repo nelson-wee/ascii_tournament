@@ -48,6 +48,16 @@ export interface RoundRecord {
   deathsByRole: Readonly<Record<string, number>>;
   /** Items taken, by kind (Section 7.12). */
   pickupsByKind: Readonly<Record<string, number>>;
+  /**
+   * The archetypes that the weapon set of this round held, the baseline
+   * included (Section 7.20.4).
+   *
+   * A share of the kills says how much of the fighting an archetype did, not
+   * how good it is: the generator makes some archetypes far more often than
+   * others, so a rare archetype reads as weak when it is strong. Divide the
+   * kills by the rounds that held the archetype, and the two come apart.
+   */
+  weaponArchetypes: readonly string[];
 }
 
 export interface WinRecord {
