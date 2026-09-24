@@ -4,6 +4,22 @@ This is a measurement, not a design. It reports what the engine does now, on
 **7290 rounds** over the three arena styles of dev-guide Section 7.20.19, and
 it names the defects that the numbers show. It changes no game value.
 
+A second batch of **6480 rounds** sweeps one tactic at a time, so the
+measurements below rest on 13770 rounds in all.
+
+## The short answer
+
+| Question | What 13770 rounds say |
+|---|---|
+| Does the ground change the fight? | Yes. 2.8 cells of kill distance and 22 points of close-range share. |
+| Does it change which tactic wins? | Yes, by about 7 points. `aggressive` owns `bastion`; `balanced` owns the other two. |
+| Which tactic is the strongest? | A mid-range preference, on every style. A close preference costs 9 to 11 points, and nothing on `cavern`. |
+| Does naming a weapon help? | No. Every weapon preference is level with or below no preference, on every style. |
+| Does the role mix matter? | More than the ground. `rush` beats `turtle` by 7 to 14 points on every style. |
+| Which weapon is the best? | `denial`, by 2.7 times, and its share of the kills hides it. |
+| Does any weapon answer the ground? | Only `splash`. The rest are flat, and Section 8.1 says why. |
+| Is the engine fair to both sides? | No. Team B wins 53.1 % of all rounds. |
+
 ## 0. How to run it again
 
 ```
@@ -15,10 +31,13 @@ npm run styles -- --config data/batch-tactics.json --rounds 2160 --arenas 3 \
 | Setting | Value |
 |---|---|
 | Rounds per style | 2430 (main batch), 2160 (tactics sweep) |
+| Rounds in all | 7290 + 6480 = 13770 |
 | Arenas per style | 3, from sub-seeds of the batch seed |
 | Seed | 20260924 |
-| Presets | `balanced`, `aggressive`, `anchor` of `data/batch.json` |
-| Role mixes | `standard`, `rush`, `turtle` of `data/batch.json` |
+| Presets, main batch | `balanced`, `aggressive`, `anchor` of `data/batch.json` |
+| Presets, sweep | six of `data/batch-tactics.json`, one tactic moved at a time |
+| Role mixes, main batch | `standard`, `rush`, `turtle` of `data/batch.json` |
+| Role mixes, sweep | `standard` alone |
 | Weapons | A new set of 5 per round, from the weapons stream |
 
 Every preset plays every other preset, and every role mix plays every other
@@ -31,7 +50,10 @@ three arenas. The round count is a whole number of passes over the plan, or the
 first cells of the plan would get one round more than the last.
 
 The standard error of a win rate is 50/√n, so a preset over 1620 rounds is
-±1.2 points, and a preset with a role mix over 540 rounds is ±2.2 points.
+±1.2 points, a preset of the sweep over 720 rounds is ±1.9, and a preset with a
+role mix over 540 rounds is ±2.2. A difference between two cells carries about
+1.4 times the error of one cell, so two cells of the sweep have to differ by
+more than about 5 points before the difference is real.
 
 ---
 
@@ -90,21 +112,62 @@ Two other numbers follow from the shape of the ground:
 | `anchor` | 43.0 ±1.2 | 44.7 ±1.2 | 43.3 ±1.2 |
 
 **The ground changes which tactic wins.** `aggressive` is the best preset on
-`bastion` and the worst of the two live presets on `openfield`: it loses **7.3
-points** when the ground opens. `balanced` does the opposite and gains 5.6
-points. The two cross over between the styles, which is what a set of arena
-styles is for.
+`bastion` and it loses **7.3 points** when the ground opens. `balanced` does
+the opposite and gains 5.6 points. The two cross over between the styles, which
+is what a set of arena styles is for: no preset is the answer to every arena.
 
-The reason is in Section 2. `aggressive` carries `preferredRange: close` and
-`hazardTolerance: 0.7`. On `bastion`, 56.8 % of the kills are already close, so
-the preset asks for the fight that the ground gives. On `openfield` only 34.7 %
-are, so the same preset walks bots across open ground to reach a band that the
-arena does not want to fight in.
+A preset moves seven tactics at once, so this table cannot say which of the
+seven did it. Section 3.1 takes them one at a time, and the answer is not the
+one that the vector suggests.
 
 **`anchor` is not a tactic, it is a handicap.** It wins 43.0, 44.7 and 43.3 on
 the three styles: it is the worst preset everywhere, and the ground does not
 change that. It is not a style-dependent preset with a home arena; it has no
 home arena. See Section 8.
+
+### 3.1 One tactic at a time
+
+A preset moves seven tactics at once, so it cannot say which one did the work.
+The second batch (`data/batch-tactics.json`) holds every tactic at the
+`balanced` value and moves one. `rangeMid` **is** `balanced`, so it is the
+control of both groups. One role mix only, so nothing is confounded with
+Section 4.
+
+| Preset | What it moves | bastion | openfield | cavern |
+|---|---|---:|---:|---:|
+| `rangeMid` | control | **53.9** ±1.9 | **52.4** ±1.9 | 51.0 ±1.9 |
+| `rangeLong` | `preferredRange: long` | 50.8 ±1.9 | 49.9 ±1.9 | 51.1 ±1.9 |
+| `rangeClose` | `preferredRange: close` | **45.1** ±1.9 | **41.5** ±1.8 | 51.1 ±1.9 |
+| `prefMarksman` | `weaponRolePref: marksman` | 51.8 ±1.9 | 51.9 ±1.9 | 48.8 ±1.9 |
+| `prefHeavy` | `weaponRolePref: heavy` | 49.2 ±1.9 | 54.2 ±1.9 | 47.9 ±1.9 |
+| `prefAssault` | `weaponRolePref: assault` | 49.2 ±1.9 | 50.1 ±1.9 | 50.1 ±1.9 |
+
+**A close preference is a cost, and `cavern` is the one place it is free.** It
+loses 8.8 points against the control on `bastion` and 10.9 on `openfield`, and
+nothing on `cavern` (51.1 against 51.0). Those are the only two differences in
+the whole sweep that pass the error. `cavern` is the style with no long lane at
+all (Section 1), so a bot that walks in never crosses open ground to do it; the
+three range preferences sit within a point of each other there.
+
+This corrects the easy reading of Section 3. `aggressive` wins `bastion`
+**in spite of** its close preference, not because of it: hold everything else
+at the `balanced` value and the close preference alone costs 8.8 points there.
+What `aggressive` wins with is the rest of its vector — `aggression: 0.9`,
+which buys a shorter reaction, and `holdPosition: 0.1`.
+
+**Naming a weapon pays nothing.** No weapon preference beats the control on any
+style. Six of the nine cells sit below it, and the three preferences pool to
+50.3 % against 52.4 % for the control, a cost of 2.1 points ±1.2. That is 1.7
+standard errors: it is a lean, not a proof. What the sweep does show is that
+naming a weapon **does not help on any style**, and a player who names one is
+not buying anything. Section 8.5 says what `weaponRolePrefBonus` may be doing.
+
+**The sweep is its own check on Section 2.** It holds fewer close-preferring
+bots than the main batch, and the fight moves the way it should: the
+close-range share falls from 56.8 % to 53.3 % on `bastion` and from 34.7 % to
+28.3 % on `openfield`, and the mean kill distance rises from 11.3 to 11.9 cells
+on `openfield`. The tactics move the fight in the same direction as the ground,
+and by less.
 
 ## 4. The mix of roles
 
@@ -153,7 +216,7 @@ Two things stand out.
 1. **What holds position, loses.** `anchor` carries `holdPosition: 0.65` and
    `turtle` carries two Overwatch bots, whose behavior weight for the same
    action is 1.35. Put them together and the team wins 32 % on every style. The
-   two multiply: the pair is 11 points below `anchor` alone and 14 below
+   two multiply: the pair is 12 points below `anchor` alone and 13 below
    `turtle` alone.
 2. **A weak preset is repaired by a fast mix.** `anchor` + `rush` wins 54.4,
    55.9 and 56.9, which is 11 to 15 points above `anchor` with any other mix.
@@ -185,8 +248,8 @@ Read against the share of the kills, which is the older reading:
 | `precision` | 14.8 % | 3.66 |
 | `denial` | 8.6 % | 9.93 |
 
-The share says that `precision` does twice the work of `denial`. The rounds say
-that `denial` is **2.7 times the weapon**. The share was measuring how often the
+The share says that `precision` does almost twice the work of `denial`. The
+rounds say that `denial` is **2.7 times the weapon**. The share was measuring how often the
 generator makes the archetype, not how good it is.
 
 **The ground barely moves a weapon.** Only two archetypes answer the style at
@@ -197,7 +260,7 @@ tightest style and 5.56 on the most open one — the long-range weapon does not
 care whether the arena has long lanes. Section 8 says why.
 
 **The fallback weapon is not a fallback.** `baseline` makes 6.0 to 7.5 kills in
-a round, above four of the seven generated archetypes, and it climbs as the
+a round, above five of the six generated archetypes on every style, and it climbs as the
 ground opens. It has `rangeMax: 30` on a 60×30 arena and a **flat DPS profile
 of 17.4 at every band**, so it has no distance at which it is weak. A generated
 weapon has to beat 17.4 at every band to be worth swapping to, and most do not.
@@ -224,31 +287,38 @@ rounds are the longest, so there is more time to take them.
 
 ---
 
-## 7. A defect that this batch found: a side bias on `openfield`
+## 7. A defect that this batch found: team B wins more than team A
 
 Section 7.16 says to check the mirror matchups of every batch. A preset against
-itself must sit near 50 %, and one that does not shows a side bias.
+itself must sit near 50 %, and one that does not shows a side bias. The two
+batches are independent, so each one measures it on its own.
 
-Team A win rate over all 2430 rounds of a style, where 50 % is fair:
+Team A win rate, where 50 % is fair:
 
-| Style | Team A | Distance from fair |
+| Style | Main batch (2430) | Tactics sweep (2160) |
 |---|---:|---:|
-| bastion | 48.6 % ±1.0 | 1.4 standard errors |
-| cavern | 48.4 % ±1.0 | 1.6 standard errors |
-| **openfield** | **44.6 % ±1.0** | **5.4 standard errors** |
+| bastion | 48.6 % ±1.0 | 45.5 % ±1.1 |
+| cavern | 48.4 % ±1.0 | 50.7 % ±1.1 |
+| openfield | **44.6 % ±1.0** | **43.8 % ±1.1** |
 
-The mirror matchups of `openfield` say the same: `aggressive` against itself
-wins 39.3 % ±3.0, `anchor` 43.7 % and `balanced` 43.3 %. All three arenas of
-the style show it (43.7 %, 43.3 %, 46.8 %), so it is the style and not one roll
-of the generator.
+Over all 13770 rounds team A wins **46.9 % ±0.4**, which is 7.2 standard errors
+below fair. **The engine gives team B an advantage of about 3 points.**
 
-Taken over all three styles, team A wins 47.2 % of 7290 rounds, which is 4.7
-standard errors below fair. **There is a side bias in the engine, and
-`openfield` makes it three times larger.**
+Two things follow, and the second one is why both batches were needed:
+
+1. **`openfield` shows it most.** It is 44.6 % and 43.8 % in two batches that
+   share no preset but one, and all three of its arenas show it in the main
+   batch (43.7 %, 43.3 %, 46.8 %). It is the style and not one roll of the
+   generator.
+2. **The size is not a property of the arena alone.** `bastion` reads 48.6 % in
+   one batch and 45.5 % in the other, and `cavern` reads 48.4 % and 50.7 %.
+   Those gaps are larger than their standard errors, so the bias moves with the
+   presets in the pool. A single batch would have called this an `openfield`
+   defect. It is an engine defect that `openfield` makes worse.
 
 **What it is not.** The distance from a team spawn to the pickup points is
-exactly equal for the two teams on every arena of every style (for example
-38.44 steps against 38.44 on `bastion-0`), which is the rule that
+exactly equal for the two teams on every arena of every style (38.44 steps
+against 38.44 on `bastion-0`, and so on), which is the rule that
 `pickupEvenness` holds. Fourteen of the eighteen points are uneven on their own,
 but they are uneven in mirrored pairs, so the totals match. The bias is not in
 the distance to the ground.
@@ -340,7 +410,22 @@ The decision is a design one, and this document does not take it. Either:
 - **drop the tactics block from the roles file**, so nothing in the data says
   something that the engine does not do.
 
-### 8.5 `anchor` and `turtle` need a job
+### 8.5 `weaponRolePrefBonus` is too strong to be a bias
+
+Section 7.20.8 calls the weapon preference a bias and not a rule, and the
+number is 0.6: a named archetype is worth 60 % more to the bot that names it.
+Section 3.1 measures what that buys, and it is nothing. No preference beats no
+preference on any style, and the three pool to 2.1 points ±1.2 below the
+control.
+
+A likely reason: a 60 % bonus is larger than the gap between most pairs of
+weapons in a set, so the preference stops being a tie-break and becomes an
+order. The bot then carries the weapon that the player named instead of the
+weapon that is worth more. That reading is not proved here. It would be, by a
+sweep of `weaponRolePrefBonus` itself: if the cost falls away as the number
+falls, the number is the cause.
+
+### 8.6 `anchor` and `turtle` need a job
 
 `anchor` wins 43 % on every style and `turtle` wins 46 %, 46 % and 44 %. Put
 them together and the team wins 32 %. Holding ground pays nothing at all now,
@@ -365,6 +450,6 @@ respawn.
 - **Why a weapon was fired.** The record holds the kills of a weapon, not the
   shots that it fired after it ran empty, so Section 6 cannot prove the ammo
   link that it proposes.
-- **The side bias of Section 7.** Found, sized, not explained.
+- **The side bias of Section 7.** Found, sized, replicated, not explained.
 - **Traits and progression** (M10) and a real doctrine (M11). A tactics preset
   stands in for a doctrine, as Section 7.16 says.

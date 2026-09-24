@@ -1824,6 +1824,50 @@ oldest go first. At 4× with three area weapons on the ground the cap is the
 only thing that bounds the cost of a frame, and nothing measures how often it
 is reached. A phone is not measured at all. TBD
 
+#### 7.20.22 What a batch of every style found
+
+`docs/arena-style-analysis.md` holds the measurement: 13770 rounds over the
+three styles, from `npm run styles`. The short of it, and what each line asks
+for:
+
+| Finding | Where it lives |
+|---|---|
+| The ground moves the fight by 2.8 cells and the close-range share by 22 points | The generator works (Section 7.20.19) |
+| `aggressive` owns `bastion` and loses 7.3 points on `openfield` | The styles pay for themselves |
+| A close preference costs 9 to 11 points, and nothing on `cavern` | `aggressive` wins `bastion` in spite of it |
+| Every `weaponRolePref` is level with or below no preference | `weaponRolePrefBonus` 0.6 is an order, not a bias |
+| `rush` beats `turtle` by 7 to 14 points on every style | Holding ground pays nothing yet |
+| `denial` makes 2.7 times the kills of `precision` | The price of a hazard tick (Section 7.3) |
+| One `bandShare` constant serves three styles that differ by 22 points | Section 7.3 and Section 7.8 read it |
+| The tactics block of `data/roles.json` never applies | Section 7.11 says merge; the code replaces |
+| Team B wins 53.1 % of all rounds | An engine defect that `openfield` makes worse |
+
+**The band share is the one to read first.** `data/weapon-roles.json` holds
+`close 0.50, mid 0.48, long 0.02` for the whole game. The measured share is
+56.8/41.8/1.4 on `bastion` and 34.7/60.0/5.3 on `openfield`. Both the power
+budget and `bestWeaponOverall` read the constant, so a bot on an open field
+values a close-range weapon as if half the fighting were close. That is why no
+weapon in the batch answers the ground: the AI cannot see the ground. The
+answer is a `bandShare` on the arena metrics of Section 7.7, measured by the
+generator, that the budget and the AI both read.
+
+It is the same pattern that M8 named: **a number that the budget charges for,
+or the AI reads, that does not mean what its name says.** Six instances are now
+on the list. The check has not changed: compare the modelled number against the
+measured one, per weapon, per band, per style.
+
+**Two rules that the batch itself taught.**
+
+1. **A share of the kills does not measure a weapon.** `denial` took 8.6 % of
+   the kills and `precision` 14.8 %, which reads as "precision is better". The
+   same rounds say `denial` was in a fifth of the sets and made 2.7 times the
+   kills of `precision` in a round that held it. Divide by the rounds that held
+   the archetype (Section 7.16).
+2. **One batch cannot name a defect.** The first batch read the side bias as an
+   `openfield` defect. The second batch put `bastion` at 45.5 % and `cavern` at
+   50.7 %, which moved with the presets in the pool, so the bias is in the
+   engine and `openfield` only makes it worse. Replicate before naming.
+
 ### 7.20 Design notes for M6: weapons, reaction order, and vision
 
 These notes come from the first 1000-round batch (Milestone M5). They set the
