@@ -555,6 +555,27 @@ export const WeaponRolesSchema = z
         rangeValueTailShare: unitRange,
       })
       .strict(),
+    /**
+     * What a generated weapon must beat to be worth taking (Section 7.3).
+     *
+     * The baseline is the fallback that every bot carries. It reaches every
+     * band and it never runs dry, and it pays for that with a lower level. A
+     * weapon from the ground that does not clear these lines is not a prize,
+     * so the generator throws it away and rolls again.
+     */
+    floor: z
+      .object({
+        _notes: z.string().optional(),
+        /** The band-weighted DPS, over the DPS of the baseline. */
+        meanDpsMargin: positiveNumber,
+        /** An assault weapon, in its best band, over the DPS of the baseline. */
+        assaultBestBandMargin: positiveNumber,
+        /** A precise weapon fires in this share of the baseline interval. */
+        preciseFireIntervalShare: unitRange,
+        /** A precise weapon answers in this share of the baseline reaction. */
+        preciseReactionShare: unitRange,
+      })
+      .strict(),
   })
   .strict();
 

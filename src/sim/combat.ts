@@ -199,7 +199,7 @@ const AREA_ATTACK_TYPES = new Set(["cone", "line", "burst", "tile"]);
 function releaseShot(state: SimState, bot: BotState, target: BotState): void {
   const { weapon } = bot;
   const aimAngle = Math.atan2(target.pos.y - bot.pos.y, target.pos.x - bot.pos.x);
-  const crit = critConditionMet(state, bot, target) && state.rng.bool(weapon.critChance);
+  const crit = critConditionMet(state, bot, target) && bot.rng.bool(weapon.critChance);
 
   switch (weapon.attackType) {
     case "cone":
@@ -207,7 +207,7 @@ function releaseShot(state: SimState, bot: BotState, target: BotState): void {
       applyConeDamage(state, bot, aimAngle, weapon);
       return;
     case "line":
-      if (!state.rng.bool(hitChance(state, bot, target))) return;
+      if (!bot.rng.bool(hitChance(state, bot, target))) return;
       applyLineDamage(state, bot, aimAngle, weapon, crit);
       return;
     case "projectile":
@@ -220,7 +220,7 @@ function releaseShot(state: SimState, bot: BotState, target: BotState): void {
       return;
     case "hitscan":
     default: {
-      if (!state.rng.bool(hitChance(state, bot, target))) return;
+      if (!bot.rng.bool(hitChance(state, bot, target))) return;
       const damage = weapon.damage * (crit ? state.config.critMultiplier : 1);
       damageBot(state, bot, target, damage, {
         weaponId: weapon.id,
@@ -341,7 +341,7 @@ function tryIntercept(state: SimState, bot: BotState): boolean {
     state.config.minHitChance,
     bot.attributes.accuracy * (1 - state.config.distanceFalloff * (distance / bot.weapon.rangeMax)),
   );
-  if (state.rng.bool(chance)) damageProjectile(state, shot, bot.weapon.damage);
+  if (bot.rng.bool(chance)) damageProjectile(state, shot, bot.weapon.damage);
   spendAmmo(state, bot);
   return true;
 }
@@ -357,7 +357,7 @@ export function respawn(state: SimState, bot: BotState): void {
         return at.x === cell.x && at.y === cell.y;
       }),
   );
-  const cell = state.rng.pick(free.length > 0 ? free : spawns);
+  const cell = bot.rng.pick(free.length > 0 ? free : spawns);
 
   bot.alive = true;
   bot.health = state.config.healthMax;

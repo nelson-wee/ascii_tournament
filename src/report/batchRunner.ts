@@ -128,9 +128,29 @@ export function runPlannedRound(
 
   const killsByArchetype: Record<string, number> = {};
   const shotsByWeapon: Record<string, number> = {};
+  const killsByBand: Record<string, number> = {};
+  const killsByRole: Record<string, number> = {};
+  const deathsByRole: Record<string, number> = {};
+  const pickupsByKind: Record<string, number> = {};
   let shots = 0;
   let hits = 0;
   let unawareKills = 0;
+  let killDistanceSum = 0;
+
+  // A bot id is the team letter and the slot, for example "A0". The slot is
+  // the index in the role order of the team, so the id names the role.
+  const rolesOf: Readonly<Record<string, readonly Role[]>> = {
+    A: compositions[round.compA] ?? STANDARD_COMPOSITION,
+    B: compositions[round.compB] ?? STANDARD_COMPOSITION,
+  };
+  const roleOf = (botId: unknown): string => {
+    const id = String(botId ?? "");
+    const order = rolesOf[id.slice(0, 1)];
+    const slot = Number(id.slice(1));
+    if (!order || !Number.isInteger(slot)) return "unknown";
+    return order[slot] ?? "unknown";
+  };
+
   for (const event of bus.log) {
     if (event.type === "Shot") {
       shots += 1;
@@ -138,9 +158,20 @@ export function runPlannedRound(
       shotsByWeapon[weapon] = (shotsByWeapon[weapon] ?? 0) + 1;
     } else if (event.type === "Hit") {
       hits += 1;
+    } else if (event.type === "PickupTaken") {
+      const kind = String(event.data["kind"] ?? "unknown");
+      pickupsByKind[kind] = (pickupsByKind[kind] ?? 0) + 1;
     } else if (event.type === "Kill") {
       const archetype = String(event.data["weaponArchetype"] ?? "unknown");
       killsByArchetype[archetype] = (killsByArchetype[archetype] ?? 0) + 1;
+      const band = String(event.data["rangeBand"] ?? "unknown");
+      killsByBand[band] = (killsByBand[band] ?? 0) + 1;
+      const distance = event.data["distance"];
+      if (typeof distance === "number") killDistanceSum += distance;
+      const killer = roleOf(event.data["killerId"]);
+      killsByRole[killer] = (killsByRole[killer] ?? 0) + 1;
+      const victim = roleOf(event.data["victimId"]);
+      deathsByRole[victim] = (deathsByRole[victim] ?? 0) + 1;
       if (event.data["targetAware"] === false) unawareKills += 1;
     }
   }
@@ -162,6 +193,12 @@ export function runPlannedRound(
     unawareKills,
     killsByArchetype,
     shotsByWeapon,
+    killsByBand,
+    killDistanceSum,
+    killsByRole,
+    deathsByRole,
+    pickupsByKind,
+    weaponArchetypes: [...new Set(weapons.map((weapon) => weapon.archetype))].sort(),
   };
 }
 

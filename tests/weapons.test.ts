@@ -223,14 +223,51 @@ describe("the shape of a role", () => {
 
 describe("the baseline weapon", () => {
   it("stays a viable fallback and not the best choice", () => {
-    // Section 7.3: the baseline must be viable. It must not beat the weapons
-    // that spend a full budget, or a bot never takes anything else.
+    // Section 7.3: the baseline trades its level for its reach. It works at
+    // every band and it never runs dry, so it must sit clearly below a weapon
+    // that spends a full budget, or a bot never takes anything else. It must
+    // also stay usable, or a bot that has found nothing yet is helpless.
     const baseline = loadBaselineWeapon();
     const generated = manyWeapons().map(meanDps).sort((a, b) => a - b);
     const median = generated[Math.floor(generated.length / 2)] as number;
     const base = meanDps(baseline);
     expect(base).toBeLessThan(median);
-    expect(base).toBeGreaterThan(median * 0.45);
+    expect(base).toBeGreaterThan(median * 0.3);
+  });
+
+  it("is beaten by every weapon that the generator makes", () => {
+    // The acceptance floor of Section 7.3. A weapon on a point of the arena
+    // has to be worth the walk to it.
+    const tables = loadWeaponRoles();
+    const baseline = loadBaselineWeapon();
+    const base = meanDps(baseline);
+    for (const weapon of manyWeapons()) {
+      expect(meanDps(weapon)).toBeGreaterThan(base * tables.floor.meanDpsMargin * 0.999);
+    }
+  });
+
+  it("keeps the promise of each role trait", () => {
+    // Section 7.3: an assault weapon hits harder than the baseline, and a
+    // precise weapon fires and answers sooner than it.
+    const tables = loadWeaponRoles();
+    const baseline = loadBaselineWeapon();
+    const base = meanDps(baseline);
+    let assault = 0;
+    let precise = 0;
+    for (const weapon of manyWeapons()) {
+      if (weapon.role === "assault") {
+        assault += 1;
+        const best = Math.max(weapon.dpsProfile.close, weapon.dpsProfile.mid, weapon.dpsProfile.long);
+        expect(best).toBeGreaterThan(base * tables.floor.assaultBestBandMargin * 0.999);
+      }
+      if (weapon.role === "precise") {
+        precise += 1;
+        expect(weapon.fireIntervalTicks).toBeLessThan(baseline.fireIntervalTicks);
+        expect(weapon.reactionByBand.mid).toBeLessThan(baseline.reactionByBand.mid);
+      }
+    }
+    expect(assault).toBeGreaterThan(0);
+    expect(precise).toBeGreaterThan(0);
   });
 
   it("is a hitscan weapon with no area and no role", () => {

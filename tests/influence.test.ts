@@ -30,16 +30,18 @@ describe("createInfluenceMaps", () => {
   it("makes one value per cell, all zero", () => {
     const map = parseArenaText(HALL, { source: "hall" });
     const maps = createInfluenceMaps(map);
-    expect(maps.danger).toHaveLength(map.width * map.height);
+    expect(maps.danger.A).toHaveLength(map.width * map.height);
+    expect(maps.danger.B).toHaveLength(map.width * map.height);
     expect(maps.control).toHaveLength(map.width * map.height);
-    expect(maps.danger.every((value) => value === 0)).toBe(true);
+    expect([...maps.danger.A].every((value) => value === 0)).toBe(true);
+    expect([...maps.danger.B].every((value) => value === 0)).toBe(true);
   });
 
   it("gives zero outside the map", () => {
     const maps = createInfluenceMaps(parseArenaText(HALL, { source: "hall" }));
-    expect(dangerAt(maps, -1, 0)).toBe(0);
+    expect(dangerAt(maps, "A", -1, 0)).toBe(0);
     expect(controlAt(maps, 0, -1)).toBe(0);
-    expect(dangerAt(maps, 1000, 0)).toBe(0);
+    expect(dangerAt(maps, "A", 1000, 0)).toBe(0);
   });
 });
 
@@ -55,10 +57,26 @@ describe("updateInfluence", () => {
     }
   });
 
+  it("keeps a bot out of the danger that its own team makes", () => {
+    // Section 7.9: an enemy is dangerous, a teammate is not. One shared grid
+    // made a bot fear the ground that its own team was watching, and on open
+    // ground that painted its own half as the dangerous half
+    // (Section 7.20.23).
+    const state = hallState();
+    updateInfluence(state);
+    for (const bot of state.bots) {
+      const cell = botCell(bot);
+      const own = dangerAt(state.influence, bot.teamId, cell.x, cell.y);
+      const other = dangerAt(state.influence, bot.teamId === "A" ? "B" : "A", cell.x, cell.y);
+      // The cell a bot stands on is dangerous to the other team, not to it.
+      expect(other).toBeGreaterThan(own);
+    }
+  });
+
   it("makes the hazard tile dangerous", () => {
     const state = hallState();
     updateInfluence(state);
-    expect(dangerAt(state.influence, 10, 2)).toBeGreaterThan(0);
+    expect(dangerAt(state.influence, "A", 10, 2)).toBeGreaterThan(0);
   });
 
   it("runs again only after the interval", () => {
@@ -78,11 +96,11 @@ describe("updateInfluence", () => {
     const cell = { x: 5, y: 1 };
     state.recentDeaths.push({ cell, tick: state.tick, teamId: "A" });
     updateInfluence(state);
-    const fresh = dangerAt(state.influence, cell.x, cell.y);
+    const fresh = dangerAt(state.influence, "A", cell.x, cell.y);
 
     state.tick += state.config.influenceDeathMemoryTicks + 1;
     updateInfluence(state);
-    expect(dangerAt(state.influence, cell.x, cell.y)).toBeLessThan(fresh);
+    expect(dangerAt(state.influence, "A", cell.x, cell.y)).toBeLessThan(fresh);
   });
 
   it("forgets the bots that died between two updates", () => {

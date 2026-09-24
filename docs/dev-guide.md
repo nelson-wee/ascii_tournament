@@ -179,7 +179,8 @@ The project root is the repository root.
 │   ├── ui/                        # screens and menus (browser only)
 │   ├── main.ts                    # browser entry point
 │   └── cli/
-│       └── batch.ts               # Node entry point for the batch harness
+│       ├── batch.ts               # Node entry point for the batch harness
+│       └── styles.ts              # Node entry point for the arena-style harness
 └── tests/
 ```
 
@@ -1573,6 +1574,40 @@ near 50 %. A mirror that does not is a side bias, and Section 7.20.14 shows
 that an arena can be symmetric to the cell and still give one side the better
 start.
 
+**What a round record holds.** One `RoundRecord` per round, from the events of
+that round alone. Beside the result and the shot counts it holds:
+
+| Field | What it measures |
+|---|---|
+| `killsByArchetype` | which weapon label made the kills |
+| `shotsByWeapon` | which weapon id was fired, for the round's own set |
+| `killsByBand`, `killDistanceSum` | at what distance the fighting happened |
+| `killsByRole`, `deathsByRole` | which role of Section 7.11 killed and died |
+| `pickupsByKind` | how much of the ground was taken |
+
+A role count is only comparable against the **bot-rounds** of that role: a mix
+can hold one role twice, and then a raw count favours it. Divide.
+
+#### 7.16.1 The style harness (`cli/styles.ts`)
+
+    npm run styles -- --rounds 2430 --arenas 3 --seed 20260924
+
+The batch harness answers "is this preset balanced over the arenas that I gave
+it". The style harness answers a different question: **does a style of ground
+change what wins on it** (Section 7.20.19). It runs one batch per style, over
+several arenas of that style, and puts the tactics, the weapons and the role
+mixes of each style side by side.
+
+Two rules hold for a run of it to mean anything:
+
+1. **Several arenas per style, never one.** One arena is one roll of the
+   generator. A result from one arena measures that arena, not the style.
+2. **A round count that is a whole number of passes.** `planRounds` walks the
+   cells of the plan in order and starts again at the top, so a count that is
+   not a multiple of `arenas × presets² × compositions²` gives the first cells
+   one round more than the last, and every table tilts by a little. The harness
+   prints a warning when the count does not divide.
+
 ### 7.17 Reports and kill feed (`report/`)
 
 - Kill feed lines from event templates (for example, "Vex killed Rook with a precision weapon at long range").
@@ -1788,6 +1823,162 @@ at 1× and at 4×.
 oldest go first. At 4× with three area weapons on the ground the cap is the
 only thing that bounds the cost of a frame, and nothing measures how often it
 is reached. A phone is not measured at all. TBD
+
+#### 7.20.22 What a batch of every style found
+
+`docs/arena-style-analysis.md` holds the measurement: 13770 rounds over the
+three styles, from `npm run styles`. The short of it, and what each line asks
+for:
+
+| Finding | Where it lives |
+|---|---|
+| The ground moves the fight by 2.8 cells and the close-range share by 22 points | The generator works (Section 7.20.19) |
+| `aggressive` owns `bastion` and loses 7.3 points on `openfield` | The styles pay for themselves |
+| A close preference costs 9 to 11 points, and nothing on `cavern` | `aggressive` wins `bastion` in spite of it |
+| Every `weaponRolePref` is level with or below no preference | `weaponRolePrefBonus` 0.6 is an order, not a bias |
+| `rush` beats `turtle` by 7 to 14 points on every style | Holding ground pays nothing yet |
+| `denial` makes 2.7 times the kills of `precision` | The price of a hazard tick (Section 7.3) |
+| One `bandShare` constant serves three styles that differ by 22 points | Section 7.3 and Section 7.8 read it |
+| The tactics block of `data/roles.json` never applies | Section 7.11 says merge; the code replaces |
+| Team B wins 53.1 % of all rounds | An engine defect that `openfield` makes worse |
+
+**The band share is the one to read first.** `data/weapon-roles.json` holds
+`close 0.50, mid 0.48, long 0.02` for the whole game. The measured share is
+56.8/41.8/1.4 on `bastion` and 34.7/60.0/5.3 on `openfield`. Both the power
+budget and `bestWeaponOverall` read the constant, so a bot on an open field
+values a close-range weapon as if half the fighting were close. That is why no
+weapon in the batch answers the ground: the AI cannot see the ground. The
+answer is a `bandShare` on the arena metrics of Section 7.7, measured by the
+generator, that the budget and the AI both read.
+
+It is the same pattern that M8 named: **a number that the budget charges for,
+or the AI reads, that does not mean what its name says.** Six instances are now
+on the list. The check has not changed: compare the modelled number against the
+measured one, per weapon, per band, per style.
+
+**Two rules that the batch itself taught.**
+
+1. **A share of the kills does not measure a weapon.** `denial` took 8.6 % of
+   the kills and `precision` 14.8 %, which reads as "precision is better". The
+   same rounds say `denial` was in a fifth of the sets and made 2.7 times the
+   kills of `precision` in a round that held it. Divide by the rounds that held
+   the archetype (Section 7.16).
+2. **One batch cannot name a defect.** The first batch read the side bias as an
+   `openfield` defect. The second batch put `bastion` at 45.5 % and `cavern` at
+   50.7 %, which moved with the presets in the pool, so the bias is in the
+   engine and `openfield` only makes it worse. Replicate before naming.
+
+#### 7.20.23 The side bias: what it was, and the test that found it
+
+The arena-style batch measured team B winning 53.1 % of 13770 rounds
+(`docs/arena-style-analysis.md`, Section 7). The ground was not the cause: the
+tiles are symmetric to the cell, the field of view is symmetric under a half
+turn, the pickup points are exact images of each other, and the two halves are
+the same mean number of steps from a team spawn to every point.
+
+**The test that found it.** An arena is symmetric under a half turn. Give the
+two teams the same tactics and roles and a spawn table that is symmetric too,
+take the randomness out of the simulation, and the round must stay a mirror
+image of itself for ever. The first tick that breaks the mirror names the
+asymmetry. `tests/fairness.test.ts` holds it, and it found three.
+
+**1. The decision phase came from the index in the bot list.** A bot is given a
+first decision tick so that the work spreads over the interval, and the phase
+was `globalIndex % aiDecisionIntervalTicks`. With six bots and an interval of
+five that is 0,1,2 for team A and 3,4,0 for team B: team A made its first
+decision on the ticks 1, 2 and 3 and team B on 1, 4 and 5, and the phase held
+for the whole round. The phase now comes from the slot inside the team.
+
+**2. The path search broke a tie against the axes of the world.** Two routes of
+the same length are both shortest, and A\* returns the one it met first, which
+comes from the order that the neighbours are scanned in. The order was a fixed
+list, `[1,0]` before `[-1,0]`, so a bot walking right and a bot walking left
+broke the tie the other way round and crossed different ground. The order now
+follows the way to the goal: the neighbour most in line with the goal first,
+and a tie broken by the side it sits on. Both keys keep their value under a
+half turn, so the order turns with the arena.
+
+**3. The danger map did not know whose bots made the danger.** Section 7.9 says
+that a live **enemy** makes danger. The code stamped every live bot into one
+shared grid, so a bot feared the ground that its own team was watching. On
+`openfield`, where a bot sees 301 cells against 97 on `bastion`, its own three
+teammates painted its own half as the dangerous half, and both teams walked
+away from their own ground. There is now one danger grid per team.
+
+**What it bought, and what it did not.** Team A win rate, where 50 % is fair,
+over 2700 rounds per column (±1.7):
+
+| Style | Before | After |
+|---|---:|---:|
+| bastion | 42.5 % | **48.6 %** |
+| openfield | 45.7 % | 45.1 % |
+| cavern | 47.0 % | 45.9 % |
+
+**`bastion` is fixed and the other two are not.** Six points came back on
+`bastion`, which now sits within one standard error of fair. `openfield` and
+`cavern` did not move, so a fourth cause holds about four points there, and the
+three fixes above are not it.
+
+What the swap test says about the rest: give team A the spawn block of team B
+and the numbers move to 47.5 / 55.5 / 52.5 against 51.0 / 44.6 / 45.5. On
+`openfield` the pair adds to 100.1, so its deficit is entirely a property of
+the ground and the spawn table of that match. On `bastion` and `cavern` the
+pairs add to 98.5 and 98.0, so about one point still follows the team letter
+and is not yet explained.
+
+**The fourth cause is the spawn table.** `placeWeapons` gives a contested point
+its own weapon, by design (Section 7.12), so the two halves of a match hold
+different weapons on their contested points. Team A win rate over 2700 rounds
+per column (±1.7), against a table forced to mirror, where a point and the
+point that faces it hold the same weapon:
+
+| Style | Table as it is | Table mirrored |
+|---|---:|---:|
+| bastion | 48.6 % | 55.7 % |
+| openfield | 45.1 % | **51.3 %** |
+| cavern | 45.9 % | **51.9 %** |
+
+The mirrored table is worth about six points to team A on every style.
+
+That reads like a fix for `openfield` and `cavern`, and it is not one. The
+column above forces the mirror at the call site, which is not the same change
+as pairing the points in `placeWeapons`: pairing also halves the number of
+groups, so a different weapon lands on each pair. Making the real change and
+measuring it again gave **56.4 / 53.6 / 51.3 %**, a mean distance from fair of
+3.8 points against 3.5 for the table as it is. It does not make the arena
+fairer. It turns a lean toward team B on three styles into a larger lean toward
+team A on one.
+
+So the mirrored table is **not** shipped, and the lesson is about the probe and
+not about the arena: **a variant that stands in for a change is not the
+change.** Measure the code, not the stand-in.
+
+**What is left, and what is not known.** About four points on `openfield` and
+`cavern` come from the spawn table, because the swap test moves them. Every
+answer tried so far overshoots the other way:
+
+| Change | bastion | openfield | cavern | Mean distance from fair |
+|---|---:|---:|---:|---:|
+| none (shipped) | 48.6 % | 45.1 % | 45.9 % | **3.5** |
+| pair every weapon point | 56.4 % | 53.6 % | 51.3 % | 3.8 |
+| the same, plus a tie-break to the bot's own side | 59.0 % | 62.4 % | 57.8 % | 9.7 |
+
+None is shipped. **No mechanism explains why a mirrored offer moves the win
+rate toward team A at all**, which is the thing to find before the next
+attempt. A first guess, that `pickupTarget` keeps the first point of the best
+value and the points are listed in the order that the map was scanned in, does
+not survive arithmetic: `nearness` is continuous, so a point and the point that
+faces it tie only for a bot on the anti-diagonal of the pair, which is rare.
+Count the ties before building on that guess.
+
+**A note on the test.** `tests/fairness.test.ts` passes under every one of
+these combinations, because it uses a mirrored table and a flat RNG, so it
+cannot see this class at all. Only a win rate over hundreds of rounds can. TBD
+
+**The rule that this leaves.** A number that depends on the index of a bot in
+the list, on the order of the teams, or on an axis of the world is a side bias
+waiting to happen. The mirror test is cheap; run it after any change to
+movement, perception, the influence maps or the decision loop.
 
 ### 7.20 Design notes for M6: weapons, reaction order, and vision
 
