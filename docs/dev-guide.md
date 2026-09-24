@@ -1926,27 +1926,40 @@ the ground and the spawn table of that match. On `bastion` and `cavern` the
 pairs add to 98.5 and 98.0, so about one point still follows the team letter
 and is not yet explained.
 
-**A fourth asymmetry is known and not fixed. Two answers were tried and both
-made it worse.** `placeWeapons` gives a contested point its own weapon, by
-design (Section 7.12), so the two halves of a match can hold different weapons
-on their contested points. Forcing the table to mirror, so that a point and the
-point it faces hold the same weapon, moved team A to 54.7 / 52.5 / 52.0 % on
-the three styles — past fair, not to it.
+**The fourth cause is the spawn table.** `placeWeapons` gives a contested point
+its own weapon, by design (Section 7.12), so the two halves of a match hold
+different weapons on their contested points. Team A win rate over 2700 rounds
+per column (±1.7), against a table forced to mirror, where a point and the
+point that faces it hold the same weapon:
 
-The reason is a second rule that the mirrored table brings out. `pickupTarget`
-keeps the first point of the best value that it meets, and the points are
-listed in the order that the map was scanned in, so an exact tie between a
-point and the point it faces goes to the top left of the map every time. With
-a mirrored table the ties are exact and common, and both teams walk to the same
-half. Breaking the tie toward the spawn ground of the bot's own team, together
-with the mirrored table, moved team A to 59.0 / 62.4 %, which is worse again.
+| Style | Table as it is | Table mirrored |
+|---|---:|---:|
+| bastion | 48.6 % | 55.7 % |
+| openfield | 45.1 % | **51.3 %** |
+| cavern | 45.9 % | **51.9 %** |
 
-Both changes are reverted. What is measured, and what the next attempt has to
-hold, is this: the mirrored table and the tie-break interact, and neither is
-sound on its own. The mirror test of `tests/fairness.test.ts` passes under all
-four combinations, because it uses a mirrored table and a flat RNG, so it
-cannot see this one. A probe that measures a win rate over hundreds of rounds
-can. TBD
+The mirrored table is worth about six points to team A on every style. It
+lands `openfield` and `cavern` within about one standard error of fair, which
+is the four points that the three fixes above did not reach. On `bastion` the
+same six points carry it past fair to 55.7 %.
+
+So the choice is not "fair or unfair". It is **which way the arena leans**: a
+table that is not mirrored leans to team B on all three styles, and a mirrored
+one leans to team A on `bastion` alone. Neither is shipped yet, because the
+`bastion` overshoot has a cause that is not measured.
+
+**The likely cause of the overshoot, not proved.** `pickupTarget` keeps the
+first point of the best value that it meets, and the points are listed in the
+order that the map was scanned in, so a tie goes to the top left of the map
+every time. A mirrored table makes ties common. `bastion` is the style where
+being the nearer team matters most, so it should overshoot the most, and it
+does. One attempt at a symmetric tie-break — prefer the point nearer to the
+spawn ground of the bot's own team — moved team A to 59.0 / 62.4 / 57.8 %,
+which is worse still and is not understood. It is reverted.
+
+**A note on the test.** `tests/fairness.test.ts` passes under every one of
+these combinations, because it uses a mirrored table and a flat RNG, so it
+cannot see this class at all. Only a win rate over hundreds of rounds can. TBD
 
 **The rule that this leaves.** A number that depends on the index of a bot in
 the list, on the order of the teams, or on an axis of the world is a side bias
