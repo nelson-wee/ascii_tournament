@@ -1905,11 +1905,26 @@ shared grid, so a bot feared the ground that its own team was watching. On
 teammates painted its own half as the dangerous half, and both teams walked
 away from their own ground. There is now one danger grid per team.
 
-**What it bought.** On `bastion` the team A win rate moved from 42.5 % to
-51.0 % over 1800 rounds. On every style the result now flips exactly when the
-two teams swap spawn blocks (for example `openfield` 44.6 % and 55.5 %, which
-add to 100), so what is left is a property of the arena and the spawn table of
-that match, not of the team letter.
+**What it bought, and what it did not.** Team A win rate, where 50 % is fair,
+over 2700 rounds per column (±1.7):
+
+| Style | Before | After |
+|---|---:|---:|
+| bastion | 42.5 % | **48.6 %** |
+| openfield | 45.7 % | 45.1 % |
+| cavern | 47.0 % | 45.9 % |
+
+**`bastion` is fixed and the other two are not.** Six points came back on
+`bastion`, which now sits within one standard error of fair. `openfield` and
+`cavern` did not move, so a fourth cause holds about four points there, and the
+three fixes above are not it.
+
+What the swap test says about the rest: give team A the spawn block of team B
+and the numbers move to 47.5 / 55.5 / 52.5 against 51.0 / 44.6 / 45.5. On
+`openfield` the pair adds to 100.1, so its deficit is entirely a property of
+the ground and the spawn table of that match. On `bastion` and `cavern` the
+pairs add to 98.5 and 98.0, so about one point still follows the team letter
+and is not yet explained.
 
 **A fourth asymmetry is known and not fixed. Two answers were tried and both
 made it worse.** `placeWeapons` gives a contested point its own weapon, by
