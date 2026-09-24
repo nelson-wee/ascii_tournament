@@ -1733,6 +1733,59 @@ of its own, and a replay of the run looks the same (Section 7.1).
 The simulation must never read a value from the palette. A color is a display
 decision, and the result of a match may not depend on it (Section 4.1).
 
+**Twelve palettes, in three groups.** Six were there first. Three more put the
+two teams on **opposed hues**, as far apart as the wheel allows, and three more
+**clash** on purpose and are the stress case for reading a bot at its real
+size.
+
+**The contrast hue.** `NEON_CONTRAST` holds one hue per palette that opposes
+the rest of it, and `contrastOf` gives it, falling back to the hazard hue of a
+palette it does not know. Every palette takes its own at load, so nothing
+downstream has to look it up.
+
+**The contrast hue is for the ground and nothing else.** A bot, a shot or a
+number in it would read as a hazard, and a hazard already takes the off-hue of
+its palette on purpose. A team color is never taken from the hazard or the
+contrast.
+
+#### 7.18.5.1 The contrast fill
+
+`NeonGrid` takes `wallFill`, one of `off`, `mass`, `pockets` or `both`. The
+default is `mass`.
+
+| Pass | What it paints | Fill | Glyph |
+|---|---|---|---|
+| `mass` | a wall cell whose four orthogonal neighbours are all walls | contrast, alpha 0.17 | `▓` in contrast, alpha 0.5 |
+| `pockets` | floor that no bot can reach | contrast, alpha 0.13 | `▒` in contrast, alpha 0.55 |
+
+A wall that touches open space is untouched: it keeps `wallBg` and its `#` in
+`wallLit`, which is the edge lighting of Section 7.18.4 and the thing that makes
+the map read as neon tube.
+
+**The alpha is low on purpose.** The hue carries the read. A stronger fill
+makes a bot hard to follow, which is the one thing the display may not do.
+
+**The pocket mask costs one pass over the grid** and is held until the arena
+changes; `NeonStage.setSize` clears it. A hazard tile does not need to clear it,
+because a hazard is ground that a bot can walk on and belongs to the region it
+already belonged to.
+
+#### 7.18.6 The bot status panel (`ui/botStatus.ts`)
+
+The kill feed says what already happened. The status panel says **what each bot
+can do next**, which is what a player needs before the tactics screen opens:
+
+    A0 tank   Needle Rifle   71/71  ▁▁▁▁  78  ◘18  ⚔
+
+One row per bot, with the weapon in its hands, the rounds left in that weapon,
+a health bar and number, the armour and shield together, and a glyph per
+power-up. The fallback weapon never runs dry, so it shows `∞`. A bot that is
+down shows when it comes back and nothing else, because its weapon and its
+armour are gone until it does.
+
+The rows are built one time and only their text changes, so the panel costs
+almost nothing at the rate of the screen.
+
 ### 7.19 Name generator (`names/`)
 
 Purpose: make team names, bot names, and nicknames with a clear style and good variety.

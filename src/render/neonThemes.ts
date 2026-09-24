@@ -30,6 +30,14 @@ export interface NeonTheme {
   teamB: string;
   /** An `rgba()` haze over the centre of the arena. */
   glow: string;
+  /**
+   * One hue opposed to the rest of the palette, for the ground alone.
+   *
+   * It is set at load from `NEON_CONTRAST`. Only the wall mass and the sealed
+   * pockets use it: a bot, a shot or a number in this hue would read as a
+   * hazard, and a hazard already holds the off-hue on purpose.
+   */
+  contrast?: string;
 }
 
 export const NEON_THEMES: readonly NeonTheme[] = [
@@ -39,7 +47,50 @@ export const NEON_THEMES: readonly NeonTheme[] = [
   { name: "Violet + hot pink", bg: "#07050f", floor: "#1f1440", floorChar: "#2c1c58", wall: "#4a2a84", wallBg: "#120a26", wallLit: "#c084fc", cover: "#f0abfc", hazard: "#ff58c8", hazardBg: "#240a1e", spawn: "#5eead4", teamA: "#5eead4", teamB: "#ff70c8", glow: "rgba(180,90,255,.15)" },
   { name: "Ice blue cryo", bg: "#03070d", floor: "#102436", floorChar: "#173448", wall: "#1d4670", wallBg: "#071320", wallLit: "#7fd8ff", cover: "#a8e6ff", hazard: "#4dd2ff", hazardBg: "#08202e", spawn: "#bff0ff", teamA: "#bff0ff", teamB: "#7b8cff", glow: "rgba(80,190,255,.12)" },
   { name: "Amber industrial", bg: "#080602", floor: "#2a2008", floorChar: "#3b2e0c", wall: "#6b4f12", wallBg: "#1a1304", wallLit: "#ffc34d", cover: "#ffe08a", hazard: "#ff7a1f", hazardBg: "#26130a", spawn: "#ffd98a", teamA: "#ffc94d", teamB: "#5ad2ff", glow: "rgba(255,180,60,.11)" },
+
+  // Complementary: the two teams sit on opposed hues, as far apart as the
+  // wheel allows, so a glance tells them apart.
+  { name: "Cryo + magenta", bg: "#03070e", floor: "#0e2438", floorChar: "#16344c", wall: "#1b4a70", wallBg: "#061320", wallLit: "#5ee8ff", cover: "#a8e6ff", hazard: "#ff2fa8", hazardBg: "#2a0820", spawn: "#bff0ff", teamA: "#5ee8ff", teamB: "#ff2fa8", glow: "rgba(80,200,255,.13)" },
+  { name: "Amber + teal", bg: "#080601", floor: "#2b2107", floorChar: "#3c2f0b", wall: "#6d5110", wallBg: "#1a1303", wallLit: "#ffb200", cover: "#ffe08a", hazard: "#00e5c7", hazardBg: "#042420", spawn: "#ffd98a", teamA: "#ffb200", teamB: "#00e0d0", glow: "rgba(255,180,0,.11)" },
+  { name: "Ultraviolet + lime", bg: "#06040e", floor: "#1c1440", floorChar: "#291c56", wall: "#472a80", wallBg: "#110a24", wallLit: "#b388ff", cover: "#d9c2ff", hazard: "#c6ff2e", hazardBg: "#1e2606", spawn: "#d4ff3d", teamA: "#b388ff", teamB: "#d4ff3d", glow: "rgba(160,110,255,.14)" },
+
+  // Clashing: the two hues fight each other on purpose. They stay legible, and
+  // they are the stress case for the size that a bot glyph is drawn at.
+  { name: "Hot pink + acid yellow", bg: "#0b030a", floor: "#2c0f24", floorChar: "#3f1633", wall: "#6e1f57", wallBg: "#1c0717", wallLit: "#ff3d9e", cover: "#ffa8d8", hazard: "#f5ff1f", hazardBg: "#242606", spawn: "#ffd1ea", teamA: "#ff3d9e", teamB: "#eaff26", glow: "rgba(255,60,160,.13)" },
+  { name: "Blood red + electric blue", bg: "#0a0303", floor: "#2c0f0d", floorChar: "#3f1613", wall: "#6e1f1a", wallBg: "#1c0706", wallLit: "#ff3b30", cover: "#ff9d8a", hazard: "#1f6bff", hazardBg: "#06132c", spawn: "#ffc4b8", teamA: "#ff3b30", teamB: "#2f7bff", glow: "rgba(255,60,48,.13)" },
+  { name: "Tangerine + violet", bg: "#0a0502", floor: "#2e1706", floorChar: "#41210a", wall: "#733412", wallBg: "#1d0d04", wallLit: "#ff8a1f", cover: "#ffc48a", hazard: "#8b2fff", hazardBg: "#170628", spawn: "#ffd9b0", teamA: "#ff8a1f", teamB: "#9d4dff", glow: "rgba(255,138,31,.12)" },
 ];
+
+/**
+ * The hue that opposes each palette, by the name of the palette.
+ *
+ * The ground uses it and nothing else does. A hazard already takes the off-hue
+ * of its palette, so a wall painted in a team color, or a bot painted in the
+ * contrast color, would read as the wrong thing.
+ */
+export const NEON_CONTRAST: Readonly<Record<string, string>> = {
+  "Cyan/magenta neon": "#ff4fd8",
+  "Acid green terminal": "#ff3da1",
+  "Magma orange/red": "#2fd8ff",
+  "Violet + hot pink": "#5eead4",
+  "Ice blue cryo": "#ffa63d",
+  "Amber industrial": "#5ad2ff",
+  "Cryo + magenta": "#ff2fa8",
+  "Amber + teal": "#00e0d0",
+  "Ultraviolet + lime": "#c6ff2e",
+  "Hot pink + acid yellow": "#eaff26",
+  "Blood red + electric blue": "#2f7bff",
+  "Tangerine + violet": "#9d4dff",
+};
+
+/** The contrast hue of a palette. A palette with none falls back to its hazard. */
+export function contrastOf(theme: NeonTheme): string {
+  return NEON_CONTRAST[theme.name] ?? theme.hazard;
+}
+
+// Every palette carries its contrast hue from here on, so nothing downstream
+// has to remember to look it up.
+for (const theme of NEON_THEMES) theme.contrast = contrastOf(theme);
 
 /** The first palette. Use it before a session starts. */
 export const DEFAULT_THEME: NeonTheme = NEON_THEMES[0] as NeonTheme;
