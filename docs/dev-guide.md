@@ -2466,7 +2466,67 @@ so the run measures the team decision and holds everything else still.
 
 **The bar this has to clear.** The axis has to move a win rate by more than the
 four points of side bias, or a player still cannot tell their own choice from
-the ground they drew. TBD
+the ground they drew.
+
+### 7.21.4 The first sweep: it clears the bar, and it is not a straight line
+
+6750 rounds, 2250 a style, 3 arenas a style, every bot on the default tactics
+and the standard role order. Win rate, ±1.7:
+
+| `teamplay` | Preset | bastion | openfield | cavern |
+|---:|---|---:|---:|---:|
+| 0.00 | `solo` | 48.0 % | **45.7 %** | **43.7 %** |
+| 0.25 | `loose` | **57.3 %** | **51.7 %** | **54.7 %** |
+| 0.50 | `even` | 49.8 % | 48.7 % | 46.4 % |
+| 0.75 | `close` | 47.2 % | 51.6 % | 51.3 % |
+| 1.00 | `unit` | 47.7 % | 52.4 % | 53.9 % |
+| | **spread** | **10.1** | **6.7** | **11.0** |
+
+**It clears the bar.** The axis is worth 7 to 11 points and the side bias is
+worth about 4, so the team decision now decides more than the ground does. That
+is the first tactical number in the game of which that is true.
+
+**It is not a straight line, and that is the finding.** A little independence
+(0.25) is the best setting on all three styles. Total independence (0.00) is
+the worst on two of them. And 0.50, which is the middle and does nothing at
+all, sits **below both of its neighbours** on `openfield` and `cavern`.
+
+A U about the middle says the three levers do not point the same way. The most
+likely reading, not proved:
+
+- **Splitting the objectives pays.** Three bots walking to one item is two bots
+  wasted, so a pull toward independence gains ground and items.
+- **Focus fire pays.** Bringing an enemy down before it trades is worth more
+  than spreading the damage.
+- **Those two want opposite ends of one axis**, so the middle gets neither and
+  0.25 gets most of the first while giving up little of the second.
+- **Total independence loses** because at 0.00 a point that a teammate wants is
+  worth 0.4 of its value, which is strong enough to send a bot across the arena
+  for a worse item, and the aim turns away from the enemy the team is fighting.
+
+**So the next step is to take the axis apart**, not to tune it. One sweep per
+lever — objective, target, ground — each with the other two held at the middle.
+Bundling four numbers is what made the old team tactics unreadable, and one
+number that bundles three levers has the same defect in a smaller box. TBD
+
+### 7.21.5 What else the sweep shows
+
+**The baseline weapon is a fallback now.** It took 24.2 % of the kills on
+`bastion` before the weapon floor of Section 7.3 and takes **12.1 %** after,
+and its kills in a round that held it went 5.99 to **2.94**, against 7.00 for
+`marksman`. The generated weapons carry the fight.
+
+**The fight moved out to mid range.** The close-range share on `bastion` went
+56.8 % to 28.9 %, and the mean kill distance 8.5 to 11.3 cells. That follows
+from the same change: the baseline was a 30-cell flat weapon that everyone
+fired at every distance, and a `marksman` or `precision` weapon now replaces it.
+Whether a 3v3 arena shooter wants 68 % of its kills at mid range is a design
+question, and it is open. TBD
+
+**`openfield` got slow.** It reaches the time limit in 19.6 % of rounds against
+9.0 % before. A round that does not reach the score limit is the low-kill
+defect of Section 7.2.1, and this is the style to watch while the fork
+continues. TBD
 
 ## 8. Match flow (sequence)
 
