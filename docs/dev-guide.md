@@ -1980,6 +1980,36 @@ the list, on the order of the teams, or on an axis of the world is a side bias
 waiting to happen. The mirror test is cheap; run it after any change to
 movement, perception, the influence maps or the decision loop.
 
+#### 7.20.24 The teams change ends after every round
+
+About four points of win rate follow the **half of the arena** and not the
+team, and Section 7.20.23 says that the cause is not found. While it is there,
+a match can share it out instead of handing it to one team: the teams change
+ends after every round, as they do in most sports for the same reason.
+
+`teamSideIndex(teamId, roundNumber)` is the whole rule, and both the start of a
+round and `respawn` read it, so a bot always comes back on the half that its
+team holds **this** round. The round number decides, so a round still replays
+from its own seed and a test can ask for either side.
+
+    round 1   A near, B far
+    round 2   A far,  B near
+    round 3   A near, B far
+
+A match is best of 3 and runs 2.6 rounds on average, so a team holds each half
+about as often as the other. The measurement, over 400 matches a style:
+
+| Style | Round 1 alone | A match, best of 3 |
+|---|---:|---:|
+| bastion | 47.3 % | **50.0 %** |
+
+**What it does not do.** It does not make a single round fair, and it cannot:
+the first round of every match still runs on the ends that the arena gives.
+Nothing here replaces finding the cause. It bounds the damage until then.
+
+**Where it shows.** The between-round screen says which end the team of the
+player starts on, because the ground a team starts on decides the first fight.
+
 ### 7.20 Design notes for M6: weapons, reaction order, and vision
 
 These notes come from the first 1000-round batch (Milestone M5). They set the

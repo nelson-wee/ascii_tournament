@@ -109,6 +109,14 @@ export function openTacticsScreen(options: TacticsScreenOptions): TacticsScreen 
       : `${played}  ·  rounds won A ${options.roundWins.A} — ${options.roundWins.B} B`;
   screen.append(summary);
 
+  // The teams change ends after every round (Section 7.20.24). The player has
+  // to know: the ground that the team starts on decides the first fight.
+  const ends = document.createElement("p");
+  ends.className = "dim";
+  const side = options.nextRoundNumber % 2 === 0 ? "the far end" : "the near end";
+  ends.textContent = `Teams change ends. Team ${options.teamId} starts this round at ${side}.`;
+  screen.append(ends);
+
   const form = document.createElement("div");
   form.className = "tactics";
 

@@ -6,7 +6,14 @@ import { EventBus } from "../src/core/events.js";
 import { createRng, deriveSeed, type Rng, type RngState } from "../src/core/rng.js";
 import { generateWeaponSet } from "../src/weapons/generate.js";
 import { rollSpawnTable, type SpawnTable } from "../src/sim/pickups.js";
-import { createSimState, simConfigFromTuning, step, type BotState } from "../src/sim/index.js";
+import {
+  botCell,
+  createSimState,
+  simConfigFromTuning,
+  step,
+  teamSideIndex,
+  type BotState,
+} from "../src/sim/index.js";
 
 /**
  * The mirror test (dev-guide Section 7.20.23).
@@ -119,4 +126,62 @@ describe("the mirror test", () => {
       expect(state.score.A).toBe(state.score.B);
     });
   }
+});
+
+
+describe("the change of ends", () => {
+  it("gives a team the other half on the next round", () => {
+    expect(teamSideIndex("A", 1)).toBe(0);
+    expect(teamSideIndex("B", 1)).toBe(1);
+    expect(teamSideIndex("A", 2)).toBe(1);
+    expect(teamSideIndex("B", 2)).toBe(0);
+    expect(teamSideIndex("A", 3)).toBe(0);
+  });
+
+  it("starts team A of round 2 on the cells of team B of round 1", () => {
+    const profiles = loadArenaProfiles();
+    const profile = profiles.profiles["bastion"];
+    expect(profile).toBeDefined();
+    const seed = deriveSeed(SEED, "ends:arena");
+    const map = generateArena(profile!, createRng(seed, "arena"), seed, { rules: profiles.rules });
+
+    const cellsOf = (roundNumber: number): Record<string, string> => {
+      const state = createSimState({ map, seed, config, roundNumber, bus: new EventBus() });
+      const out: Record<string, string> = {};
+      for (const bot of state.bots) {
+        const cell = botCell(bot);
+        out[bot.id] = `${cell.x},${cell.y}`;
+      }
+      return out;
+    };
+
+    const first = cellsOf(1);
+    const second = cellsOf(2);
+    for (let slot = 0; slot < config.teamSize; slot += 1) {
+      expect(second[`A${slot}`]).toBe(first[`B${slot}`]);
+      expect(second[`B${slot}`]).toBe(first[`A${slot}`]);
+    }
+  });
+
+  it("puts a bot back on the half that its team holds this round", () => {
+    // `respawn` reads the same rule, or a bot would come back on the half that
+    // it started the match on.
+    const profiles = loadArenaProfiles();
+    const seed = deriveSeed(SEED, "ends:respawn");
+    const map = generateArena(
+      profiles.profiles["bastion"]!,
+      createRng(seed, "arena"),
+      seed,
+      { rules: profiles.rules },
+    );
+    const state = createSimState({ map, seed, config, roundNumber: 2, bus: new EventBus() });
+    // On round 2 team A holds the second block of the spawn list.
+    const half = map.spawns.length / 2;
+    const held = map.spawns.slice(half).map((cell) => `${cell.x},${cell.y}`);
+    for (const bot of state.bots) {
+      if (bot.teamId !== "A") continue;
+      const cell = botCell(bot);
+      expect(held).toContain(`${cell.x},${cell.y}`);
+    }
+  });
 });
