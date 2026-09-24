@@ -6,10 +6,14 @@
  * A match is best of 3 (Section 7.4). Between rounds the tactics screen opens
  * and the player sets the tactics and the roles of team A. Between matches the
  * match-over screen shows the result and describes the ground ahead.
+ *
+ * The arena draws on two canvases (Section 7.18): the grid below and the
+ * effects above. This file is the one place that joins the two sides. It reads
+ * the state of the round through `SimArenaView` and it reads the event bus for
+ * the effects, so the display never reaches into a system of the simulation.
  */
-import { Tile } from "./arena/types.js";
 import { loadDefaultTactics, loadTuning } from "./core/data.js";
-import { EventBus } from "./core/events.js";
+import { EventBus, type GameEvent } from "./core/events.js";
 import type { Tactics } from "./core/schemas.js";
 import {
   createSession,
@@ -20,21 +24,19 @@ import {
   type Session,
 } from "./meta/session.js";
 import { feedLines } from "./report/killFeed.js";
-import { ArenaDisplay, type EntityGlyph } from "./render/display.js";
-import { SimRunner, type Speed } from "./render/runner.js";
+import { SimArenaView, eventCell } from "./render/arenaView.js";
+import { NeonStage } from "./render/neonStage.js";
 import {
-  PICKUP_STYLES,
-  PROJECTILE_STYLE,
-  REDEEMER_PROJECTILE_STYLE,
-  TEAM_STYLES,
-  TILE_STYLES,
-  facingChar,
-} from "./render/theme.js";
+  PICKUP_GLYPHS,
+  themeForMatch,
+  DEFAULT_THEME,
+  type NeonTheme,
+} from "./render/neonThemes.js";
+import { SimRunner, type Frame, type Speed } from "./render/runner.js";
+import type { WeaponVisualHints } from "./render/vfxLayer.js";
 import {
-  botCell,
   createRoundState,
   DEFAULT_ROLES,
-  readyPickupCells,
   simConfigFromTuning,
   step,
   TEAM_IDS,
@@ -52,6 +54,8 @@ const INITIAL_SPEED: Speed = 1;
 const KILL_FEED_LINES = 8;
 /** The seed of a session. Milestone M11 takes it from the run generator. */
 const SEED = Math.floor(Date.now() / 1000);
+/** The id that an interception shot carries in place of a bot id. */
+const PROJECTILE_PREFIX = "projectile:";
 
 function showError(error: unknown): void {
   const box = document.createElement("pre");
@@ -60,19 +64,20 @@ function showError(error: unknown): void {
   document.querySelector("#arena")?.replaceChildren(box);
 }
 
-function buildLegend(directional: boolean): string {
+/** The legend takes its colors from the palette of the match. */
+function buildLegend(theme: NeonTheme, directional: boolean): string {
   const items: [string, string, string][] = [
-    [TILE_STYLES[Tile.Wall].char, "wall", TILE_STYLES[Tile.Wall].fg],
-    [TILE_STYLES[Tile.CoverLow].char, "cover", TILE_STYLES[Tile.CoverLow].fg],
-    [TILE_STYLES[Tile.Hazard].char, "hazard", TILE_STYLES[Tile.Hazard].fg],
-    [TILE_STYLES[Tile.Spawn].char, "spawn", TILE_STYLES[Tile.Spawn].fg],
-    [PICKUP_STYLES.weapon.char, "weapon", PICKUP_STYLES.weapon.fg],
-    [PICKUP_STYLES.armor.char, "armor", PICKUP_STYLES.armor.fg],
-    [PICKUP_STYLES.health.char, "health", PICKUP_STYLES.health.fg],
-    [PICKUP_STYLES.powerup.char, "powerup", PICKUP_STYLES.powerup.fg],
-    [PICKUP_STYLES.ammo.char, "ammo", PICKUP_STYLES.ammo.fg],
-    [directional ? "→" : TEAM_STYLES["A"]!.char, "team A", TEAM_STYLES["A"]!.fg],
-    [directional ? "→" : TEAM_STYLES["B"]!.char, "team B", TEAM_STYLES["B"]!.fg],
+    ["#", "wall", theme.wallLit],
+    ["▖", "cover", theme.cover],
+    ["≈", "hazard", theme.hazard],
+    ["○", "spawn", theme.spawn],
+    [PICKUP_GLYPHS.weapon.ch, "weapon", PICKUP_GLYPHS.weapon.color],
+    [PICKUP_GLYPHS.armor.ch, "armor", PICKUP_GLYPHS.armor.color],
+    [PICKUP_GLYPHS.health.ch, "health", PICKUP_GLYPHS.health.color],
+    [PICKUP_GLYPHS.powerup.ch, "powerup", PICKUP_GLYPHS.powerup.color],
+    [PICKUP_GLYPHS.ammo.ch, "ammo", PICKUP_GLYPHS.ammo.color],
+    [directional ? "→" : "@", "team A", theme.teamA],
+    [directional ? "→" : "@", "team B", theme.teamB],
   ];
   return items
     .map(([glyph, label, color]) => `<b style="color:${color}">${glyph}</b> ${label}`)
@@ -97,6 +102,27 @@ function outcomeText(outcome: RoundOutcome): string {
   return `Team ${outcome.winnerTeamId} wins the round — ${reason}`;
 }
 
+/** The four weapon numbers that an event carries for the display. */
+function visualHints(value: unknown): WeaponVisualHints {
+  if (typeof value !== "object" || value === null) return {};
+  const data = value as Record<string, unknown>;
+  const read = (key: string): number | undefined => {
+    const field = data[key];
+    return typeof field === "number" ? field : undefined;
+  };
+  return {
+    projectileSpeed: read("projectileSpeed"),
+    aoeRadius: read("aoeRadius"),
+    coneHalfAngle: read("coneHalfAngle"),
+    rangeMax: read("rangeMax"),
+  };
+}
+
+function readString(data: Readonly<Record<string, unknown>>, key: string): string | null {
+  const value = data[key];
+  return typeof value === "string" ? value : null;
+}
+
 try {
   const arenaHost = document.querySelector<HTMLElement>("#arena");
   const meta = document.querySelector<HTMLElement>("#meta");
@@ -119,20 +145,24 @@ try {
     throw new Error("index.html is missing one of the elements that main.ts needs");
   }
   const metaEl: HTMLElement = meta;
+  const legendEl: HTMLElement = legend;
   const statusEl: HTMLElement = statusHost;
   const scoreEl: HTMLElement = scoreHost;
   const feedEl: HTMLElement = feedHost;
   const stageEl: HTMLElement = stageHost;
 
   const config = simConfigFromTuning(loadTuning());
-  legend.innerHTML = buildLegend(config.directionalVision);
+
+  const stage = new NeonStage(arenaHost, { seed: SEED });
+  const view = new SimArenaView({ directional: config.directionalVision });
+  stage.setTheme(DEFAULT_THEME);
+  legendEl.innerHTML = buildLegend(DEFAULT_THEME, config.directionalVision);
 
   // ------------------------------------------------------------------------
   // The state of the match on the screen. It is replaced on every new match.
   // ------------------------------------------------------------------------
   let session: Session | null = null;
   let setup: MatchSetup | null = null;
-  let display: ArenaDisplay | null = null;
   let bus = new EventBus();
   let state: SimState | null = null;
   let plan: MatchPlan = {};
@@ -141,54 +171,102 @@ try {
   let matchWinner: TeamId | null = null;
   let roundNumber = 1;
   let screen: Screen | null = null;
+  /** The number of events that the kill feed has drawn. It saves a rebuild. */
+  let drawnEvents = -1;
 
   function closeScreen(): void {
     screen?.close();
     screen = null;
   }
 
-  function entities(): EntityGlyph[] {
-    if (!state) return [];
-    const bots: EntityGlyph[] = state.bots
-      .filter((bot) => bot.alive)
-      .map((bot) => {
-        const team = TEAM_STYLES[bot.teamId] ?? TEAM_STYLES["A"]!;
-        const char = config.directionalVision ? facingChar(bot.facing) : team.char;
-        return { cell: botCell(bot), style: { ...team, char } };
-      });
-
-    // A shot in the air is drawn under the bots: a Redeemer is a decision for
-    // the other team, so a viewer has to see it coming (Section 7.20.18).
-    const shots: EntityGlyph[] = state.projectiles.map((projectile) => ({
-      cell: { x: Math.floor(projectile.pos.x), y: Math.floor(projectile.pos.y) },
-      style:
-        projectile.weapon.archetype === "redeemer"
-          ? REDEEMER_PROJECTILE_STYLE
-          : PROJECTILE_STYLE,
-    }));
-    return [...shots, ...bots];
+  function teamColor(teamId: "A" | "B" | null): string {
+    const theme = stage.getTheme();
+    return teamId === "B" ? theme.teamB : theme.teamA;
   }
 
-  function render(): void {
-    if (!state || !display) return;
-    display.setReadyPickups(readyPickupCells(state));
-    display.setEntities(entities());
+  // ------------------------------------------------------------------------
+  // The effects (Section 7.18). Each one answers an event: the display reads
+  // what happened, it does not ask a system what it is doing.
+  // ------------------------------------------------------------------------
 
+  /** The cell of the thing that a shot points at. It can be another shot. */
+  function targetCell(targetId: string | null): { x: number; y: number } | null {
+    if (targetId === null) return null;
+    if (targetId.startsWith(PROJECTILE_PREFIX)) {
+      const id = Number(targetId.slice(PROJECTILE_PREFIX.length));
+      return Number.isFinite(id) ? view.cellOfProjectile(id) : null;
+    }
+    return view.cellOfBot(targetId);
+  }
+
+  function onShot(event: GameEvent): void {
+    const shooterId = readString(event.data, "shooterId");
+    if (shooterId === null) return;
+    const from = view.cellOfBot(shooterId);
+    const to = targetCell(readString(event.data, "targetId"));
+    if (!from || !to) return;
+    stage.vfx.shot({
+      from,
+      to,
+      attackType: readString(event.data, "attackType") ?? undefined,
+      weapon: visualHints(event.data["visual"]),
+      color: teamColor(view.teamOfBot(shooterId)),
+    });
+  }
+
+  function onHit(event: GameEvent): void {
+    const targetId = readString(event.data, "targetId");
+    if (targetId === null) return;
+    const damage = event.data["damage"];
+    stage.vfx.spark(view.cellOfBot(targetId), typeof damage === "number" ? damage : 8);
+  }
+
+  function onDeath(event: GameEvent): void {
+    const teamId = readString(event.data, "teamId");
+    stage.vfx.death(eventCell(event.data["cell"]), teamColor(teamId === "B" ? "B" : "A"));
+  }
+
+  function onSpawn(event: GameEvent): void {
+    const teamId = readString(event.data, "teamId");
+    stage.vfx.spawnIn(eventCell(event.data["cell"]), teamColor(teamId === "B" ? "B" : "A"));
+  }
+
+  /** Listen to the bus of the match. A new match makes a new bus. */
+  function listen(): void {
+    bus.on("Shot", onShot);
+    bus.on("Hit", onHit);
+    bus.on("Death", onDeath);
+    bus.on("Spawn", onSpawn);
+  }
+
+  // ------------------------------------------------------------------------
+  // The frame
+  // ------------------------------------------------------------------------
+
+  /** The score, the kill feed and the status line. */
+  function updatePanel(): void {
+    if (!state) return;
+    const theme = stage.getTheme();
     const [teamA, teamB] = TEAM_IDS;
     scoreEl.innerHTML = [
-      `<span style="color:${TEAM_STYLES[teamA]!.fg}">A ${state.score[teamA]}</span>`,
+      `<span style="color:${theme.teamA}">A ${state.score[teamA]}</span>`,
       `<span class="dim">—</span>`,
-      `<span style="color:${TEAM_STYLES[teamB]!.fg}">${state.score[teamB]} B</span>`,
+      `<span style="color:${theme.teamB}">${state.score[teamB]} B</span>`,
       `<span class="dim">to ${state.config.scoreLimit}</span>`,
       `<span class="dim">· rounds ${roundWins[teamA]}–${roundWins[teamB]}</span>`,
     ].join(" ");
 
-    feedEl.replaceChildren();
-    for (const line of feedLines(bus.log, KILL_FEED_LINES)) {
-      const item = document.createElement("li");
-      item.textContent = line.text;
-      if (line.kind !== "kill") item.className = `announce ${line.kind}`;
-      feedEl.append(item);
+    // The feed only changes when an event arrives, so it is not rebuilt at the
+    // rate of the screen.
+    if (bus.log.length !== drawnEvents) {
+      drawnEvents = bus.log.length;
+      feedEl.replaceChildren();
+      for (const line of feedLines(bus.log, KILL_FEED_LINES)) {
+        const item = document.createElement("li");
+        item.textContent = line.text;
+        if (line.kind !== "kill") item.className = `announce ${line.kind}`;
+        feedEl.append(item);
+      }
     }
 
     if (matchWinner !== null) {
@@ -203,6 +281,26 @@ try {
     statusEl.classList.toggle("urgent", state.suddenDeath && state.outcome === null);
   }
 
+  /** One animation frame: the panel, the grid, then the effects on top. */
+  function onFrame(frame: Frame): void {
+    view.interp = frame.interp;
+    updatePanel();
+    stage.draw(view, frame.now, frame.dt);
+  }
+
+  /** Start a round and point the display at it. */
+  function beginRound(): void {
+    if (!setup) return;
+    state = createRoundState(matchOptions(), roundNumber, plan, setup.spawnTable, config, bus);
+    stage.vfx.clear();
+    view.setState(state);
+    drawnEvents = -1;
+    speedControls.setEnabled(true);
+    speedControls.setSpeed(INITIAL_SPEED);
+    runner.setSpeed(INITIAL_SPEED);
+    updatePanel();
+  }
+
   // ------------------------------------------------------------------------
   // The match loop
   // ------------------------------------------------------------------------
@@ -212,6 +310,7 @@ try {
     if (!session) return;
     setup = nextMatch(session);
     bus = new EventBus();
+    listen();
     rounds = [];
     roundWins = { A: 0, B: 0 };
     matchWinner = null;
@@ -221,8 +320,12 @@ try {
       B: { tactics: loadDefaultTactics(), roles: [...DEFAULT_ROLES] },
     };
 
-    if (display) display.setMap(setup.arena);
-    else display = new ArenaDisplay(arenaHost as HTMLElement, setup.arena);
+    // A match gets its own palette from the seed of the session, so a run has
+    // a look of its own and a replay of the run looks the same (Section 7.1).
+    const theme = themeForMatch(session.seed, setup.matchNumber);
+    stage.setTheme(theme);
+    stage.setSize(setup.arena.width, setup.arena.height);
+    legendEl.innerHTML = buildLegend(theme, config.directionalVision);
 
     bus.emit("MatchStart", 0, 0, {
       matchId: `match-${setup.seed}`,
@@ -231,18 +334,14 @@ try {
       spawnTable: setup.spawnTable.slots,
     });
 
-    state = createRoundState(matchOptions(), roundNumber, plan, setup.spawnTable, config, bus);
     metaEl.textContent = [
       `${session.mode === "tournament" ? "Tournament" : "Test"} · match ${setup.matchNumber}`,
       `${setup.arena.profile.style} ${setup.arena.width}×${setup.arena.height}`,
       `best of ${config.maxRounds}`,
-      setup.weapons.map((weapon) => weapon.archetype).join("/"),
+      theme.name,
     ].join("  ·  ");
 
-    speedControls.setEnabled(true);
-    speedControls.setSpeed(INITIAL_SPEED);
-    runner.setSpeed(INITIAL_SPEED);
-    render();
+    beginRound();
   }
 
   function matchOptions() {
@@ -283,12 +382,12 @@ try {
         roundWins: { ...roundWins },
         rounds: rounds.length,
       });
-      render();
+      updatePanel();
       endMatch();
       return;
     }
 
-    render();
+    updatePanel();
     openBetweenRounds();
   }
 
@@ -338,12 +437,7 @@ try {
         closeScreen();
         plan.A = { tactics, roles };
         roundNumber += 1;
-        if (!setup) return;
-        state = createRoundState(matchOptions(), roundNumber, plan, setup.spawnTable, config, bus);
-        speedControls.setEnabled(true);
-        speedControls.setSpeed(INITIAL_SPEED);
-        runner.setSpeed(INITIAL_SPEED);
-        render();
+        beginRound();
       },
     });
   }
@@ -355,14 +449,17 @@ try {
   function showMenu(): void {
     runner.setSpeed(0);
     speedControls.setEnabled(false);
-    // `render` reads `state`. Clearing it stops the last match writing over the
-    // panel while the menu is open.
+    // The panel reads `state`. Clearing it stops the last match writing over
+    // the panel while the menu is open.
     state = null;
     setup = null;
+    view.setState(null);
+    stage.vfx.clear();
     statusEl.textContent = "Pick a mode.";
     metaEl.textContent = `main menu  ·  seed ${SEED}`;
     scoreEl.textContent = "";
     feedEl.replaceChildren();
+    drawnEvents = -1;
     screen = openMainMenu({
       container: stageEl,
       seed: SEED,
@@ -386,10 +483,13 @@ try {
     initialSpeed: INITIAL_SPEED,
     onTick: () => {
       if (!state) return;
+      // The cells of the bots before the step are what the glide reads from.
+      view.beginTick();
       step(state);
+      view.endTick();
       if (state.outcome !== null) endRound();
     },
-    onRender: render,
+    onRender: onFrame,
   });
 
   const speedControls = createSpeedControls({
@@ -402,6 +502,10 @@ try {
       runner.setSpeed(0);
       // The time limit bounds this loop.
       while (state.outcome === null) step(state);
+      // The whole round ran in one frame. The effects of it never had a frame
+      // to draw in, so they go, and the arena is left as the round left it.
+      stage.vfx.clear();
+      view.setState(state);
       endRound();
     },
   });
