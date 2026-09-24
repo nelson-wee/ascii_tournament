@@ -2407,6 +2407,67 @@ at 9.4 % with 360-degree sight.
 
 ---
 
+## 7.21 The team axis (this fork)
+
+**Why this fork exists.** The measured tactics layer did not earn its place.
+Over 13770 rounds the per-bot tactics moved a win rate by about seven points at
+best (Section 7.20.22), a weapon preference moved it by none, and the arena
+side bias was worth about four (Section 7.20.23). A player turning a knob could
+not tell their own choice from the noise of which half they started on. Seven
+per-bot numbers and four team numbers were being measured at once, and none of
+them was the thing that decides a 3v3 fight.
+
+So this fork holds **every per-bot tactic at its default** and studies one new
+thing at a time. The first is the team.
+
+### 7.21.1 One axis, from independent to cohesive
+
+`TeamTactics` is now one number, `teamplay`, from 0 to 1.
+
+|  | 0 — independent | 1 — cohesive |
+|---|---|---|
+| the point a bot walks to | one that no teammate wants | the one a teammate wants |
+| the enemy it fires at | one that no teammate fights | the one a teammate fights |
+| where it stands | its own ground | beside its team |
+
+`pull = teamplay * 2 - 1` is the whole shape: **-1** at 0, **0** at 0.5, **+1**
+at 1. Every effect is that pull times a weight in `data/tuning.json`, so the
+axis pulls both ways from the middle and 0.5 is the old behaviour.
+
+It reaches three decisions, and reaching all three is the point:
+
+1. **The objective.** `pickupTarget` multiplies the value of a point that a
+   teammate already walks to by `1 + pull × objectiveWeight`. A cohesive team
+   takes one point together; an independent team takes a point each.
+2. **The target.** `aimCost` in `sim/combat.ts` multiplies the cost of an enemy
+   that a teammate already fights by `1 - pull × focusFireWeight`.
+3. **The ground.** `Follow` rises with the pull and `HoldPosition` falls, so a
+   cohesive team moves as one and an independent team works its own ground.
+
+**Target selection is where focus fire has to live.** The old `focusFire`
+number only touched the utility score, which chooses the *action* and not the
+*enemy*, so a team with focus fire at 1 still fired at three different bots.
+That is why the old team tactics measured as nothing.
+
+### 7.21.2 What the four old numbers were
+
+`cohesion`, `focusFire`, `spacing` and `trading` all pulled on one idea, and a
+batch could not say which of them did anything. `cohesion` and `spacing` were
+the same axis with opposite signs. `trading` was a different idea — how much a
+hurt bot presses on — and it belongs to the per-bot tactics if it comes back.
+
+### 7.21.3 How to measure it
+
+`data/batch-teamplay.json` sweeps the axis. A batch that names `teamPresets`
+uses those names as its matchup axis and gives every bot the default tactics,
+so the run measures the team decision and holds everything else still.
+
+    npm run styles -- --config data/batch-teamplay.json --rounds 2250 --arenas 3
+
+**The bar this has to clear.** The axis has to move a win rate by more than the
+four points of side bias, or a player still cannot tell their own choice from
+the ground they drew. TBD
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

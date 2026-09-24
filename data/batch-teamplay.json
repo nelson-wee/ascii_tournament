@@ -1,0 +1,44 @@
+{
+  "_notes": "The team axis sweep of dev-guide Section 7.21. Every bot plays the default tactics of data/tactics.json and the standard role order, so the only thing that changes between the two teams is where they sit on the team axis. Every number is a placeholder. TBD",
+  "rounds": 2250,
+  "seed": 20260924,
+  "arenas": [
+    "gen:bastion"
+  ],
+  "presets": {
+    "solo": {
+      "aggression": 0.5,
+      "preferredRange": "mid",
+      "weaponRolePref": null,
+      "itemControl": 0.5,
+      "holdPosition": 0.2,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    }
+  },
+  "teamPresets": {
+    "solo": {
+      "teamplay": 0.0
+    },
+    "loose": {
+      "teamplay": 0.25
+    },
+    "even": {
+      "teamplay": 0.5
+    },
+    "close": {
+      "teamplay": 0.75
+    },
+    "unit": {
+      "teamplay": 1.0
+    }
+  },
+  "compositions": {
+    "standard": [
+      "tank",
+      "overwatch",
+      "skirmisher"
+    ]
+  },
+  "outDir": "batch-out/teamplay"
+}

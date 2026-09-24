@@ -520,7 +520,7 @@ function main(): void {
     // `planRounds` walks the cells in order and starts again at the top. A
     // round count that is not a whole number of passes gives the first cells
     // one round more than the last, which tilts every table by a little.
-    const presetCount = Object.keys(config.presets).length;
+    const presetCount = Object.keys(config.teamPresets ?? config.presets).length;
     const compCount = Math.max(1, Object.keys(config.compositions ?? {}).length);
     const cells = arenas.length * presetCount * presetCount * compCount * compCount;
     if (!options.quiet) {
@@ -536,6 +536,7 @@ function main(): void {
       arenas,
       presets: config.presets,
       compositions: config.compositions,
+      teamPresets: config.teamPresets,
       rounds: options.rounds,
       seed: deriveSeed(options.seed, `style:${style}`),
       config: simConfig,

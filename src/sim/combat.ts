@@ -188,8 +188,37 @@ export function selectTarget(state: SimState, bot: BotState): BotState | null {
  */
 function aimCost(state: SimState, bot: BotState, enemy: BotState): number {
   const distance = distanceBetween(bot, enemy);
-  if (!AREA_ATTACK_TYPES.has(bot.weapon.attackType)) return distance;
-  return distance / areaTargetsIfAimedAt(state, bot, bot.weapon, enemy.pos);
+  const spread = AREA_ATTACK_TYPES.has(bot.weapon.attackType)
+    ? areaTargetsIfAimedAt(state, bot, bot.weapon, enemy.pos)
+    : 1;
+  return (distance / spread) * teamAimFactor(state, bot, enemy);
+}
+
+/**
+ * What the team axis does to the aim (Section 7.21).
+ *
+ * A cohesive team fires at one enemy: an enemy that a teammate already fights
+ * costs less to aim at, so the team brings it down before it can trade. An
+ * independent team takes an enemy each, so the same enemy costs more and the
+ * bot turns to one of its own.
+ *
+ * Target selection is where focus fire has to live. It used to live in the
+ * utility score alone, which chose the ACTION and not the enemy, so a team
+ * with focus fire at 1 still fired at three different bots (Section 7.21).
+ */
+function teamAimFactor(state: SimState, bot: BotState, enemy: BotState): number {
+  const team = state.teamTactics[bot.teamId];
+  if (team === undefined) return 1;
+  const shared = state.bots.some(
+    (other) =>
+      other !== bot &&
+      other.teamId === bot.teamId &&
+      other.alive &&
+      other.targetId === enemy.id,
+  );
+  if (!shared) return 1;
+  const pull = team.teamplay * 2 - 1;
+  return Math.max(0.05, 1 - pull * state.config.team.focusFireWeight);
 }
 
 /** The attack types whose shot can catch more than one bot. */

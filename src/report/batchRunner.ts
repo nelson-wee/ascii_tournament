@@ -9,12 +9,13 @@
  * the rounds.
  */
 import type { ArenaMap } from "../arena/types.js";
-import type { Tactics } from "../core/schemas.js";
+import type { Tactics, TeamTactics } from "../core/schemas.js";
 import type { Role } from "../sim/state.js";
 import { EventBus } from "../core/events.js";
 import { deriveSeed } from "../core/rng.js";
 import { createRng, deriveSeed as derive } from "../core/rng.js";
 import { generateWeaponSet } from "../weapons/generate.js";
+import { loadDefaultTactics } from "../core/data.js";
 import { createSimState, runRound, simConfigFromTuning, type SimConfig } from "../sim/index.js";
 import type { RoundRecord } from "./batchStats.js";
 
@@ -27,6 +28,13 @@ export interface BatchArena {
 export interface BatchPlanOptions {
   arenas: readonly BatchArena[];
   presets: Readonly<Record<string, Tactics>>;
+  /**
+   * One named team axis per team (Section 7.21). When it is here it names the
+   * matchup axis instead of `presets`, and a team that has no entry in
+   * `presets` plays the default tactics. The batch then measures the team
+   * decision and holds everything else still.
+   */
+  teamPresets?: Readonly<Record<string, TeamTactics>> | undefined;
   /**
    * One named role order per team (Section 7.11). Left out, every team plays
    * `STANDARD_COMPOSITION`, which is what the simulation gives by default.
@@ -62,7 +70,7 @@ export interface PlannedRound {
  * shows whether a preset is even against itself.
  */
 export function planRounds(options: BatchPlanOptions): PlannedRound[] {
-  const presetNames = Object.keys(options.presets).sort();
+  const presetNames = Object.keys(options.teamPresets ?? options.presets).sort();
   const compositions = options.compositions ?? DEFAULT_COMPOSITIONS;
   const compNames = Object.keys(compositions).sort();
   const cells: { arena: BatchArena; teamA: string; teamB: string; compA: string; compB: string }[] =
@@ -95,12 +103,23 @@ export function runPlannedRound(
   presets: Readonly<Record<string, Tactics>>,
   config: SimConfig = simConfigFromTuning(),
   compositions: Readonly<Record<string, readonly Role[]>> = DEFAULT_COMPOSITIONS,
+  teamPresets: Readonly<Record<string, TeamTactics>> | undefined = undefined,
 ): RoundRecord {
   const bus = new EventBus();
-  const teamATactics = presets[round.teamA];
-  const teamBTactics = presets[round.teamB];
+  // With a team axis the name belongs to it, and a bot plays the default
+  // tactics unless the batch also names tactics for it (Section 7.21).
+  const fallback = teamPresets === undefined ? undefined : loadDefaultTactics();
+  const teamATactics = presets[round.teamA] ?? fallback;
+  const teamBTactics = presets[round.teamB] ?? fallback;
   if (!teamATactics || !teamBTactics) {
     throw new Error(`The batch has no preset "${round.teamA}" or "${round.teamB}".`);
+  }
+  const teamAxis =
+    teamPresets === undefined
+      ? undefined
+      : { A: teamPresets[round.teamA], B: teamPresets[round.teamB] };
+  if (teamPresets !== undefined && (!teamAxis?.A || !teamAxis.B)) {
+    throw new Error(`The batch has no team preset "${round.teamA}" or "${round.teamB}".`);
   }
 
   // Every round of the batch gets its own weapon set, from the weapons stream
@@ -119,6 +138,7 @@ export function runPlannedRound(
     bus,
     weapons,
     tactics: { A: teamATactics, B: teamBTactics },
+    ...(teamAxis?.A && teamAxis.B ? { teamTactics: { A: teamAxis.A, B: teamAxis.B } } : {}),
     roles: {
       A: compositions[round.compA] ?? STANDARD_COMPOSITION,
       B: compositions[round.compB] ?? STANDARD_COMPOSITION,
@@ -215,7 +235,9 @@ export function runBatch(options: RunBatchOptions): RoundRecord[] {
   const records: RoundRecord[] = [];
   const compositions = options.compositions ?? DEFAULT_COMPOSITIONS;
   for (const round of planned) {
-    records.push(runPlannedRound(round, options.presets, config, compositions));
+    records.push(
+      runPlannedRound(round, options.presets, config, compositions, options.teamPresets),
+    );
     options.onProgress?.(records.length, planned.length);
   }
   return records;

@@ -241,6 +241,13 @@ export interface SimConfig {
   pickupRiskWeight: number;
   /** Two pickup points this close in value count as a tie (Section 7.20.25). */
   pickupTieShare: number;
+  /** The weights of the one team axis of Section 7.21. */
+  team: {
+    followWeight: number;
+    holdWeight: number;
+    objectiveWeight: number;
+    focusFireWeight: number;
+  };
   aggressionReactionDiscount: number;
   aggressionRepositionDiscount: number;
   influenceIntervalTicks: number;
@@ -389,6 +396,12 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     weaponRolePrefBonus: tuning.ai.weaponRolePrefBonus,
     pickupRiskWeight: tuning.ai.pickupRiskWeight,
     pickupTieShare: tuning.ai.pickupTieShare,
+    team: {
+      followWeight: tuning.team.followWeight,
+      holdWeight: tuning.team.holdWeight,
+      objectiveWeight: tuning.team.objectiveWeight,
+      focusFireWeight: tuning.team.focusFireWeight,
+    },
     aggressionReactionDiscount: tuning.ai.aggressionReactionDiscount,
     aggressionRepositionDiscount: tuning.ai.aggressionRepositionDiscount,
     influenceIntervalTicks: tuning.influence.intervalTicks,

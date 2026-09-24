@@ -47,7 +47,11 @@
     "ai.aggressionReactionDiscount",
     "ai.aggressionRepositionDiscount",
     "influence",
-    "ai.pickupTieShare"
+    "ai.pickupTieShare",
+    "team.followWeight",
+    "team.holdWeight",
+    "team.objectiveWeight",
+    "team.focusFireWeight"
   ],
   "simulation": {
     "ticksPerSecond": 20,
@@ -135,5 +139,12 @@
     "scoreLimit": 15,
     "timeLimitTicks": 3600,
     "suddenDeathMaxTicks": 3600
+  },
+  "team": {
+    "_notes": "The one team axis of Section 7.21. Each weight says how far teamplay 0 and teamplay 1 pull away from the middle. Every number is a placeholder. TBD",
+    "followWeight": 1.0,
+    "holdWeight": 0.4,
+    "objectiveWeight": 0.6,
+    "focusFireWeight": 0.35
   }
 }

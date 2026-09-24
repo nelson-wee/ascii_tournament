@@ -202,6 +202,20 @@ export const TuningSchema = z
           .strict(),
       })
       .strict(),
+    /** The one team axis of Section 7.21. */
+    team: z
+      .object({
+        _notes: z.string().optional(),
+        /** How far teamplay pulls `Follow` away from the middle. */
+        followWeight: z.number().nonnegative(),
+        /** How far it pulls `HoldPosition`, the other way. */
+        holdWeight: z.number().nonnegative(),
+        /** How far it pulls a pickup point that a teammate already goes to. */
+        objectiveWeight: unitRange,
+        /** How far it pulls the aim toward an enemy a teammate is fighting. */
+        focusFireWeight: unitRange,
+      })
+      .strict(),
     influence: z
       .object({
         /** Ticks between two updates of the influence maps (Section 7.9). TBD */
@@ -297,6 +311,31 @@ export const TacticsFileSchema = z
  * `presets` stands in for the doctrines of M11, and `arenas` stands in for the
  * arena profiles of M7.
  */
+/**
+ * What the player tells the TEAM (Section 6.5).
+ *
+ * One axis, from 0 to 1. It used to be four — `cohesion`, `focusFire`,
+ * `spacing` and `trading` — and four knobs that all pull on the same idea
+ * cannot be read: a batch could not say which of them did anything, and none
+ * of them moved a win rate more than the side bias did (Section 7.21).
+ *
+ *     0.0   independent   the bots split up. Each takes its own pickup point,
+ *                         picks its own target, and works its own ground.
+ *     0.5   loose         neither pull.
+ *     1.0   cohesive      the bots move as one. They take the same point, they
+ *                         fire at the same enemy, and they stay together.
+ *
+ * Every other team number is derived from it, so a run has one team decision
+ * and a batch can measure it.
+ */
+export const TeamTacticsSchema = z
+  .object({
+    teamplay: unitRange,
+  })
+  .strict();
+
+export type TeamTactics = z.infer<typeof TeamTacticsSchema>;
+
 /** One of the three roles of Section 7.11. */
 export const RoleSchema = z.enum(["overwatch", "tank", "skirmisher"]);
 
@@ -313,6 +352,13 @@ export const BatchConfigSchema = z
      * the standard one role of each.
      */
     compositions: z.record(z.string().min(1), z.array(RoleSchema).min(1)).optional(),
+    /**
+     * One named team axis per team (Section 7.21). When it is here it is the
+     * matchup axis of the batch, and every bot plays the default tactics, so
+     * the batch measures the team decision and nothing else. A name that is
+     * also in `presets` takes those tactics instead of the default.
+     */
+    teamPresets: z.record(z.string().min(1), TeamTacticsSchema).optional(),
     outDir: z.string().min(1),
   })
   .strict()
@@ -321,16 +367,6 @@ export const BatchConfigSchema = z
 export type BatchConfig = z.infer<typeof BatchConfigSchema>;
 
 /** `data/roles.json`: the role presets and their behavior weights (Section 7.11). */
-export const TeamTacticsSchema = z
-  .object({
-    cohesion: unitRange,
-    focusFire: unitRange,
-    spacing: unitRange,
-    trading: unitRange,
-  })
-  .strict();
-
-export type TeamTactics = z.infer<typeof TeamTacticsSchema>;
 
 export const RolesSchema = z
   .object({

@@ -92,31 +92,41 @@ function traitModifiers(_action: Action, _bot: BotState): number {
 }
 
 /**
- * The team tactics of Section 6.5.
+ * The one team axis of Section 7.21, from 0 to 1.
  *
- * - `cohesion` pulls a bot toward its team, so it raises `Follow`.
- * - `spacing` pushes the team apart, so it lowers `Follow`.
- * - `focusFire` raises `Engage` and `Chase` on an enemy that a teammate is
- *   already fighting.
- * - `trading` raises `Engage` while the bot is hurt: a trade is worth it.
+ * It reaches three decisions, and it pulls each of them both ways:
+ *
+ * | | 0, independent | 1, cohesive |
+ * |---|---|---|
+ * | the point a bot walks to | one that no teammate wants | the one a teammate wants |
+ * | the enemy it fires at | one that no teammate fights | the one a teammate fights |
+ * | where it stands | its own ground | beside its team |
+ *
+ * `pull` is the whole shape: 0 gives -1, 0.5 gives 0, and 1 gives +1. Every
+ * number below is that pull times a weight from `data/tuning.json`.
  */
+export function teamPull(state: SimState, bot: BotState): number {
+  const team = state.teamTactics[bot.teamId];
+  return team === undefined ? 0 : team.teamplay * 2 - 1;
+}
+
 function teamModifier(state: SimState, action: Action, bot: BotState): number {
   const team = state.teamTactics[bot.teamId];
   if (!team) return 1;
+  const pull = teamPull(state, bot);
+  const weights = state.config.team;
 
-  if (action.kind === "Follow") return 0.6 + team.cohesion - team.spacing * 0.5;
-  if (action.kind === "HoldPosition") return 0.8 + team.spacing * 0.4;
+  // Stay with the team, or go your own way.
+  if (action.kind === "Follow") return Math.max(0.05, 1 + pull * weights.followWeight);
+  // Holding your own ground is what an independent bot does instead.
+  if (action.kind === "HoldPosition") return Math.max(0.05, 1 - pull * weights.holdWeight);
 
   if (action.kind === "Engage" || action.kind === "Chase") {
-    let factor = 1;
     const shared = state.bots.some(
       (other) => other !== bot && other.teamId === bot.teamId && other.targetId === action.targetId,
     );
-    if (shared) factor *= 1 + team.focusFire * 0.5;
-    if (action.kind === "Engage" && healthFraction(state, bot) < 0.5) {
-      factor *= 0.7 + team.trading * 0.6;
-    }
-    return factor;
+    if (!shared) return 1;
+    return Math.max(0.05, 1 + pull * weights.focusFireWeight);
   }
   return 1;
 }
@@ -336,7 +346,19 @@ function pickupTarget(
     const worth = pickupValue(state, bot, pickup);
     if (worth <= 0) continue;
     const near = nearness(state, from, point.cell);
-    const value = worth * near * safety(state, bot, point.cell);
+    // A cohesive team goes to one point together. An independent team splits
+    // up and takes a point each (Section 7.21).
+    const claimed = state.bots.some(
+      (other) =>
+        other !== bot &&
+        other.teamId === bot.teamId &&
+        other.alive &&
+        other.goalSlotId === point.slotId,
+    );
+    const team = claimed
+      ? Math.max(0.05, 1 + teamPull(state, bot) * state.config.team.objectiveWeight)
+      : 1;
+    const value = worth * near * safety(state, bot, point.cell) * team;
     const toHome = (point.cell.x - home.x) ** 2 + (point.cell.y - home.y) ** 2;
     if (best === null) {
       best = { slotId: point.slotId, value, nearness: near, home: toHome };

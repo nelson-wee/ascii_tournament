@@ -60,9 +60,6 @@
     }
   },
   "teamTacticsDefault": {
-    "cohesion": 0.5,
-    "focusFire": 0.5,
-    "spacing": 0.4,
-    "trading": 0.5
+    "teamplay": 0.5
   }
 }
