@@ -16,11 +16,13 @@ import { loadBaselineWeapon, loadWeaponRoles } from "../core/data.js";
 import type { Rng } from "../core/rng.js";
 import type { WeaponRoles } from "../core/schemas.js";
 import {
+  RANGE_BANDS,
   ROLE_TRAITS,
   isProjectileType,
   type Archetype,
   type AttackType,
   type BandValues,
+  type DpsProfile,
   type RoleTrait,
   type Weapon,
 } from "./types.js";
@@ -320,6 +322,51 @@ export function pickTier(rng: Rng, tables: WeaponRoles): WeaponTier {
  * budget target. A draft whose damage would fall outside the range of its role
  * is rejected, which is step 7.
  */
+/**
+ * Does a weapon beat the fallback that every bot already carries?
+ *
+ * A weapon on a point of the arena has to be worth the walk (Section 7.12).
+ * The baseline reaches every band and never runs dry, so it wins against any
+ * weapon that is merely equal: the arena-style batch found the baseline above
+ * five of the six generated archetypes, which is not a fallback (Section 7.3).
+ *
+ * Two of the lines are promises about the shape of a role, not its level:
+ *
+ * - an **assault** weapon hits harder than the baseline in the band that it is
+ *   built for;
+ * - a **precise** weapon fires sooner and answers sooner than the baseline.
+ */
+export function beatsBaseline(
+  role: RoleTrait,
+  fireIntervalTicks: number,
+  reactionByBand: BandValues,
+  profile: DpsProfile,
+  tables: WeaponRoles,
+  baseline: Weapon = loadBaselineWeapon(),
+): boolean {
+  const { floor } = tables;
+  const baseMean = bandMean(baseline.dpsProfile, tables);
+  if (bandMean(profile, tables) < baseMean * floor.meanDpsMargin) return false;
+
+  if (role === "assault") {
+    const best = Math.max(profile.close, profile.mid, profile.long);
+    if (best < baseMean * floor.assaultBestBandMargin) return false;
+  }
+
+  if (role === "precise") {
+    if (fireIntervalTicks > baseline.fireIntervalTicks * floor.preciseFireIntervalShare) {
+      return false;
+    }
+    for (const band of RANGE_BANDS) {
+      if (reactionByBand[band] > baseline.reactionByBand[band] * floor.preciseReactionShare) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 export function generateWeapon(
   rng: Rng,
   role: RoleTrait,
@@ -351,6 +398,13 @@ export function generateWeapon(
     const budgetUsed = costOf(draft, damage, tables);
     if (Math.abs(budgetUsed - target) > tables.budget.tolerance) continue;
 
+    // A weapon from the ground has to beat the weapon already in the hands of
+    // the bot, or the walk to the point bought nothing (Section 7.3).
+    const profile = dpsProfileOf(draft, damage);
+    if (!beatsBaseline(role, draft.fireIntervalTicks, draft.reactionByBand, profile, tables)) {
+      continue;
+    }
+
     const attackData = tables.attackTypes[draft.attackType];
     const word = attackData?.word ?? "Arm";
     const roleWord = rng.pick(roleData.nameWords);
@@ -380,7 +434,7 @@ export function generateWeapon(
       ammoPerPickup: Math.max(1, Math.round(draft.ammoMax * draft.ammoPickupShare)),
       traits: [],
       reactionByBand: draft.reactionByBand,
-      dpsProfile: dpsProfileOf(draft, damage),
+      dpsProfile: profile,
       budgetUsed,
     };
   }

@@ -7,8 +7,8 @@
         55
       ],
       "fireIntervalTicks": [
-        8,
-        14
+        6,
+        10
       ],
       "rangeMax": [
         26,
@@ -33,16 +33,16 @@
       },
       "reactionByBand": {
         "close": [
-          3,
-          5
+          2,
+          4
         ],
         "mid": [
-          2,
-          4
+          1,
+          3
         ],
         "long": [
-          2,
-          4
+          1,
+          3
         ]
       },
       "attackTypeWeights": {
@@ -424,5 +424,12 @@
         "weight": 2
       }
     ]
+  },
+  "floor": {
+    "_notes": "What a generated weapon must beat to be worth taking (dev-guide Section 7.3). The baseline is the fallback that every bot carries: it reaches every band and it never runs dry, and it pays for that with a lower level. A generated weapon that does not clear these lines is thrown away and the generator rolls again. Every number is a placeholder. TBD",
+    "meanDpsMargin": 1.2,
+    "assaultBestBandMargin": 1.5,
+    "preciseFireIntervalShare": 0.85,
+    "preciseReactionShare": 0.85
   }
 }

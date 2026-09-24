@@ -1868,6 +1868,61 @@ measured one, per weapon, per band, per style.
    50.7 %, which moved with the presets in the pool, so the bias is in the
    engine and `openfield` only makes it worse. Replicate before naming.
 
+#### 7.20.23 The side bias: what it was, and the test that found it
+
+The arena-style batch measured team B winning 53.1 % of 13770 rounds
+(`docs/arena-style-analysis.md`, Section 7). The ground was not the cause: the
+tiles are symmetric to the cell, the field of view is symmetric under a half
+turn, the pickup points are exact images of each other, and the two halves are
+the same mean number of steps from a team spawn to every point.
+
+**The test that found it.** An arena is symmetric under a half turn. Give the
+two teams the same tactics and roles and a spawn table that is symmetric too,
+take the randomness out of the simulation, and the round must stay a mirror
+image of itself for ever. The first tick that breaks the mirror names the
+asymmetry. `tests/fairness.test.ts` holds it, and it found three.
+
+**1. The decision phase came from the index in the bot list.** A bot is given a
+first decision tick so that the work spreads over the interval, and the phase
+was `globalIndex % aiDecisionIntervalTicks`. With six bots and an interval of
+five that is 0,1,2 for team A and 3,4,0 for team B: team A made its first
+decision on the ticks 1, 2 and 3 and team B on 1, 4 and 5, and the phase held
+for the whole round. The phase now comes from the slot inside the team.
+
+**2. The path search broke a tie against the axes of the world.** Two routes of
+the same length are both shortest, and A\* returns the one it met first, which
+comes from the order that the neighbours are scanned in. The order was a fixed
+list, `[1,0]` before `[-1,0]`, so a bot walking right and a bot walking left
+broke the tie the other way round and crossed different ground. The order now
+follows the way to the goal: the neighbour most in line with the goal first,
+and a tie broken by the side it sits on. Both keys keep their value under a
+half turn, so the order turns with the arena.
+
+**3. The danger map did not know whose bots made the danger.** Section 7.9 says
+that a live **enemy** makes danger. The code stamped every live bot into one
+shared grid, so a bot feared the ground that its own team was watching. On
+`openfield`, where a bot sees 301 cells against 97 on `bastion`, its own three
+teammates painted its own half as the dangerous half, and both teams walked
+away from their own ground. There is now one danger grid per team.
+
+**What it bought.** On `bastion` the team A win rate moved from 42.5 % to
+51.0 % over 1800 rounds. On every style the result now flips exactly when the
+two teams swap spawn blocks (for example `openfield` 44.6 % and 55.5 %, which
+add to 100), so what is left is a property of the arena and the spawn table of
+that match, not of the team letter.
+
+**A fourth asymmetry is known and not fixed.** `placeWeapons` gives a contested
+point its own weapon, by design, so the two halves of a match can hold
+different weapons on their contested points. The strongest weapon goes to the
+group with the lowest evenness, and a tie breaks on the slot id, which follows
+the scan of the map. Whether that is worth anything is measured by the
+`mirror-table` variant of the side-bias probe. TBD
+
+**The rule that this leaves.** A number that depends on the index of a bot in
+the list, on the order of the teams, or on an axis of the world is a side bias
+waiting to happen. The mirror test is cheap; run it after any change to
+movement, perception, the influence maps or the decision loop.
+
 ### 7.20 Design notes for M6: weapons, reaction order, and vision
 
 These notes come from the first 1000-round batch (Milestone M5). They set the

@@ -104,7 +104,7 @@ function applyEvasion(state: SimState, bot: BotState, start: { x: number; y: num
   if (length < 1e-9) return;
 
   const amount =
-    state.rng.float(-1, 1) * strength * state.config.evasionLateralFactor * bot.moveSpeedPerTick;
+    bot.rng.float(-1, 1) * strength * state.config.evasionLateralFactor * bot.moveSpeedPerTick;
   const next = {
     x: bot.pos.x + (-dy / length) * amount,
     y: bot.pos.y + (dx / length) * amount,

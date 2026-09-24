@@ -19,7 +19,7 @@ import { EventBus } from "../core/events.js";
 import type { Pickups, Tactics, TeamTactics, Tuning } from "../core/schemas.js";
 import type { Action } from "../ai/utility.js";
 import { createInfluenceMaps, type InfluenceMaps } from "../ai/influence.js";
-import { createRng, type Rng } from "../core/rng.js";
+import { createRng, deriveSeed, type Rng } from "../core/rng.js";
 import {
   createPickupStates,
   rollSpawnTable,
@@ -139,6 +139,14 @@ export interface BotState {
   /** Ticks before the bot decides again. */
   decisionCooldownTicks: number;
 
+  /**
+   * The randomness of this bot (Section 7.1).
+   *
+   * The seed comes from the slot inside the team, never from the team, so the
+   * bot of slot 0 of each team draws the same sequence. The two teams then get
+   * the same luck, which is what makes a symmetric arena a fair fight.
+   */
+  rng: Rng;
   alive: boolean;
   health: number;
   /** The armor pool. It takes a share of every hit while it lasts. */
@@ -556,6 +564,7 @@ interface MakeBotOptions {
   weapons: readonly Weapon[];
   cellCount: number;
   facing: number;
+  rng: Rng;
 }
 
 function makeBot(options: MakeBotOptions): BotState {
@@ -580,7 +589,15 @@ function makeBot(options: MakeBotOptions): BotState {
     action: { kind: "Idle" },
     actionScore: 0,
     // The bots decide on different ticks, so that the work spreads evenly.
+    //
+    // The phase comes from the slot INSIDE the team, never from a number that
+    // counts the teams in turn. With the global index the six bots took the
+    // phases 0,1,2 and 3,4,0, so team A made its first decision on the ticks
+    // 1, 2 and 3 and team B on 1, 4 and 5, and the phase held for the whole
+    // round. That is one team thinking sooner than the other, every round, and
+    // it is the side bias of Section 7.20.23.
     decisionCooldownTicks: options.slot % config.aiDecisionIntervalTicks,
+    rng: options.rng,
     alive: true,
     health: config.healthMax,
     armor: 0,
@@ -656,7 +673,11 @@ export function createSimState(options: CreateSimStateOptions): SimState {
           id: `${teamId}${slot}`,
           teamId,
           spawn,
-          slot: teamIndex * config.teamSize + slot,
+          // The slot inside the team, not the index in the bot list: the
+          // decision phase and the random stream read it, and both must be the
+          // same for the two teams.
+          slot,
+          rng: createRng(deriveSeed(seed, `bot:${slot}`), `sim/bot${slot}`),
           config,
           attributes: { ...attributes },
           tactics: { ...preset },

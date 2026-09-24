@@ -106,9 +106,14 @@ describe("runRound", () => {
   it("ends every round and gives a result", () => {
     for (const seed of [1, 2, 3]) {
       const bus = new EventBus();
-      const result = runRound(arenaState(seed, bus));
+      const state = arenaState(seed, bus);
+      const bound = state.config.timeLimitTicks + state.config.suddenDeathMaxTicks;
+      const result = runRound(state);
       expect(result.outcome).not.toBeNull();
-      expect(result.outcome.ticks).toBeLessThanOrEqual(3600);
+      // The time limit bounds a round, and sudden death bounds what follows it.
+      // The test used to read the time limit alone, which held only while no
+      // round of this fixture drew.
+      expect(result.outcome.ticks).toBeLessThanOrEqual(bound);
       expect(bus.filter("RoundStart")).toHaveLength(1);
       expect(bus.filter("RoundEnd")).toHaveLength(1);
     }
