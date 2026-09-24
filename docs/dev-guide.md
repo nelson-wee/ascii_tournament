@@ -1911,12 +1911,27 @@ two teams swap spawn blocks (for example `openfield` 44.6 % and 55.5 %, which
 add to 100), so what is left is a property of the arena and the spawn table of
 that match, not of the team letter.
 
-**A fourth asymmetry is known and not fixed.** `placeWeapons` gives a contested
-point its own weapon, by design, so the two halves of a match can hold
-different weapons on their contested points. The strongest weapon goes to the
-group with the lowest evenness, and a tie breaks on the slot id, which follows
-the scan of the map. Whether that is worth anything is measured by the
-`mirror-table` variant of the side-bias probe. TBD
+**A fourth asymmetry is known and not fixed. Two answers were tried and both
+made it worse.** `placeWeapons` gives a contested point its own weapon, by
+design (Section 7.12), so the two halves of a match can hold different weapons
+on their contested points. Forcing the table to mirror, so that a point and the
+point it faces hold the same weapon, moved team A to 54.7 / 52.5 / 52.0 % on
+the three styles — past fair, not to it.
+
+The reason is a second rule that the mirrored table brings out. `pickupTarget`
+keeps the first point of the best value that it meets, and the points are
+listed in the order that the map was scanned in, so an exact tie between a
+point and the point it faces goes to the top left of the map every time. With
+a mirrored table the ties are exact and common, and both teams walk to the same
+half. Breaking the tie toward the spawn ground of the bot's own team, together
+with the mirrored table, moved team A to 59.0 / 62.4 %, which is worse again.
+
+Both changes are reverted. What is measured, and what the next attempt has to
+hold, is this: the mirrored table and the tie-break interact, and neither is
+sound on its own. The mirror test of `tests/fairness.test.ts` passes under all
+four combinations, because it uses a mirrored table and a flat RNG, so it
+cannot see this one. A probe that measures a win rate over hundreds of rounds
+can. TBD
 
 **The rule that this leaves.** A number that depends on the index of a bot in
 the list, on the order of the teams, or on an axis of the world is a side bias
