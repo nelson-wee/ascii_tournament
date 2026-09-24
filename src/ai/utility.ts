@@ -26,6 +26,7 @@ import {
   botCell,
   distanceBetween,
   findBot,
+  teamSideIndex,
   type BotState,
   type SimState,
 } from "../sim/state.js";
@@ -314,7 +315,20 @@ function pickupTarget(
 
   // What a point is worth now, and how far it is. Before M8 a point gave
   // nothing, so the only question was the distance (Section 7.20.10).
-  let best: { slotId: string; value: number; nearness: number } | null = null;
+  //
+  // Two points are often worth almost the same, and the two teams stand on
+  // mirrored ground, so their two lists of values are mirror images thatdiffer by
+  // about 1e-13: floating point addition is not the same at x = 22 as it is at
+  // x = 38. A plain `>` then lets the 13th decimal decide which point a bot
+  // walks to, and the two halves of the arena stop matching (Section 7.20.25).
+  //
+  // So a difference below `pickupTieShare` of the value counts as a tie, and
+  // the tie goes to the point nearer to the spawn ground of the team of the
+  // bot. That rule turns with the arena, so the two teams answer a tie the
+  // same way.
+  const home = homeCell(state, bot);
+  const share = state.config.pickupTieShare;
+  let best: { slotId: string; value: number; nearness: number; home: number } | null = null;
   for (const pickup of state.pickups) {
     const point = pickup.point;
     if (point.cell.x === from.x && point.cell.y === from.y) continue;
@@ -323,9 +337,39 @@ function pickupTarget(
     if (worth <= 0) continue;
     const near = nearness(state, from, point.cell);
     const value = worth * near * safety(state, bot, point.cell);
-    if (best === null || value > best.value) best = { slotId: point.slotId, value, nearness: near };
+    const toHome = (point.cell.x - home.x) ** 2 + (point.cell.y - home.y) ** 2;
+    if (best === null) {
+      best = { slotId: point.slotId, value, nearness: near, home: toHome };
+      continue;
+    }
+    const tied = Math.abs(value - best.value) <= Math.max(value, best.value) * share;
+    const better = tied ? toHome < best.home : value > best.value;
+    if (better) best = { slotId: point.slotId, value, nearness: near, home: toHome };
   }
   return best;
+}
+
+/**
+ * The middle of the spawn ground of the team of a bot.
+ *
+ * The spawn cells of the two teams are images of each other, so this cell and
+ * the cell of the other team are images too, and a tie broken against it
+ * breaks the same way for both teams.
+ */
+function homeCell(state: SimState, bot: BotState): Cell {
+  const size = state.config.teamSize;
+  const start = teamSideIndex(bot.teamId, state.roundNumber) * size;
+  let x = 0;
+  let y = 0;
+  let count = 0;
+  for (let i = start; i < start + size; i += 1) {
+    const cell = state.map.spawns[i];
+    if (!cell) continue;
+    x += cell.x;
+    y += cell.y;
+    count += 1;
+  }
+  return count === 0 ? { x: 0, y: 0 } : { x: x / count, y: y / count };
 }
 
 /**

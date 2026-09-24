@@ -239,6 +239,8 @@ export interface SimConfig {
   preferredRangeBias: number;
   weaponRolePrefBonus: number;
   pickupRiskWeight: number;
+  /** Two pickup points this close in value count as a tie (Section 7.20.25). */
+  pickupTieShare: number;
   aggressionReactionDiscount: number;
   aggressionRepositionDiscount: number;
   influenceIntervalTicks: number;
@@ -386,6 +388,7 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     preferredRangeBias: tuning.ai.preferredRangeBias,
     weaponRolePrefBonus: tuning.ai.weaponRolePrefBonus,
     pickupRiskWeight: tuning.ai.pickupRiskWeight,
+    pickupTieShare: tuning.ai.pickupTieShare,
     aggressionReactionDiscount: tuning.ai.aggressionReactionDiscount,
     aggressionRepositionDiscount: tuning.ai.aggressionRepositionDiscount,
     influenceIntervalTicks: tuning.influence.intervalTicks,
@@ -545,8 +548,29 @@ export function enemyAt(state: SimState, cell: Cell, teamId: TeamId): BotState |
 }
 
 /** The spawn cells of one team. */
-export function teamSpawns(state: SimState, teamId: TeamId): Cell[] {
+/**
+ * The block of spawn cells that a team starts a round on (Section 7.20.24).
+ *
+ * **The teams change ends after every round.** An arena is symmetric to the
+ * cell, but the two halves do not play the same: about four points of win rate
+ * follow the half and not the team, and the cause is not found yet
+ * (Section 7.20.23). A match cannot remove that while it is there, but it can
+ * share it out. Over a match of two rounds each team holds each half one time,
+ * and the part of the bias that belongs to the ground cancels.
+ *
+ * It is the round number that decides, so a round still replays from its own
+ * seed and a test can ask for either side.
+ */
+export function teamSideIndex(teamId: TeamId, roundNumber: number): number {
   const index = TEAM_IDS.indexOf(teamId);
+  if (index < 0) return 0;
+  // Round 1 keeps the ends, round 2 changes them, round 3 changes back.
+  return roundNumber % 2 === 0 ? TEAM_IDS.length - 1 - index : index;
+}
+
+/** The spawn cells of a team this round, after the change of ends. */
+export function teamSpawns(state: SimState, teamId: TeamId): Cell[] {
+  const index = teamSideIndex(teamId, state.roundNumber);
   const size = state.config.teamSize;
   return state.map.spawns.slice(index * size, index * size + size);
 }
@@ -660,9 +684,12 @@ export function createSimState(options: CreateSimStateOptions): SimState {
   }
 
   const bots: BotState[] = [];
-  for (const [teamIndex, teamId] of TEAM_IDS.entries()) {
+  for (const teamId of TEAM_IDS) {
+    // The teams change ends after every round, so the side comes from the
+    // round number and not from the place of the team in the list.
+    const side = teamSideIndex(teamId, roundNumber);
     for (let slot = 0; slot < config.teamSize; slot += 1) {
-      const spawn = map.spawns[teamIndex * config.teamSize + slot] as Cell;
+      const spawn = map.spawns[side * config.teamSize + slot] as Cell;
       // A role gives its tactics preset. The player can change the tactics
       // after the role applies it (Section 7.11).
       const role = options.roles?.[teamId]?.[slot] ?? DEFAULT_ROLES[slot % DEFAULT_ROLES.length]!;

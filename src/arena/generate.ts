@@ -43,6 +43,18 @@ export interface ArenaProfile {
   roomsDown?: number | undefined;
   /** `bastion`: how often a wall between two rooms opens. */
   extraDoorChance?: number | undefined;
+  /**
+   * `bastion`: a hall over the middle of the room grid (Section 7.20.25).
+   * Leave it out and the style builds rooms alone.
+   */
+  centreRoom?:
+    | {
+        width: readonly [number, number];
+        height: readonly [number, number];
+        /** Pillars inside the hall, so it is not a bare floor. */
+        pillars: readonly [number, number];
+      }
+    | undefined;
   /** `openfield`: how many obstacles to drop, as a part of the floor. */
   obstacleDensity?: number | undefined;
   /** `openfield`: the size range of one obstacle, in cells. */
@@ -203,6 +215,50 @@ function buildBastion(grid: Grid, profile: ArenaProfile, rng: Rng): void {
       }
     }
   }
+
+  carveCentreRoom(grid, profile, rng);
+}
+
+/**
+ * Open a hall in the middle of the arena (Section 7.20.25).
+ *
+ * A grid of small rooms gives a fight with no middle: every room is the same
+ * size, so no ground is worth more than the ground beside it, and a team that
+ * holds a room holds nothing. One hall over the centre gives the style a place
+ * that both teams want, and it lifts the open area of `bastion` without
+ * turning it into the open field.
+ *
+ * It is carved over the rooms, not between them, so it keeps every door that
+ * the grid already made. `symmetrise` runs after this and copies the first
+ * half over the second, so the hall comes out the same on both sides whatever
+ * the rounding does here.
+ */
+function carveCentreRoom(grid: Grid, profile: ArenaProfile, rng: Rng): void {
+  const spec = profile.centreRoom;
+  if (!spec) return;
+
+  const width = Math.min(grid.width - 4, rng.int(spec.width[0], spec.width[1]));
+  const height = Math.min(grid.height - 4, rng.int(spec.height[0], spec.height[1]));
+  if (width < 3 || height < 3) return;
+
+  const left = Math.floor((grid.width - width) / 2);
+  const top = Math.floor((grid.height - height) / 2);
+  for (let dy = 0; dy < height; dy += 1) {
+    for (let dx = 0; dx < width; dx += 1) set(grid, left + dx, top + dy, Tile.Floor);
+  }
+
+  // Pillars, so the hall is a space to fight over and not a shooting gallery.
+  // They go in the first half only: `symmetrise` copies that half over the
+  // second, so each one comes back on the other side of the middle.
+  const pillars = rng.int(spec.pillars[0], spec.pillars[1]);
+  for (let i = 0; i < pillars; i += 1) {
+    const px = left + rng.int(2, Math.max(2, Math.floor(width / 2) - 2));
+    const py = top + rng.int(1, Math.max(1, height - 2));
+    set(grid, px, py, Tile.Wall);
+  }
+
+  // The hall is carved over the rooms, so it holds the doors that they already
+  // had, and `connectRegions` joins anything that is still on its own.
 }
 
 function centreOf(room: { x: number; y: number; w: number; h: number }): Cell {
