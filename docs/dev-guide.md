@@ -179,7 +179,8 @@ The project root is the repository root.
 │   ├── ui/                        # screens and menus (browser only)
 │   ├── main.ts                    # browser entry point
 │   └── cli/
-│       └── batch.ts               # Node entry point for the batch harness
+│       ├── batch.ts               # Node entry point for the batch harness
+│       └── styles.ts              # Node entry point for the arena-style harness
 └── tests/
 ```
 
@@ -1572,6 +1573,40 @@ single shot is a combat number, not a batch number.
 near 50 %. A mirror that does not is a side bias, and Section 7.20.14 shows
 that an arena can be symmetric to the cell and still give one side the better
 start.
+
+**What a round record holds.** One `RoundRecord` per round, from the events of
+that round alone. Beside the result and the shot counts it holds:
+
+| Field | What it measures |
+|---|---|
+| `killsByArchetype` | which weapon label made the kills |
+| `shotsByWeapon` | which weapon id was fired, for the round's own set |
+| `killsByBand`, `killDistanceSum` | at what distance the fighting happened |
+| `killsByRole`, `deathsByRole` | which role of Section 7.11 killed and died |
+| `pickupsByKind` | how much of the ground was taken |
+
+A role count is only comparable against the **bot-rounds** of that role: a mix
+can hold one role twice, and then a raw count favours it. Divide.
+
+#### 7.16.1 The style harness (`cli/styles.ts`)
+
+    npm run styles -- --rounds 2430 --arenas 3 --seed 20260924
+
+The batch harness answers "is this preset balanced over the arenas that I gave
+it". The style harness answers a different question: **does a style of ground
+change what wins on it** (Section 7.20.19). It runs one batch per style, over
+several arenas of that style, and puts the tactics, the weapons and the role
+mixes of each style side by side.
+
+Two rules hold for a run of it to mean anything:
+
+1. **Several arenas per style, never one.** One arena is one roll of the
+   generator. A result from one arena measures that arena, not the style.
+2. **A round count that is a whole number of passes.** `planRounds` walks the
+   cells of the plan in order and starts again at the top, so a count that is
+   not a multiple of `arenas × presets² × compositions²` gives the first cells
+   one round more than the last, and every table tilts by a little. The harness
+   prints a warning when the count does not divide.
 
 ### 7.17 Reports and kill feed (`report/`)
 

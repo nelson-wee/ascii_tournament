@@ -196,6 +196,15 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
   const archetypes = [
     ...new Set(records.flatMap((round) => Object.keys(round.killsByArchetype))),
   ].sort();
+  const roles = [
+    ...new Set(
+      records.flatMap((round) => [
+        ...Object.keys(round.killsByRole),
+        ...Object.keys(round.deathsByRole),
+      ]),
+    ),
+  ].sort();
+  const kinds = [...new Set(records.flatMap((round) => Object.keys(round.pickupsByKind)))].sort();
   const rows: (string | number)[][] = [
     [
       "seed",
@@ -212,6 +221,13 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       "shots",
       "hits",
       "unawareKills",
+      "killsClose",
+      "killsMid",
+      "killsLong",
+      "killDistanceSum",
+      ...roles.map((role) => `kills_role_${role}`),
+      ...roles.map((role) => `deaths_role_${role}`),
+      ...kinds.map((kind) => `pickups_${kind}`),
       ...archetypes.map((archetype) => `kills_${archetype}`),
     ],
   ];
@@ -231,6 +247,13 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       round.shots,
       round.hits,
       round.unawareKills,
+      round.killsByBand["close"] ?? 0,
+      round.killsByBand["mid"] ?? 0,
+      round.killsByBand["long"] ?? 0,
+      round.killDistanceSum.toFixed(2),
+      ...roles.map((role) => round.killsByRole[role] ?? 0),
+      ...roles.map((role) => round.deathsByRole[role] ?? 0),
+      ...kinds.map((kind) => round.pickupsByKind[kind] ?? 0),
       ...archetypes.map((archetype) => round.killsByArchetype[archetype] ?? 0),
     ]);
   }

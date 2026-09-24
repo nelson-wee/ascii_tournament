@@ -59,6 +59,11 @@ function record(over: Partial<RoundRecord> = {}): RoundRecord {
     unawareKills: 5,
     killsByArchetype: { baseline: 25 },
     shotsByWeapon: { "baseline-rifle": 100 },
+    killsByBand: { close: 10, mid: 10, long: 5 },
+    killDistanceSum: 200,
+    killsByRole: { tank: 8, overwatch: 9, skirmisher: 8 },
+    deathsByRole: { tank: 8, overwatch: 9, skirmisher: 8 },
+    pickupsByKind: { weapon: 12, health: 6, armor: 4, powerup: 2, ammo: 8 },
     ...over,
   };
 }

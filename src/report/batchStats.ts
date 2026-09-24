@@ -31,6 +31,23 @@ export interface RoundRecord {
   unawareKills: number;
   killsByArchetype: Readonly<Record<string, number>>;
   shotsByWeapon: Readonly<Record<string, number>>;
+  /**
+   * Kills by the range band of the killing blow (Section 7.20.3).
+   * It is what says whether an arena makes a close fight or a long one.
+   */
+  killsByBand: Readonly<Record<string, number>>;
+  /**
+   * The sum of the distance of every kill, in cells. The mean kill distance is
+   * this sum over the number of kills; a sum adds over rounds and a mean does
+   * not.
+   */
+  killDistanceSum: number;
+  /** Kills by the role of the killer (Section 7.11). */
+  killsByRole: Readonly<Record<string, number>>;
+  /** Deaths by the role of the bot that died. */
+  deathsByRole: Readonly<Record<string, number>>;
+  /** Items taken, by kind (Section 7.12). */
+  pickupsByKind: Readonly<Record<string, number>>;
 }
 
 export interface WinRecord {

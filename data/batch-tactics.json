@@ -1,0 +1,68 @@
+{
+  "_notes": "A tactics sweep for the style harness (dev-guide Section 7.16.1). It holds every tactic at the `balanced` value of data/batch.json and moves one at a time: first `preferredRange`, then `weaponRolePref`. `rangeMid` is the control of both groups, because it is `balanced` itself. One composition only, so the cell count stays small and the sweep is not confounded with the role mix. Every number is a placeholder. TBD",
+  "rounds": 2160,
+  "seed": 20260924,
+  "arenas": [
+    "gen:bastion"
+  ],
+  "presets": {
+    "rangeClose": {
+      "aggression": 0.5,
+      "preferredRange": "close",
+      "weaponRolePref": null,
+      "itemControl": 0.5,
+      "holdPosition": 0.2,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    },
+    "rangeMid": {
+      "aggression": 0.5,
+      "preferredRange": "mid",
+      "weaponRolePref": null,
+      "itemControl": 0.5,
+      "holdPosition": 0.2,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    },
+    "rangeLong": {
+      "aggression": 0.5,
+      "preferredRange": "long",
+      "weaponRolePref": null,
+      "itemControl": 0.5,
+      "holdPosition": 0.2,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    },
+    "prefMarksman": {
+      "aggression": 0.5,
+      "preferredRange": "mid",
+      "weaponRolePref": "marksman",
+      "itemControl": 0.5,
+      "holdPosition": 0.2,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    },
+    "prefHeavy": {
+      "aggression": 0.5,
+      "preferredRange": "mid",
+      "weaponRolePref": "heavy",
+      "itemControl": 0.5,
+      "holdPosition": 0.2,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    },
+    "prefAssault": {
+      "aggression": 0.5,
+      "preferredRange": "mid",
+      "weaponRolePref": "assault",
+      "itemControl": 0.5,
+      "holdPosition": 0.2,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    }
+  },
+  "compositions": {
+    "standard": ["tank", "overwatch", "skirmisher"]
+  },
+  "outDir": "batch-out/tactics"
+}
