@@ -46,7 +46,8 @@
     "ai.pickupRiskWeight",
     "ai.aggressionReactionDiscount",
     "ai.aggressionRepositionDiscount",
-    "influence"
+    "influence",
+    "ai.pickupTieShare"
   ],
   "simulation": {
     "ticksPerSecond": 20,
@@ -105,7 +106,8 @@
     "weaponRolePrefBonus": 0.6,
     "pickupRiskWeight": 0.15,
     "aggressionReactionDiscount": 0.35,
-    "aggressionRepositionDiscount": 0.6
+    "aggressionRepositionDiscount": 0.6,
+    "pickupTieShare": 0.02
   },
   "influence": {
     "intervalTicks": 10,

@@ -1997,18 +1997,76 @@ from its own seed and a test can ask for either side.
     round 3   A near, B far
 
 A match is best of 3 and runs 2.6 rounds on average, so a team holds each half
-about as often as the other. The measurement, over 400 matches a style:
+about as often as the other. Team A win rate over 400 matches a style, with
+everything else held equal — the same arena, weapons, spawn table and round
+seeds, and only the ends changing:
 
-| Style | Round 1 alone | A match, best of 3 |
+| Style | Ends fixed | Ends change |
 |---|---:|---:|
-| bastion | 47.3 % | **50.0 %** |
+| bastion | 51.7 % | **50.0 %** |
+| openfield | 46.3 % | **51.2 %** |
+| cavern | 47.8 % | **48.5 %** |
+
+It moves every style toward fair, and `openfield`, which had the worst round
+bias, gains five points.
 
 **What it does not do.** It does not make a single round fair, and it cannot:
 the first round of every match still runs on the ends that the arena gives.
-Nothing here replaces finding the cause. It bounds the damage until then.
+A match that runs the full three rounds also gives one team the ends of round 1
+twice, so the sharing is not exact. Nothing here replaces finding the cause. It
+bounds the damage until then.
+
+**Read a single round, not a match, when hunting the cause.** A match hides the
+thing that Section 7.20.23 is looking for, which is the point of it.
 
 **Where it shows.** The between-round screen says which end the team of the
 player starts on, because the ground a team starts on decides the first fight.
+
+#### 7.20.25 A hall in the middle of a bastion
+
+`bastion` was a grid of rooms of one size, and a grid of rooms of one size
+gives a fight with no middle: no room is worth more than the room beside it, so
+a team that holds a room holds nothing. The style now carves one **hall** over
+the centre of the grid, from `centreRoom` in the profile.
+
+| Measure, mean of 10 arenas | Before | After |
+|---|---:|---:|
+| open area | 40.5 % | 44.9 % |
+| mean sightline | 14.6 | 16.6 |
+| chokepoints | 19 | 13 |
+
+`bastion` is still the closed style by a wide margin: `cavern` is 59.6 % open
+and `openfield` 72.3 %. The rule `maxOpenAreaRatio: 0.5` is unchanged and still
+binds, so the hall cannot grow into an open field; over 24 arenas the open area
+runs 37.3 % to 49.2 %.
+
+The hall is carved **over** the rooms and not between them, so it keeps every
+door that the grid already made, and `connectRegions` picks up anything left on
+its own. Its pillars go in the first half only, because `symmetrise` copies
+that half over the second.
+
+#### 7.20.25.1 What the hall broke, and the rule it left
+
+The mirror test of Section 7.20.23 started failing on `bastion` at tick 128.
+The grid was still symmetric to the cell, and the two teams still mirrored to
+about **1e-13** — and then one bot walked to a different pickup point from its
+partner.
+
+The cause is not a side bias. It is a knife edge. Floating point addition is
+not the same at `x = 22` as it is at `x = 38`, so two mirrored bots drift apart
+in the last bits of their position, and `pickupTarget` compared the value of
+two points with a plain `>`. Two points are often worth almost the same, so the
+13th decimal decided which one a bot walked to. Open ground gives more near
+ties, which is why the hall brought it out.
+
+**The rule:** a difference below `ai.pickupTieShare` of the value counts as a
+tie, and a tie goes to the point nearer to the spawn ground of the team of the
+bot. That rule turns with the arena, because the spawn cells of the two teams
+are images of each other, so both teams answer a tie the same way.
+
+**A decision that turns on the 13th decimal is a defect on its own**, whatever
+it does to the win rate. Look for the same shape anywhere a float comparison
+picks between two things that a symmetric arena offers to both teams.
 
 ### 7.20 Design notes for M6: weapons, reaction order, and vision
 

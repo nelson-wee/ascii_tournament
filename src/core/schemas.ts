@@ -171,6 +171,13 @@ export const TuningSchema = z
          */
         pickupRiskWeight: z.number().nonnegative(),
         /**
+         * Two pickup points whose value differs by less than this share of the
+         * value count as a tie, and the tie goes to the point nearer to the
+         * spawn ground of the team (Section 7.20.25). Without it the 13th
+         * decimal of a float decided, and the two halves stopped matching. TBD
+         */
+        pickupTieShare: unitRange,
+        /**
          * How much the aggression tactic shortens the aim delay. A bold bot
          * shoots first; it also fights at low health and does not walk to the
          * band where its weapon is strongest. Letting aggression discount the
@@ -658,6 +665,20 @@ export const ArenaProfileSchema = z
     roomsAcross: positiveInt.optional(),
     roomsDown: positiveInt.optional(),
     extraDoorChance: unitRange.optional(),
+    /**
+     * A hall in the middle of the arena, over the grid of rooms
+     * (Section 7.20.25). It gives the style one open space to fight over.
+     * Leave it out and the style builds rooms alone.
+     */
+    centreRoom: z
+      .object({
+        width: range,
+        height: range,
+        /** Pillars inside the hall, so it is not a bare floor. */
+        pillars: range,
+      })
+      .strict()
+      .optional(),
     obstacleDensity: unitRange.optional(),
     obstacleSize: z.tuple([positiveInt, positiveInt]).optional(),
     noiseDensity: unitRange.optional(),

@@ -12,7 +12,7 @@ import {
   type ArenaStyle,
   type GeneratedArena,
 } from "../src/arena/generate.js";
-import { checkArenaFairness, Tile, tileAt } from "../src/arena/index.js";
+import { checkArenaFairness, isWalkable, Tile, tileAt } from "../src/arena/index.js";
 import { describeArena, measureArena, validateArena } from "../src/arena/metrics.js";
 import { loadArenaProfiles } from "../src/core/data.js";
 import { createRng, deriveSeed } from "../src/core/rng.js";
@@ -109,6 +109,30 @@ describe("generateArena", () => {
       const map = build(style, 6);
       expect(map.metrics.spawnFairness).toBeLessThanOrEqual(data.rules.maxSpawnFairness);
       expect(contestedShare(map)).toBeGreaterThan(0);
+    }
+  });
+
+  it("opens a hall in the middle of a bastion", () => {
+    // Section 7.20.25: a grid of rooms of one size gives a fight with no
+    // middle. The hall is the ground that both teams want.
+    const profiles = loadArenaProfiles();
+    const profile = profiles.profiles["bastion"];
+    expect(profile?.centreRoom).toBeDefined();
+    for (const seed of [3, 7, 11, 19]) {
+      const arena = generateArena(profile!, createRng(seed, "arena"), seed, {
+        rules: profiles.rules,
+      });
+      const cx = Math.floor(arena.width / 2);
+      const cy = Math.floor(arena.height / 2);
+      let open = 0;
+      let total = 0;
+      for (let dy = -2; dy <= 2; dy += 1) {
+        for (let dx = -5; dx <= 5; dx += 1) {
+          total += 1;
+          if (isWalkable(tileAt(arena, cx + dx, cy + dy))) open += 1;
+        }
+      }
+      expect(open / total, `seed ${seed}`).toBeGreaterThan(0.85);
     }
   });
 

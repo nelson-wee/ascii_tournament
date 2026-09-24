@@ -239,6 +239,8 @@ export interface SimConfig {
   preferredRangeBias: number;
   weaponRolePrefBonus: number;
   pickupRiskWeight: number;
+  /** Two pickup points this close in value count as a tie (Section 7.20.25). */
+  pickupTieShare: number;
   aggressionReactionDiscount: number;
   aggressionRepositionDiscount: number;
   influenceIntervalTicks: number;
@@ -386,6 +388,7 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     preferredRangeBias: tuning.ai.preferredRangeBias,
     weaponRolePrefBonus: tuning.ai.weaponRolePrefBonus,
     pickupRiskWeight: tuning.ai.pickupRiskWeight,
+    pickupTieShare: tuning.ai.pickupTieShare,
     aggressionReactionDiscount: tuning.ai.aggressionReactionDiscount,
     aggressionRepositionDiscount: tuning.ai.aggressionRepositionDiscount,
     influenceIntervalTicks: tuning.influence.intervalTicks,

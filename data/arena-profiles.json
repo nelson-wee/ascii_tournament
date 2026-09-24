@@ -25,6 +25,20 @@
       "roomsAcross": 6,
       "roomsDown": 4,
       "extraDoorChance": 0.45,
+      "centreRoom": {
+        "width": [
+          15,
+          19
+        ],
+        "height": [
+          7,
+          9
+        ],
+        "pillars": [
+          2,
+          4
+        ]
+      },
       "rules": {
         "minLongSightline": 18,
         "maxOpenAreaRatio": 0.5,
