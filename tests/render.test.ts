@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { ATTACK_TYPES } from "../src/weapons/types.js";
 import { FAMILY } from "../src/render/vfxLayer.js";
 import {
+  contrastOf,
   INTENSITY,
+  NEON_CONTRAST,
   NEON_THEMES,
   PICKUP_GLYPHS,
   pickRotation,
@@ -39,10 +41,34 @@ describe("neon palettes", () => {
     }
   });
 
-  it("holds a palette for each of the six looks, with no two names the same", () => {
+  it("holds a palette for each look, with no two names the same", () => {
     const names = new Set(NEON_THEMES.map((theme) => theme.name));
     expect(names.size).toBe(NEON_THEMES.length);
-    expect(NEON_THEMES.length).toBeGreaterThanOrEqual(5);
+    expect(NEON_THEMES.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it("gives every palette a contrast hue, for the ground alone", () => {
+    for (const theme of NEON_THEMES) {
+      expect(NEON_CONTRAST[theme.name], theme.name).toBeDefined();
+      // The hue is set at load, so nothing downstream has to look it up.
+      expect(theme.contrast, theme.name).toBe(NEON_CONTRAST[theme.name]);
+      expect(theme.contrast).toMatch(/^#/);
+    }
+  });
+
+  it("falls back to the hazard hue for a palette it does not know", () => {
+    const made = { ...(NEON_THEMES[0] as (typeof NEON_THEMES)[number]), name: "not a palette" };
+    expect(contrastOf(made)).toBe(made.hazard);
+  });
+
+  it("keeps the contrast hue away from the colour of the other team", () => {
+    // A wall in the colour of a team would read as a bot. The contrast may
+    // match its OWN team, because the two are never drawn the same way.
+    for (const theme of NEON_THEMES) {
+      const contrast = contrastOf(theme);
+      const matchesOne = contrast === theme.teamA || contrast === theme.teamB;
+      if (matchesOne) expect(theme.teamA).not.toBe(theme.teamB);
+    }
   });
 
   it("keeps the two teams apart in every palette", () => {

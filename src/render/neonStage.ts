@@ -13,7 +13,7 @@
  * desktop screen and a phone screen (Section 2.3). Every value that the two
  * canvases share — the cell size in device pixels — comes from here.
  */
-import { NeonGrid, type ArenaView } from "./neonGrid.js";
+import { NeonGrid, type ArenaView, type WallFill } from "./neonGrid.js";
 import { DEFAULT_THEME, INTENSITY, type NeonTheme } from "./neonThemes.js";
 import { VfxLayer } from "./vfxLayer.js";
 
@@ -26,6 +26,8 @@ export interface NeonStageOptions {
   scanlines?: boolean;
   intensity?: number;
   seed?: number | string;
+  /** How much of the ground takes the contrast hue of the palette. */
+  wallFill?: WallFill;
 }
 
 const DEFAULTS = {
@@ -35,6 +37,7 @@ const DEFAULTS = {
   font: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
   scanlines: true,
   intensity: INTENSITY.punchy,
+  wallFill: "mass",
 } as const;
 
 export class NeonStage {
@@ -65,6 +68,7 @@ export class NeonStage {
       font: options.font ?? DEFAULTS.font,
       scanlines: options.scanlines ?? DEFAULTS.scanlines,
       intensity: options.intensity ?? DEFAULTS.intensity,
+      wallFill: options.wallFill ?? DEFAULTS.wallFill,
     };
     this.intensityValue = this.options.intensity;
 
@@ -82,6 +86,7 @@ export class NeonStage {
       cellH: this.cellH,
       font: this.options.font,
       scanlines: this.options.scanlines,
+      wallFill: this.options.wallFill,
     });
     this.vfx = new VfxLayer(this.vfxCanvas, {
       cellW: this.cellW,
@@ -114,11 +119,17 @@ export class NeonStage {
     this.intensityValue = value;
   }
 
+  setWallFill(fill: WallFill): void {
+    this.grid.setWallFill(fill);
+  }
+
   /** Set the size of the grid in cells, and fit the canvases to it. */
   setSize(cols: number, rows: number): void {
     this.cols = Math.max(1, cols);
     this.rows = Math.max(1, rows);
     this.vfx.clear();
+    // A new arena means a new shape, so the pocket mask of the last one goes.
+    this.grid.invalidate();
     this.fit();
   }
 

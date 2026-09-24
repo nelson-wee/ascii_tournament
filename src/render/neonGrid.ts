@@ -56,11 +56,20 @@ export interface ArenaView {
   interp: number;
 }
 
+/**
+ * How much of the ground takes the contrast hue of the palette.
+ *
+ * `off` leaves the geometry as it was. `mass` paints the wall inside a block,
+ * `pockets` paints the floor that no bot can reach, and `both` does the two.
+ */
+export type WallFill = "off" | "mass" | "pockets" | "both";
+
 export interface GridOptions {
   cellW: number;
   cellH: number;
   font?: string;
   scanlines?: boolean;
+  wallFill?: WallFill;
 }
 
 /** The cell height that the glyph sizes below were chosen against. */
@@ -72,6 +81,11 @@ export class NeonGrid {
   private ch: number;
   private fontFamily: string;
   private scanlines: boolean;
+  private wallFill: WallFill;
+  /** Which floor cells no bot can reach. It is built one time per arena. */
+  private pocketMask: Uint8Array | null = null;
+  private maskWidth = 0;
+  private maskHeight = 0;
 
   constructor(canvas: HTMLCanvasElement, options: GridOptions) {
     const ctx = canvas.getContext("2d");
@@ -81,6 +95,96 @@ export class NeonGrid {
     this.ch = options.cellH;
     this.fontFamily = options.font ?? "'JetBrains Mono', ui-monospace, monospace";
     this.scanlines = options.scanlines ?? true;
+    this.wallFill = options.wallFill ?? "mass";
+  }
+
+  setWallFill(fill: WallFill): void {
+    this.wallFill = fill;
+  }
+
+  /**
+   * Forget the pocket mask. Call it when the arena changes.
+   *
+   * A hazard tile does not need this: a hazard is ground that a bot can walk
+   * on, so it belongs to the same region that it belonged to before.
+   */
+  invalidate(): void {
+    this.pocketMask = null;
+  }
+
+  /**
+   * Which cells belong to a part of the floor that is sealed off.
+   *
+   * A flood fill over every cell that is not a wall. The largest region is the
+   * arena; anything else is a pocket that no bot reaches. It costs one pass
+   * over the grid, and the answer holds until the arena changes.
+   */
+  private pockets(view: ArenaView): Uint8Array {
+    const { width, height } = view;
+    if (this.pocketMask !== null && this.maskWidth === width && this.maskHeight === height) {
+      return this.pocketMask;
+    }
+    const total = width * height;
+    const region = new Int32Array(total).fill(-1);
+    const sizes: number[] = [];
+    const queue = new Int32Array(total);
+
+    for (let start = 0; start < total; start += 1) {
+      if (region[start] !== -1) continue;
+      const sx = start % width;
+      const sy = (start - sx) / width;
+      if (view.tileAt(sx, sy) === "wall") continue;
+
+      const label = sizes.length;
+      let head = 0;
+      let tail = 0;
+      queue[tail] = start;
+      tail += 1;
+      region[start] = label;
+      let size = 0;
+      while (head < tail) {
+        const index = queue[head] as number;
+        head += 1;
+        size += 1;
+        const x = index % width;
+        const y = (index - x) / width;
+        const steps: [number, number][] = [
+          [x + 1, y],
+          [x - 1, y],
+          [x, y + 1],
+          [x, y - 1],
+        ];
+        for (const [nx, ny] of steps) {
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const next = ny * width + nx;
+          if (region[next] !== -1) continue;
+          if (view.tileAt(nx, ny) === "wall") continue;
+          region[next] = label;
+          queue[tail] = next;
+          tail += 1;
+        }
+      }
+      sizes.push(size);
+    }
+
+    let main = -1;
+    let best = -1;
+    for (const [label, size] of sizes.entries()) {
+      if (size > best) {
+        best = size;
+        main = label;
+      }
+    }
+
+    const mask = new Uint8Array(total);
+    for (let index = 0; index < total; index += 1) {
+      const label = region[index] as number;
+      mask[index] = label >= 0 && label !== main ? 1 : 0;
+    }
+    this.pocketMask = mask;
+    this.maskWidth = width;
+    this.maskHeight = height;
+    return mask;
   }
 
   setCellSize(cellW: number, cellH: number): void {
@@ -123,21 +227,58 @@ export class NeonGrid {
     ctx.textBaseline = "middle";
     ctx.shadowBlur = 0;
 
+    // The contrast hue of the palette, for the ground alone. The alpha stays
+    // low on purpose: the hue carries the read, and a stronger fill makes a
+    // bot hard to follow.
+    const contrast = theme.contrast ?? theme.hazard;
+    const fillMass = this.wallFill === "mass" || this.wallFill === "both";
+    const fillPockets = this.wallFill === "pockets" || this.wallFill === "both";
+    const pockets = fillPockets ? this.pockets(view) : null;
+
     ctx.font = this.font(17);
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
         if (view.tileAt(x, y) !== "wall") continue;
-        ctx.fillStyle = theme.wallBg;
-        ctx.fillRect(x * this.cw, y * this.ch, this.cw, this.ch);
         const exposed =
           view.tileAt(x, y - 1) !== "wall" ||
           view.tileAt(x, y + 1) !== "wall" ||
           view.tileAt(x - 1, y) !== "wall" ||
           view.tileAt(x + 1, y) !== "wall";
+
+        if (!exposed && fillMass) {
+          // The wall inside a block: it is the shape of the arena, and it is
+          // the one place a second hue can go without hiding anything.
+          ctx.globalAlpha = 0.17;
+          ctx.fillStyle = contrast;
+          ctx.fillRect(x * this.cw, y * this.ch, this.cw, this.ch);
+          ctx.globalAlpha = 0.5;
+          ctx.fillText("\u2593", this.px(x), this.py(y));
+          ctx.globalAlpha = 1;
+          continue;
+        }
+
+        ctx.fillStyle = theme.wallBg;
+        ctx.fillRect(x * this.cw, y * this.ch, this.cw, this.ch);
         ctx.fillStyle = exposed ? theme.wallLit : theme.wall;
         ctx.globalAlpha = exposed ? 0.95 : 0.32;
         ctx.fillText("#", this.px(x), this.py(y));
         ctx.globalAlpha = 1;
+      }
+    }
+
+    // Floor that no bot can reach. It reads as part of the geometry, not as
+    // ground to fight over.
+    if (pockets !== null) {
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          if (pockets[y * width + x] !== 1) continue;
+          ctx.globalAlpha = 0.13;
+          ctx.fillStyle = contrast;
+          ctx.fillRect(x * this.cw, y * this.ch, this.cw, this.ch);
+          ctx.globalAlpha = 0.55;
+          ctx.fillText("\u2592", this.px(x), this.py(y));
+          ctx.globalAlpha = 1;
+        }
       }
     }
 
@@ -148,6 +289,8 @@ export class NeonGrid {
       for (let x = 0; x < width; x += 1) {
         const tile = view.tileAt(x, y);
         if (tile === "wall" || tile === "hazard") continue;
+        // A sealed pocket was already drawn, in the contrast hue.
+        if (pockets !== null && pockets[y * width + x] === 1) continue;
         if (tile === "floor") {
           ctx.fillStyle = theme.floorChar;
           ctx.globalAlpha = 0.55;

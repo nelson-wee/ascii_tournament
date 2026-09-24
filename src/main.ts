@@ -47,6 +47,7 @@ import {
   type TeamId,
 } from "./sim/index.js";
 import { openMainMenu, openMatchOverScreen, type MenuChoice, type Screen } from "./ui/menu.js";
+import { createBotStatus } from "./ui/botStatus.js";
 import { createSpeedControls } from "./ui/speedControls.js";
 import { openTacticsScreen } from "./ui/tacticsScreen.js";
 
@@ -131,6 +132,7 @@ try {
   const statusHost = document.querySelector<HTMLElement>("#status");
   const scoreHost = document.querySelector<HTMLElement>("#score");
   const feedHost = document.querySelector<HTMLElement>("#feed");
+  const botsHost = document.querySelector<HTMLElement>("#bots");
   const stageHost = document.querySelector<HTMLElement>("#stage");
   if (
     !arenaHost ||
@@ -140,6 +142,7 @@ try {
     !statusHost ||
     !scoreHost ||
     !feedHost ||
+    !botsHost ||
     !stageHost
   ) {
     throw new Error("index.html is missing one of the elements that main.ts needs");
@@ -149,6 +152,7 @@ try {
   const statusEl: HTMLElement = statusHost;
   const scoreEl: HTMLElement = scoreHost;
   const feedEl: HTMLElement = feedHost;
+  const botStatus = createBotStatus({ container: botsHost });
   const stageEl: HTMLElement = stageHost;
 
   const config = simConfigFromTuning(loadTuning());
@@ -243,10 +247,14 @@ try {
   // The frame
   // ------------------------------------------------------------------------
 
-  /** The score, the kill feed and the status line. */
+  /** The score, the bot status, the kill feed and the status line. */
   function updatePanel(): void {
-    if (!state) return;
+    if (!state) {
+      botStatus.update(null, stage.getTheme());
+      return;
+    }
     const theme = stage.getTheme();
+    botStatus.update(state, theme);
     const [teamA, teamB] = TEAM_IDS;
     scoreEl.innerHTML = [
       `<span style="color:${theme.teamA}">A ${state.score[teamA]}</span>`,
