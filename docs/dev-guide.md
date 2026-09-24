@@ -1938,24 +1938,38 @@ point that faces it hold the same weapon:
 | openfield | 45.1 % | **51.3 %** |
 | cavern | 45.9 % | **51.9 %** |
 
-The mirrored table is worth about six points to team A on every style. It
-lands `openfield` and `cavern` within about one standard error of fair, which
-is the four points that the three fixes above did not reach. On `bastion` the
-same six points carry it past fair to 55.7 %.
+The mirrored table is worth about six points to team A on every style.
 
-So the choice is not "fair or unfair". It is **which way the arena leans**: a
-table that is not mirrored leans to team B on all three styles, and a mirrored
-one leans to team A on `bastion` alone. Neither is shipped yet, because the
-`bastion` overshoot has a cause that is not measured.
+That reads like a fix for `openfield` and `cavern`, and it is not one. The
+column above forces the mirror at the call site, which is not the same change
+as pairing the points in `placeWeapons`: pairing also halves the number of
+groups, so a different weapon lands on each pair. Making the real change and
+measuring it again gave **56.4 / 53.6 / 51.3 %**, a mean distance from fair of
+3.8 points against 3.5 for the table as it is. It does not make the arena
+fairer. It turns a lean toward team B on three styles into a larger lean toward
+team A on one.
 
-**The likely cause of the overshoot, not proved.** `pickupTarget` keeps the
-first point of the best value that it meets, and the points are listed in the
-order that the map was scanned in, so a tie goes to the top left of the map
-every time. A mirrored table makes ties common. `bastion` is the style where
-being the nearer team matters most, so it should overshoot the most, and it
-does. One attempt at a symmetric tie-break — prefer the point nearer to the
-spawn ground of the bot's own team — moved team A to 59.0 / 62.4 / 57.8 %,
-which is worse still and is not understood. It is reverted.
+So the mirrored table is **not** shipped, and the lesson is about the probe and
+not about the arena: **a variant that stands in for a change is not the
+change.** Measure the code, not the stand-in.
+
+**What is left, and what is not known.** About four points on `openfield` and
+`cavern` come from the spawn table, because the swap test moves them. Every
+answer tried so far overshoots the other way:
+
+| Change | bastion | openfield | cavern | Mean distance from fair |
+|---|---:|---:|---:|---:|
+| none (shipped) | 48.6 % | 45.1 % | 45.9 % | **3.5** |
+| pair every weapon point | 56.4 % | 53.6 % | 51.3 % | 3.8 |
+| the same, plus a tie-break to the bot's own side | 59.0 % | 62.4 % | 57.8 % | 9.7 |
+
+None is shipped. **No mechanism explains why a mirrored offer moves the win
+rate toward team A at all**, which is the thing to find before the next
+attempt. A first guess, that `pickupTarget` keeps the first point of the best
+value and the points are listed in the order that the map was scanned in, does
+not survive arithmetic: `nearness` is continuous, so a point and the point that
+faces it tie only for a bot on the anti-diagonal of the pair, which is rare.
+Count the ties before building on that guess.
 
 **A note on the test.** `tests/fairness.test.ts` passes under every one of
 these combinations, because it uses a mirrored table and a flat RNG, so it
