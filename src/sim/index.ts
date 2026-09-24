@@ -2,6 +2,7 @@
 export * from "./state.js";
 export { advanceBot } from "./movement.js";
 export {
+  ammoOf,
   critConditionMet,
   currentBand,
   dodgeOf,
