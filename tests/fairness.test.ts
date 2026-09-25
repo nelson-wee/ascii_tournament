@@ -11,6 +11,7 @@ import {
   createSimState,
   simConfigFromTuning,
   step,
+  sideOffsetOf,
   teamSideIndex,
   type BotState,
 } from "../src/sim/index.js";
@@ -136,6 +137,44 @@ describe("the change of ends", () => {
     expect(teamSideIndex("A", 2)).toBe(1);
     expect(teamSideIndex("B", 2)).toBe(0);
     expect(teamSideIndex("A", 3)).toBe(0);
+  });
+
+  it("lets the match decide which half team A starts on", () => {
+    // A match of three rounds gives one team the ends of round 1 twice. With a
+    // fixed start that team was always team A, so the change of ends could
+    // pull an advantaged team A down toward fair and could not lift a
+    // disadvantaged one up (Section 7.20.24).
+    expect(teamSideIndex("A", 1, 1)).toBe(1);
+    expect(teamSideIndex("B", 1, 1)).toBe(0);
+    expect(teamSideIndex("A", 2, 1)).toBe(0);
+    expect(teamSideIndex("B", 2, 1)).toBe(1);
+    // The ends still change between rounds, whichever half the match started on.
+    for (const offset of [0, 1]) {
+      for (const round of [1, 2, 3, 4]) {
+        expect(teamSideIndex("A", round, offset)).not.toBe(
+          teamSideIndex("A", round + 1, offset),
+        );
+        expect(teamSideIndex("A", round, offset)).not.toBe(
+          teamSideIndex("B", round, offset),
+        );
+      }
+    }
+  });
+
+  it("gives each half to team A about as often over many matches", () => {
+    let first = 0;
+    const matches = 400;
+    for (let i = 0; i < matches; i += 1) {
+      const offset = sideOffsetOf(deriveSeed(SEED, `sides:${i}`));
+      expect(offset === 0 || offset === 1).toBe(true);
+      if (offset === 0) first += 1;
+    }
+    // 400 draws, so three standard errors is about 7.5 points.
+    expect(Math.abs(first / matches - 0.5)).toBeLessThan(0.075);
+  });
+
+  it("gives the same half for the same match seed", () => {
+    expect(sideOffsetOf(4242)).toBe(sideOffsetOf(4242));
   });
 
   it("starts team A of round 2 on the cells of team B of round 1", () => {
