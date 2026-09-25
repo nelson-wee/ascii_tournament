@@ -2130,9 +2130,11 @@ picks between two things that a symmetric arena offers to both teams.
 
 Section 7.20.23 found three side bias bugs with the mirror test and left the
 rest without a cause. Section 7.20.24 shared the rest out instead of removing
-it. This section names it. There were two causes, and neither of them is a
-team bias: **team A wins half of its rounds.** The old reading of "team B wins
-more" came from always starting team A on the same half.
+it. This section names it. There were **three** causes. The first belongs to the
+ground and the other two belong to the name of the team, and the first one hid
+the other two: the old reading of "team B wins about four points more" was team
+A always starting on the same half, with a team A advantage of about the same
+size pulling the other way.
 
 **The instrument.** One probe runs the same round twice and changes one thing:
 which half team A stands on. The arena, the weapons, the spawn table and the
@@ -2201,14 +2203,22 @@ draw, so a round still replays from its seed.
 Team A win rate at round level, 400 rounds a cell, 9 arenas a style. A fair
 engine reads 50 % in both columns.
 
-| Style | Before, 1st/2nd | Table paired only | Both fixes |
-|---|---:|---:|---:|
-| bastion | 44.5 / 53.8 | 54.5 / 55.0 | 52.5 / 51.7 |
-| openfield | 45.3 / 56.0 | 54.9 / 54.6 | 56.0 / 55.0 |
-| cavern | 48.0 / 55.0 | 52.5 / 54.0 | TBD |
+| Style | Before, 1st/2nd | Cause 1 fixed | Causes 1 and 2 | All three |
+|---|---:|---:|---:|---:|
+| bastion | 44.5 / 53.8 | 54.5 / 55.0 | 52.5 / 51.7 | **51.4 / 50.6** |
+| openfield | 45.3 / 56.0 | 54.9 / 54.6 | 56.0 / 55.0 | **50.4 / 49.4** |
+| cavern | 48.0 / 55.0 | 52.5 / 54.0 | 53.8 / 55.5 | **49.1 / 51.1** |
 
-The gap between the halves goes from 9.3, 10.7 and 7.0 points to 0.5, 0.3 and
-1.5. **The bias that belongs to the ground is gone.**
+The gap between the halves goes from 9.3, 10.7 and 7.0 points to 0.8, 1.0 and
+2.0, and the level of each style sits at 51.0, 49.9 and 50.1. Every cell is
+inside its own error. **Both kinds of side bias are gone.**
+
+**The middle columns are the lesson.** Fixing the ground bias alone made a
+match *worse*, not better: at match level `bastion` went from 48.8 % to 57.0 %.
+The ground bias had been pulling against a team bias of about the same size,
+and two large defects that cancel read as one small defect. A measurement that
+reports only the total will call that healthy. The probe that changes one thing
+and holds the rest equal is what tells them apart.
 
 The middle column is the point of the whole section: pairing the table closes
 the gap between the halves and leaves a level 5 points high on **both** halves.
@@ -2216,23 +2226,30 @@ That level is cause 2. Running the same arm with the parity of the tick
 inverted reads 48.3 / 49.0 on `bastion`, which is the proof that the order of
 the bot list held it.
 
-##### What is left, and it is not fixed
+##### Cause 3: both teams at the score limit on the same tick
 
-A level above 50 % stays on both halves: 52.1 % on `bastion` and 55.5 % on
-`openfield`. Both halves read the same, so this one follows the name of the
-team and not the ground. A change of ends cannot reach it. What is already
-ruled out for it:
+`checkRoundEnd` walked `TEAM_IDS` in order to find a team at the score limit.
+The limit is 15 kills, and a 3v3 round with respawns reaches it in most rounds.
+Two teams can cross it on the **same tick**: one exchange takes a bot from each
+team, or one shot of area damage takes two. The walk always found team A first,
+so team A won every one of those rounds. Over 300 rounds a style:
 
-- The arena. All 27 arenas of the probe pool are symmetric in tiles, in spawn
-  cells and in pickup points.
-- The spawn table. It is mirrored to the point after cause 1.
-- The parity of the tick. The hash removed 2.6 points on `bastion` and nothing
-  on `openfield`, so it is not the whole of it.
+| Style | Rounds with both teams at the limit | Went to team A |
+|---|---:|---:|
+| bastion | 10 (3.3 %) | 10 |
+| openfield | 26 (8.7 %) | 26 |
+| cavern | 19 (6.3 %) | 19 |
 
-One thing found by reading, and not yet measured: `checkRoundEnd` walks
-`TEAM_IDS` in order to find a team at the score limit, so two teams that reach
-it on the same tick both give the round to team A. It is rare and it cannot be
-worth five points, but it is the same shape of defect. **TBD**
+Half of each rate is the win rate that it carried: 1.7, 4.4 and 3.2 points. The
+level that cause 1 and cause 2 left was 2.1, 5.5 and 4.7 — the same order of
+size and the same order between the styles.
+
+**The rule now:** one team over the limit wins, as before. Two teams over it,
+and the higher score wins, because area damage can carry a team past the limit
+by more than one point. An equal score asks the question that the time limit
+asks, so it takes the same answer: **sudden death**, and the next kill wins it.
+A round record still says `scoreLimit`, because the score limit outranks sudden
+death, and the `Announcement` event records that sudden death started.
 
 ##### What the hunt ruled out
 

@@ -65,6 +65,54 @@ describe("checkRoundEnd", () => {
     state.score.B = state.config.scoreLimit + 5;
     expect(checkRoundEnd(state)?.reason).toBe("scoreLimit");
   });
+
+  it("sends an equal score at the score limit to sudden death", () => {
+    // Section 7.20.26. Both teams can cross the limit on the same tick, and
+    // walking TEAM_IDS in order gave every one of those rounds to team A. The
+    // question is the one that the time limit asks, so it takes the same
+    // answer.
+    const state = arenaState();
+    state.score.A = state.config.scoreLimit;
+    state.score.B = state.config.scoreLimit;
+    expect(checkRoundEnd(state)).toBeNull();
+    expect(state.suddenDeath).toBe(true);
+    expect(state.suddenDeathStartTick).toBe(state.tick);
+
+    // The next kill wins it. The score limit outranks sudden death, as
+    // `tests/announcements.test.ts` asks, so the reason stays the score limit.
+    state.score.B += 1;
+    const outcome = checkRoundEnd(state);
+    expect(outcome?.reason).toBe("scoreLimit");
+    expect(outcome?.winnerTeamId).toBe("B");
+  });
+
+  it("still bounds a round that reached sudden death from the score limit", () => {
+    // `runRound` has no loop bound of its own, so the safety limit of sudden
+    // death is the only thing that stops a round where both teams sit at the
+    // limit and neither kills again.
+    const state = arenaState();
+    state.score.A = state.config.scoreLimit;
+    state.score.B = state.config.scoreLimit;
+    expect(checkRoundEnd(state)).toBeNull();
+    expect(state.suddenDeath).toBe(true);
+
+    state.tick = state.suddenDeathStartTick + state.config.suddenDeathMaxTicks;
+    const outcome = checkRoundEnd(state);
+    expect(outcome?.winnerTeamId).toBeNull();
+    expect(outcome?.reason).toBe("timeLimit");
+  });
+
+  it("gives the round to the higher score when both teams passed the limit", () => {
+    // One shot of area damage can take two bots, so a team can pass the limit
+    // by more than one point on the tick that the other team reaches it.
+    const state = arenaState();
+    state.score.A = state.config.scoreLimit;
+    state.score.B = state.config.scoreLimit + 1;
+    const outcome = checkRoundEnd(state);
+    expect(outcome?.reason).toBe("scoreLimit");
+    expect(outcome?.winnerTeamId).toBe("B");
+    expect(state.suddenDeath).toBe(false);
+  });
 });
 
 describe("step", () => {
