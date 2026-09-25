@@ -2213,6 +2213,24 @@ The gap between the halves goes from 9.3, 10.7 and 7.0 points to 0.8, 1.0 and
 2.0, and the level of each style sits at 51.0, 49.9 and 50.1. Every cell is
 inside its own error. **Both kinds of side bias are gone.**
 
+At match level, best of 3 over the same 9 arenas a style:
+
+| Style | Matches | Ends fixed | Ends change |
+|---|---:|---:|---:|
+| bastion | 400 | 50.9 % | 51.4 % |
+| openfield | 900 | 48.2 % | 48.6 % |
+| cavern | 400 | 50.5 % | 52.4 % |
+
+`openfield` read 46.8 % at 400 matches, which no round rate of 49.9 % can give,
+so it went to 900 matches and came back at 48.6 %. **Read a cell against its
+own error before you call it a bias:** 46.8 +-2.5 is 1.3 standard errors from
+fair, and it was noise.
+
+The two columns now agree on every style, which is what a fair engine looks
+like: with nothing left for a change of ends to share out, changing ends stops
+mattering. The rule of Section 7.20.24 stays, because it costs nothing and it
+bounds any ground bias that a later change to arena generation brings back.
+
 **The middle columns are the lesson.** Fixing the ground bias alone made a
 match *worse*, not better: at match level `bastion` went from 48.8 % to 57.0 %.
 The ground bias had been pulling against a team bias of about the same size,
