@@ -118,9 +118,9 @@ export function checkRoundEnd(state: SimState): RoundOutcome | null {
     }
     // Two teams over the limit with an equal score. This is the question that
     // the time limit asks, so it takes the same answer: sudden death, and the
-    // next kill wins it.
+    // next kill wins it. It falls through to the block below, so the safety
+    // limit of sudden death still bounds the round.
     startSuddenDeath(state);
-    return null;
   }
 
   if (state.suddenDeath) {

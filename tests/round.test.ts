@@ -86,6 +86,22 @@ describe("checkRoundEnd", () => {
     expect(outcome?.winnerTeamId).toBe("B");
   });
 
+  it("still bounds a round that reached sudden death from the score limit", () => {
+    // `runRound` has no loop bound of its own, so the safety limit of sudden
+    // death is the only thing that stops a round where both teams sit at the
+    // limit and neither kills again.
+    const state = arenaState();
+    state.score.A = state.config.scoreLimit;
+    state.score.B = state.config.scoreLimit;
+    expect(checkRoundEnd(state)).toBeNull();
+    expect(state.suddenDeath).toBe(true);
+
+    state.tick = state.suddenDeathStartTick + state.config.suddenDeathMaxTicks;
+    const outcome = checkRoundEnd(state);
+    expect(outcome?.winnerTeamId).toBeNull();
+    expect(outcome?.reason).toBe("timeLimit");
+  });
+
   it("gives the round to the higher score when both teams passed the limit", () => {
     // One shot of area damage can take two bots, so a team can pass the limit
     // by more than one point on the tick that the other team reaches it.
