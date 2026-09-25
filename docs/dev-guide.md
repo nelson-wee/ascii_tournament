@@ -2205,26 +2205,20 @@ engine reads 50 % in both columns.
 
 | Style | Before, 1st/2nd | Cause 1 fixed | Causes 1 and 2 | All three |
 |---|---:|---:|---:|---:|
-| bastion | 44.5 / 53.8 | 54.5 / 55.0 | 52.5 / 51.7 | 51.7 / 51.0 |
-| openfield | 45.3 / 56.0 | 54.9 / 54.6 | 56.0 / 55.0 | TBD |
-| cavern | 48.0 / 55.0 | 52.5 / 54.0 | 53.8 / 55.5 | TBD |
+| bastion | 44.5 / 53.8 | 54.5 / 55.0 | 52.5 / 51.7 | **51.4 / 50.6** |
+| openfield | 45.3 / 56.0 | 54.9 / 54.6 | 56.0 / 55.0 | **50.4 / 49.4** |
+| cavern | 48.0 / 55.0 | 52.5 / 54.0 | 53.8 / 55.5 | **49.1 / 51.1** |
 
-The gap between the halves goes from 9.3, 10.7 and 7.0 points to under 2.
-**The bias that belongs to the ground is gone**, and the columns after it are
-the two team biases coming off.
+The gap between the halves goes from 9.3, 10.7 and 7.0 points to 0.8, 1.0 and
+2.0, and the level of each style sits at 51.0, 49.9 and 50.1. Every cell is
+inside its own error. **Both kinds of side bias are gone.**
 
-At match level, best of 3 with the ends changing, 250 matches a style:
-
-| Style | Before | Causes 1 and 2 | All three |
-|---|---:|---:|---:|
-| bastion | 48.8 % | 57.0 % | 52.6 % |
-| openfield | 47.2 % | 56.6 % | TBD |
-| cavern | 47.6 % | 58.2 % | TBD |
-
-**The middle column is a lesson.** Fixing the ground bias alone made a match
-worse, not better, because the ground bias had been pulling against a team
-bias of about the same size. Two large defects that cancel read as one small
-defect. A measurement that only reports the total will call that healthy.
+**The middle columns are the lesson.** Fixing the ground bias alone made a
+match *worse*, not better: at match level `bastion` went from 48.8 % to 57.0 %.
+The ground bias had been pulling against a team bias of about the same size,
+and two large defects that cancel read as one small defect. A measurement that
+reports only the total will call that healthy. The probe that changes one thing
+and holds the rest equal is what tells them apart.
 
 The middle column is the point of the whole section: pairing the table closes
 the gap between the halves and leaves a level 5 points high on **both** halves.
