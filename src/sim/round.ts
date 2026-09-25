@@ -78,6 +78,17 @@ function leader(state: SimState): TeamId | null {
   return null;
 }
 
+/** Put the round into sudden death from this tick. The next kill wins. */
+function startSuddenDeath(state: SimState): void {
+  if (state.suddenDeath) return;
+  state.suddenDeath = true;
+  state.suddenDeathStartTick = state.tick;
+  state.bus.emit("Announcement", state.tick, state.roundNumber, {
+    kind: "suddenDeath",
+    text: "Sudden Death",
+  });
+}
+
 /**
  * Start sudden death if the time limit arrived with an equal score.
  *
@@ -87,23 +98,29 @@ export function enterSuddenDeathIfNeeded(state: SimState): void {
   if (state.suddenDeath) return;
   if (state.tick < state.config.timeLimitTicks) return;
   if (leader(state) !== null) return;
-
-  state.suddenDeath = true;
-  state.suddenDeathStartTick = state.tick;
-  state.bus.emit("Announcement", state.tick, state.roundNumber, {
-    kind: "suddenDeath",
-    text: "Sudden Death",
-  });
+  startSuddenDeath(state);
 }
 
 /** The result of the round, or `null` while the round runs. */
 export function checkRoundEnd(state: SimState): RoundOutcome | null {
   const { config, score, tick } = state;
 
-  for (const teamId of TEAM_IDS) {
-    if ((score[teamId] ?? 0) >= config.scoreLimit) {
-      return { winnerTeamId: teamId, reason: "scoreLimit", score: { ...score }, ticks: tick };
+  // Both teams can cross the limit on the same tick: one bot of each team dies
+  // in the same exchange, or one shot of area damage kills two. This walked
+  // TEAM_IDS in order, so every one of those rounds went to team A, and there
+  // are enough of them to be worth 2 to 5 points of win rate
+  // (Section 7.20.26).
+  const atLimit = TEAM_IDS.filter((teamId) => (score[teamId] ?? 0) >= config.scoreLimit);
+  if (atLimit.length > 0) {
+    const winner = atLimit.length === 1 ? (atLimit[0] as TeamId) : leader(state);
+    if (winner !== null) {
+      return { winnerTeamId: winner, reason: "scoreLimit", score: { ...score }, ticks: tick };
     }
+    // Two teams over the limit with an equal score. This is the question that
+    // the time limit asks, so it takes the same answer: sudden death, and the
+    // next kill wins it.
+    startSuddenDeath(state);
+    return null;
   }
 
   if (state.suddenDeath) {
