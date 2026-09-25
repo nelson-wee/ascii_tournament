@@ -408,9 +408,11 @@ describe("rollSpawnTable placement", () => {
     }
   });
 
-  it("lets a weapon point in a conflict zone hold its own weapon", () => {
-    // Both teams arrive together, so the point is fair on its own and the run
-    // can offer more of what it generated.
+  it("gives a contested point the weapon of the point that it faces", () => {
+    // Section 7.20.26. A contested point once held a weapon of its own. The two
+    // contested points of an arena always tie on evenness, so the sort fell
+    // through to the slot id and the same half took the strongest weapon of the
+    // run in every match. That was the side bias.
     const map = loadTestArena();
     const evenness = pickupEvenness(map);
     const contested = map.pickups.filter(
@@ -421,7 +423,7 @@ describe("rollSpawnTable placement", () => {
     const weapons = generateWeaponSet(createRng(11, "weapons"), 5, { ticksPerSecond: 20 });
     const table = rollSpawnTable(map, weapons, createRng(11, "weapons"));
     const offered = contested.map((point) => table.slots[point.slotId]);
-    expect(new Set(offered).size).toBe(offered.length);
+    expect(new Set(offered).size).toBe(1);
   });
 
   it("never offers the baseline weapon, and offers every weapon it can", () => {

@@ -469,14 +469,37 @@ export function botCell(bot: BotState): Cell {
  * reaction and a heavy weapon. This is the cost of the highest damage.
  *
  * Two bots with the same reaction need a tie-break that does not favour one
- * team. The parity of the tick gives it. The whole order stays a function of
- * the state, so the simulation stays deterministic.
+ * team. A hash of the tick gives it, and `listRunsForward` says why the parity
+ * of the tick was not enough. The whole order stays a function of the state, so
+ * the simulation stays deterministic.
  *
  * The check that this stays fair is in Section 7.2.1: a preset against itself
  * must win half of its rounds.
  */
+/**
+ * Which way the bot list runs this tick.
+ *
+ * The parity of the tick alone is not enough. A bot decides on a fixed period,
+ * and that period is even, so every decision of a bot lands on the same parity
+ * for the whole round. The tie-break then never changes hands, and two slots
+ * of three gave the same team the first decision in every fight
+ * (Section 7.20.26). The tick goes through a hash, so the order changes on a
+ * schedule that no cadence of the game can lock onto. It is a hash and not a
+ * random number: the same tick always gives the same answer, so a round still
+ * replays from its seed.
+ */
+function listRunsForward(tick: number): boolean {
+  // A mix, not a multiply. The lowest bit of a product keeps the lowest bit of
+  // the input, so a plain multiply gives back the parity of the tick.
+  let hash = Math.imul(tick ^ 0x9e3779b9, 2654435761);
+  hash ^= hash >>> 15;
+  hash = Math.imul(hash, 2246822519);
+  hash ^= hash >>> 13;
+  return (hash & 1) === 0;
+}
+
 export function botsInTickOrder(state: SimState): BotState[] {
-  const order = state.tick % 2 === 0 ? state.bots.slice() : state.bots.slice().reverse();
+  const order = listRunsForward(state.tick) ? state.bots.slice() : state.bots.slice().reverse();
   return order
     .map((bot, index) => ({ bot, index, reaction: reactionOf(state, bot) }))
     .sort((a, b) => a.reaction - b.reaction || a.index - b.index)
@@ -559,9 +582,10 @@ export function enemyAt(state: SimState, cell: Cell, teamId: TeamId): BotState |
  * The block of spawn cells that a team starts a round on (Section 7.20.24).
  *
  * **The teams change ends after every round, and the match decides who starts
- * where.** An arena is symmetric to the cell, but the two halves do not play
- * the same: about four points of win rate follow the half and not the team,
- * and the cause is not found yet (Section 7.20.23).
+ * where.** An arena is symmetric to the cell, but the two halves did not play
+ * the same: about four points of win rate followed the half and not the team.
+ * Section 7.20.26 names that cause and removes it. This rule came first and it
+ * stays, because it shares out what is left.
  *
  * `sideOffset` is the half that team A starts the match on, 0 or 1, and it
  * comes from the seed of the match. Without it the change of ends corrected in

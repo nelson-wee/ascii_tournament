@@ -2036,14 +2036,19 @@ movement, perception, the influence maps or the decision loop.
 #### 7.20.24 The teams change ends after every round
 
 About four points of win rate follow the **half of the arena** and not the
-team, and Section 7.20.23 says that the cause is not found. While it is there,
-a match can share it out instead of handing it to one team: the teams change
-ends after every round, as they do in most sports for the same reason.
+team. Section 7.20.26 names the cause and removes it, but this rule came first
+and it stays: a match shares out what is left instead of handing it to one
+team. The teams change ends after every round, as they do in most sports for
+the same reason.
 
-`teamSideIndex(teamId, roundNumber)` is the whole rule, and both the start of a
-round and `respawn` read it, so a bot always comes back on the half that its
-team holds **this** round. The round number decides, so a round still replays
-from its own seed and a test can ask for either side.
+`teamSideIndex(teamId, roundNumber, sideOffset)` is the whole rule, and both the
+start of a round and `respawn` read it, so a bot always comes back on the half
+that its team holds **this** round. `sideOffset` is the half that team A starts
+the match on and it comes from the seed of the match. Without it the change of
+ends corrected in one direction only: a best of three gives one team the ends
+of round 1 twice, and with a fixed start that team was always team A. The round
+number and the offset both decide, so a round still replays from its own seed
+and a test can ask for either side.
 
     round 1   A near, B far
     round 2   A far,  B near
@@ -2120,6 +2125,137 @@ are images of each other, so both teams answer a tie the same way.
 **A decision that turns on the 13th decimal is a defect on its own**, whatever
 it does to the win rate. Look for the same shape anywhere a float comparison
 picks between two things that a symmetric arena offers to both teams.
+
+#### 7.20.26 The side bias: the two causes, and the end of it
+
+Section 7.20.23 found three side bias bugs with the mirror test and left the
+rest without a cause. Section 7.20.24 shared the rest out instead of removing
+it. This section names it. There were two causes, and neither of them is a
+team bias: **team A wins half of its rounds.** The old reading of "team B wins
+more" came from always starting team A on the same half.
+
+**The instrument.** One probe runs the same round twice and changes one thing:
+which half team A stands on. The arena, the weapons, the spawn table and the
+round seed are equal in both runs. A gap between the two answers is a bias that
+belongs to the ground. A level away from 50 % that shows on **both** halves is
+a bias that belongs to the name of the team. 400 rounds a cell, 9 arenas a
+style, so a cell reads to about +-2.5 points.
+
+##### Cause 1: the spawn table gave one half the stronger weapon
+
+`placeWeapons` gave a **contested** point a weapon of its own, because both
+teams reach it together and the point looked fair on its own. It is not. A
+table probe, which rolls 60 tables for each of 6 arenas a style and runs no
+rounds at all, reads this:
+
+| Style | Power offered, 1st/2nd half | On the contested points | Strongest weapon lands 1st/2nd | Steps to it, A/B |
+|---|---:|---:|---:|---:|
+| bastion | 393.0 / 368.0 | 125.0 / 100.0 | 449 / 89 | 43.2 / 43.3 |
+| openfield | 393.6 / 368.5 | 125.0 / 100.0 | 447 / 87 | 40.3 / 40.3 |
+| cavern | 395.0 / 370.0 | 125.0 / 100.0 | 462 / 102 | 42.0 / 42.0 |
+
+The whole 25 unit gap sits on one pair of points. Every arena that the
+generator can make holds exactly one contested pair, `weapon:0` and
+`weapon:1`. The two points are images of each other, so `pickupEvenness` gives
+both the same number, 0. The sort in `placeWeapons` then falls through to its
+last key, the slot id, and `weapon:0` comes first every time. Group 0 takes the
+strongest weapon of the run and group 1 takes the runner-up, in every match, in
+every arena. Nothing about it is random.
+
+**It does not reach the teams through distance.** Both points are contested, so
+the probe read the steps from **all three** spawns of each team, not only from
+the nearest. The vectors match to the step:
+
+    bastion #0   strong point   A = 38,39,40   B = 38,39,40
+    cavern  #2   strong point   A = 40,41,42   B = 40,41,42
+
+**It reaches them through the choice of target.** Both teams want the stronger
+point, so both go to `weapon:0`. The mirror of "team A goes to `weapon:0`" is
+"team B goes to `weapon:1`", and team B does not do that. The two teams stop
+being images of each other, and the ground around that one point decides the
+fight. A symmetric arena does not help, because the teams are no longer doing
+symmetric things.
+
+**The rule now:** every point holds the weapon of the point that it faces,
+contested or not. The run offers one weapon fewer. That is the price.
+
+##### Cause 2: a bot decides on a fixed parity, so the tie never changed hands
+
+`botsInTickOrder` breaks a tie on reaction with the parity of the tick, and the
+comment said that this does not favour a team. It does. A bot decides, waits
+`aiDecisionIntervalTicks` ticks and decides again, so its period is 6, and 6 is
+even. Every decision of a bot therefore lands on the same parity for the whole
+round. Slot 0 and slot 2 decide on odd ticks and slot 1 on even ticks, so two
+slots of three gave the same team the first decision in every fight, all round,
+every round.
+
+It only became visible after cause 1 was gone, because the ground bias was
+larger and hid it.
+
+**The rule now:** the tick goes through a hash, so the order changes on a
+schedule that no cadence of the game can lock onto. It is a hash and not a
+draw, so a round still replays from its seed.
+
+##### The numbers
+
+Team A win rate at round level, 400 rounds a cell, 9 arenas a style. A fair
+engine reads 50 % in both columns.
+
+| Style | Before, 1st/2nd | Table paired only | Both fixes |
+|---|---:|---:|---:|
+| bastion | 44.5 / 53.8 | 54.5 / 55.0 | 52.5 / 51.7 |
+| openfield | 45.3 / 56.0 | 54.9 / 54.6 | 56.0 / 55.0 |
+| cavern | 48.0 / 55.0 | 52.5 / 54.0 | TBD |
+
+The gap between the halves goes from 9.3, 10.7 and 7.0 points to 0.5, 0.3 and
+1.5. **The bias that belongs to the ground is gone.**
+
+The middle column is the point of the whole section: pairing the table closes
+the gap between the halves and leaves a level 5 points high on **both** halves.
+That level is cause 2. Running the same arm with the parity of the tick
+inverted reads 48.3 / 49.0 on `bastion`, which is the proof that the order of
+the bot list held it.
+
+##### What is left, and it is not fixed
+
+A level above 50 % stays on both halves: 52.1 % on `bastion` and 55.5 % on
+`openfield`. Both halves read the same, so this one follows the name of the
+team and not the ground. A change of ends cannot reach it. What is already
+ruled out for it:
+
+- The arena. All 27 arenas of the probe pool are symmetric in tiles, in spawn
+  cells and in pickup points.
+- The spawn table. It is mirrored to the point after cause 1.
+- The parity of the tick. The hash removed 2.6 points on `bastion` and nothing
+  on `openfield`, so it is not the whole of it.
+
+One thing found by reading, and not yet measured: `checkRoundEnd` walks
+`TEAM_IDS` in order to find a team at the score limit, so two teams that reach
+it on the same tick both give the round to team A. It is rare and it cannot be
+worth five points, but it is the same shape of defect. **TBD**
+
+##### What the hunt ruled out
+
+- **The engine does not read the team.** A full round mirror test, run to the
+  time limit over 6 arenas a style, breaks at tick 1 to 8 and always at a size
+  of 1e-15 cells. That is float addition not being associative
+  (`w - q - s` against `w - (q + s)`), not a branch.
+- **`clearLine` is not symmetric, and it does not matter.** It disagrees with
+  its own mirror on 0.2 % of sight lines, and the disagreement does not favour
+  a half: 185/159, 175/203 and 164/160.
+- **The spawn geometry is fair.** See the step vectors above.
+
+##### The lesson
+
+Both causes have the shape that Section 7.20.18 named: **a number that does not
+mean what its name says.** `isContested` says "fair on its own", and it is
+fair only while both teams want the same thing from it. "The parity of the
+tick" says "it changes hands", and it changes hands only while nothing in the
+game runs on an even period.
+
+**A probe that holds everything equal and changes one thing is worth more than
+a large batch.** The batch of Section 7.20.22 ran thousands of matches and
+could only say "about four points". Two arms of 400 rounds named both causes.
 
 ### 7.20 Design notes for M6: weapons, reaction order, and vision
 
