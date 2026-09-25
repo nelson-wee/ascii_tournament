@@ -16,7 +16,7 @@
  * point where it lands is worth a fight.
  */
 import { cellIndex } from "../arena/types.js";
-import { isContested, pickupEvenness } from "../arena/contested.js";
+import { pickupEvenness } from "../arena/contested.js";
 import { loadPickups, loadRedeemerWeapon } from "../core/data.js";
 import type { Pickups } from "../core/schemas.js";
 import type { Rng } from "../core/rng.js";
@@ -98,19 +98,20 @@ export function rollSpawnTable(
 /**
  * Put the generated weapons on the weapon points of the arena.
  *
- * Three rules, from Section 3.1 of the M8 weapon analysis and Section 7.2.1:
+ * Two rules, from Section 3.1 of the M8 weapon analysis and Section 7.2.1:
  *
- * 1. **The strongest weapon takes the most contested point.** A prize weapon on
+ * 1. **The strongest weapon takes the most contested pair.** A prize weapon on
  *    ground that one team owns is not a prize, it is a head start. An arena is
  *    expected to offer a conflict zone for it; `checkArenaFairness` is the
  *    acceptance rule, and M7 must meet it.
- * 2. **A point in a conflict zone holds its own weapon.** Both teams arrive
- *    there at about the same moment, so the point is fair on its own and the
- *    run can offer more of what it generated.
- * 3. **A point outside a conflict zone is mirrored with the point it faces.**
- *    It belongs to whichever team is nearer, so the only fair answer is to give
- *    the other team the same weapon at the same distance. Without this the
- *    mirror matchup read 68 %.
+ * 2. **Every point holds the weapon of the point that it faces.** This was once
+ *    the rule for the points outside a conflict zone only, and a contested
+ *    point held a weapon of its own, because both teams reach it together.
+ *    That was the side bias: the two contested points of an arena always tie on
+ *    evenness, the sort fell through to the slot id, and the same half took the
+ *    strongest weapon of the run in every match. Both teams then went for the
+ *    same point, so the two teams stopped being mirror images of each other
+ *    (Section 7.20.26). Without the mirror the matchup read 68 %.
  *
  * The baseline weapon is the fallback that every bot already carries
  * (Section 7.3), so no point gives it.
@@ -126,13 +127,8 @@ function placeWeapons(
   if (points.length === 0 || offered.length === 0) return placed;
 
   const evenness = pickupEvenness(map);
-  // A contested point stands alone. Every other point joins the point it faces.
-  const contested = points.filter((point) => isContested(evenness, point.slotId));
-  const rest = points.filter((point) => !isContested(evenness, point.slotId));
-  const groups: PickupPoint[][] = [
-    ...contested.map((point) => [point]),
-    ...pairFacingPoints(map, rest),
-  ];
+  // Every point joins the point that it faces, contested or not.
+  const groups: PickupPoint[][] = pairFacingPoints(map, points);
 
   groups.sort((a, b) => {
     const left = Math.min(...a.map((point) => evenness.get(point.slotId) ?? Infinity));
