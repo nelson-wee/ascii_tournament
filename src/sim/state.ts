@@ -303,6 +303,8 @@ export interface SimState {
   /** The tick that sudden death started on. */
   suddenDeathStartTick: number;
   roundNumber: number;
+  /** The half that team A starts the match on, 0 or 1 (Section 7.20.24). */
+  sideOffset: number;
   map: ArenaMap;
   config: SimConfig;
   bots: BotState[];
@@ -342,6 +344,12 @@ export interface CreateSimStateOptions {
   /** The seed of the round. Use `deriveSeed(matchSeed, "round:N")`. */
   seed: number;
   roundNumber?: number;
+  /**
+   * The half that team A starts the match on, 0 or 1. It belongs to the match
+   * and not to the round, so `createRoundState` gives it from the match seed
+   * (Section 7.20.24). A single round with no match around it takes 0.
+   */
+  sideOffset?: number;
   config?: SimConfig;
   bus?: EventBus;
   /**
@@ -560,30 +568,41 @@ export function enemyAt(state: SimState, cell: Cell, teamId: TeamId): BotState |
   });
 }
 
-/** The spawn cells of one team. */
 /**
  * The block of spawn cells that a team starts a round on (Section 7.20.24).
  *
- * **The teams change ends after every round.** An arena is symmetric to the
- * cell, but the two halves do not play the same: about four points of win rate
- * follow the half and not the team, and the cause is not found yet
- * (Section 7.20.23). A match cannot remove that while it is there, but it can
- * share it out. Over a match of two rounds each team holds each half one time,
- * and the part of the bias that belongs to the ground cancels.
+ * **The teams change ends after every round, and the match decides who starts
+ * where.** An arena is symmetric to the cell, but the two halves do not play
+ * the same: about four points of win rate follow the half and not the team,
+ * and the cause is not found yet (Section 7.20.23).
  *
- * It is the round number that decides, so a round still replays from its own
- * seed and a test can ask for either side.
+ * `sideOffset` is the half that team A starts the match on, 0 or 1, and it
+ * comes from the seed of the match. Without it the change of ends corrected in
+ * one direction only: a match of three rounds gives one team the ends of round
+ * 1 twice, and with a fixed start that team was always team A. The swap could
+ * then pull an advantaged team A down toward fair and could not lift a
+ * disadvantaged one up, which is what the measurement showed
+ * (Section 7.20.24).
+ *
+ * The round number and the offset both decide, so a round still replays from
+ * its own seed and a test can ask for either side.
  */
-export function teamSideIndex(teamId: TeamId, roundNumber: number): number {
+export function teamSideIndex(teamId: TeamId, roundNumber: number, sideOffset = 0): number {
   const index = TEAM_IDS.indexOf(teamId);
   if (index < 0) return 0;
-  // Round 1 keeps the ends, round 2 changes them, round 3 changes back.
-  return roundNumber % 2 === 0 ? TEAM_IDS.length - 1 - index : index;
+  // Round 1 keeps the ends of the offset, round 2 changes them, and so on.
+  const changed = (roundNumber + sideOffset) % 2 === 0;
+  return changed ? TEAM_IDS.length - 1 - index : index;
+}
+
+/** The half that team A starts a match on, from the seed of the match. */
+export function sideOffsetOf(matchSeed: number | string): number {
+  return createRng(deriveSeed(matchSeed, "sides"), "sides").bool(0.5) ? 1 : 0;
 }
 
 /** The spawn cells of a team this round, after the change of ends. */
 export function teamSpawns(state: SimState, teamId: TeamId): Cell[] {
-  const index = teamSideIndex(teamId, state.roundNumber);
+  const index = teamSideIndex(teamId, state.roundNumber, state.sideOffset);
   const size = state.config.teamSize;
   return state.map.spawns.slice(index * size, index * size + size);
 }
@@ -673,6 +692,7 @@ function makeBot(options: MakeBotOptions): BotState {
 export function createSimState(options: CreateSimStateOptions): SimState {
   const { map, seed } = options;
   const roundNumber = options.roundNumber ?? 1;
+  const sideOffset = options.sideOffset ?? 0;
   const config = options.config ?? simConfigFromTuning();
   const bus = options.bus ?? new EventBus();
   const rng = createRng(seed, "sim");
@@ -700,7 +720,7 @@ export function createSimState(options: CreateSimStateOptions): SimState {
   for (const teamId of TEAM_IDS) {
     // The teams change ends after every round, so the side comes from the
     // round number and not from the place of the team in the list.
-    const side = teamSideIndex(teamId, roundNumber);
+    const side = teamSideIndex(teamId, roundNumber, sideOffset);
     for (let slot = 0; slot < config.teamSize; slot += 1) {
       const spawn = map.spawns[side * config.teamSize + slot] as Cell;
       // A role gives its tactics preset. The player can change the tactics
@@ -737,6 +757,7 @@ export function createSimState(options: CreateSimStateOptions): SimState {
     suddenDeath: false,
     suddenDeathStartTick: 0,
     roundNumber,
+    sideOffset,
     map,
     config,
     bots,

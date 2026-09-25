@@ -18,6 +18,7 @@ import { rollSpawnTable, type SpawnTable } from "./pickups.js";
 import { runRound } from "./round.js";
 import {
   createSimState,
+  sideOffsetOf,
   simConfigFromTuning,
   TEAM_IDS,
   type Role,
@@ -89,6 +90,10 @@ export function createRoundState(
     // (Section 7.1).
     seed: deriveSeed(options.seed, `round:${roundNumber}`),
     roundNumber,
+    // Which half team A starts on belongs to the match, not to the round, or
+    // the same team would hold the ends of round 1 in every match it played
+    // (Section 7.20.24).
+    sideOffset: sideOffsetOf(options.seed),
     config,
     bus,
     weapons: options.weapons,

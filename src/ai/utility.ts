@@ -380,7 +380,7 @@ function pickupTarget(
  */
 function homeCell(state: SimState, bot: BotState): Cell {
   const size = state.config.teamSize;
-  const start = teamSideIndex(bot.teamId, state.roundNumber) * size;
+  const start = teamSideIndex(bot.teamId, state.roundNumber, state.sideOffset) * size;
   let x = 0;
   let y = 0;
   let count = 0;
