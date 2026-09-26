@@ -9,6 +9,7 @@
  *
  * It runs rounds with no display, prints the tables, and writes the CSV files.
  */
+import { makeRunInfo, writeRunInfo } from "./runInfo.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { parseArenaText } from "../arena/textArena.js";
@@ -150,7 +151,10 @@ function main(): void {
   });
   const seconds = (Date.now() - started) / 1000;
 
-  const summary = summarize(records, { scoreLimit: simConfig.scoreLimit });
+  const summary = summarize(records, {
+    scoreLimit: simConfig.scoreLimit,
+    ticksPerSecond: simConfig.ticksPerSecond,
+  });
   process.stdout.write(`${formatReport(summary)}\n`);
 
   mkdirSync(resolve(outDir), { recursive: true });
@@ -160,6 +164,9 @@ function main(): void {
     ["presets.csv", presetsCsv(summary)],
   ];
   for (const [name, text] of files) writeFileSync(resolve(outDir, name), text, "utf8");
+  // What made this run, so the seeds in rounds.csv stay usable later
+  // (Section 7.23).
+  writeRunInfo(resolve(outDir), makeRunInfo({ seed, rounds: records.length, config }));
 
   process.stdout.write(
     `\n${records.length} rounds in ${seconds.toFixed(1)} s ` +

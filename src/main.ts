@@ -17,9 +17,11 @@ import { EventBus, type GameEvent } from "./core/events.js";
 import type { Tactics } from "./core/schemas.js";
 import {
   createSession,
+  matchSeedsOf,
   nextMatch,
   recordMatch,
   sessionTally,
+  type MatchSeeds,
   type MatchSetup,
   type Session,
 } from "./meta/session.js";
@@ -47,14 +49,31 @@ import {
   type TeamId,
 } from "./sim/index.js";
 import { openMainMenu, openMatchOverScreen, type MenuChoice, type Screen } from "./ui/menu.js";
+import {
+  formatTicket,
+  makeTicket,
+  parseTicket,
+  ticketWarning,
+  type ReplayTicket,
+} from "./meta/ticket.js";
+import { lastSessionSeed, rememberSessionSeed, saveTicket } from "./ui/ticketStore.js";
 import { createBotStatus } from "./ui/botStatus.js";
 import { createSpeedControls } from "./ui/speedControls.js";
 import { openTacticsScreen } from "./ui/tacticsScreen.js";
 
 const INITIAL_SPEED: Speed = 1;
 const KILL_FEED_LINES = 8;
-/** The seed of a session. Milestone M11 takes it from the run generator. */
-const SEED = Math.floor(Date.now() / 1000);
+/**
+ * The seed of a session. Milestone M11 takes it from the run generator.
+ *
+ * The address wins, then the seed of the last session, then the clock. A
+ * refresh therefore keeps a run instead of throwing it away (Section 7.23).
+ */
+const OPENING_TICKET = parseTicket(window.location.hash);
+/** The address as the menu should show it, or "" when it held no ticket. */
+const OPENING_TICKET_TEXT = OPENING_TICKET === null ? "" : formatTicket(OPENING_TICKET);
+const SEED =
+  OPENING_TICKET?.seed ?? lastSessionSeed() ?? Math.floor(Date.now() / 1000);
 /** The id that an interception shot carries in place of a bot id. */
 const PROJECTILE_PREFIX = "projectile:";
 
@@ -313,10 +332,46 @@ try {
   // The match loop
   // ------------------------------------------------------------------------
 
+  /**
+   * The seeds that a ticket asked for, while the match it names is the one
+   * being built. A ticket names **one** match, so the overrides fall away
+   * after it and the session goes on as its own seed says (Section 7.23).
+   */
+  let pendingSeeds: Partial<MatchSeeds> = {};
+
+  /** The ticket of the match on screen, or `null` when no match is running. */
+  function currentTicket(): ReplayTicket | null {
+    if (!session || !setup) return null;
+    return makeTicket({
+      seed: session.seed,
+      matchNumber: setup.matchNumber,
+      style: session.style,
+      mode: session.mode,
+      seeds: setup.seeds,
+      defaults: matchSeedsOf(setup.seed),
+    });
+  }
+
+  /**
+   * Write the ticket into the address, so the address bar is the ticket and a
+   * player can copy it. `replaceState` keeps the back button working: a match
+   * is not a page.
+   */
+  function updateAddress(): void {
+    const ticket = currentTicket();
+    if (ticket === null) return;
+    try {
+      window.history.replaceState(null, "", `#${formatTicket(ticket)}`);
+    } catch {
+      // A sandboxed frame refuses this. It costs the address, nothing else.
+    }
+  }
+
   /** Build the arena and the first round of the next match of the session. */
   function startMatch(): void {
     if (!session) return;
-    setup = nextMatch(session);
+    setup = nextMatch(session, pendingSeeds);
+    pendingSeeds = {};
     bus = new EventBus();
     listen();
     rounds = [];
@@ -348,6 +403,7 @@ try {
       `best of ${config.maxRounds}`,
       theme.name,
     ].join("  ·  ");
+    updateAddress();
 
     beginRound();
   }
@@ -407,6 +463,9 @@ try {
     const current = session;
     const played = setup;
     if (!current || !played) return;
+    // The ticket of the match that just ended, read before `recordMatch`
+    // moves the session on.
+    const justPlayed = currentTicket();
     recordMatch(current, played, matchWinner, roundWins);
 
     // The next arena is built now, so the screen can describe the ground ahead.
@@ -420,6 +479,10 @@ try {
       tally: sessionTally(current),
       nextArenaName: `${ahead.arena.profile.style} ${ahead.arena.width}×${ahead.arena.height}`,
       nextMetrics: ahead.arena.metrics,
+      ...(justPlayed === null ? {} : { ticket: justPlayed }),
+      onSave: (ticket, label) => {
+        saveTicket(ticket, label);
+      },
       onNext: () => {
         closeScreen();
         startMatch();
@@ -471,6 +534,7 @@ try {
     screen = openMainMenu({
       container: stageEl,
       seed: SEED,
+      ...(OPENING_TICKET_TEXT === "" ? {} : { initialTicket: OPENING_TICKET_TEXT }),
       onStart: (choice: MenuChoice) => {
         closeScreen();
         session = createSession({
@@ -480,6 +544,12 @@ try {
           weaponsPerRun: config.weaponsPerRun,
           ticksPerSecond: config.ticksPerSecond,
         });
+        // A ticket can name a match in the middle of a session. Open there.
+        session.matchNumber = choice.matchNumber;
+        pendingSeeds = choice.overrides;
+        rememberSessionSeed(choice.seed);
+        const warning = ticketWarning(choice);
+        if (warning !== null) statusEl.textContent = warning;
         plan = {};
         startMatch();
       },

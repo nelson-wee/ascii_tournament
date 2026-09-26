@@ -2213,6 +2213,24 @@ The gap between the halves goes from 9.3, 10.7 and 7.0 points to 0.8, 1.0 and
 2.0, and the level of each style sits at 51.0, 49.9 and 50.1. Every cell is
 inside its own error. **Both kinds of side bias are gone.**
 
+At match level, best of 3 over the same 9 arenas a style:
+
+| Style | Matches | Ends fixed | Ends change |
+|---|---:|---:|---:|
+| bastion | 400 | 50.9 % | 51.4 % |
+| openfield | 900 | 48.2 % | 48.6 % |
+| cavern | 400 | 50.5 % | 52.4 % |
+
+`openfield` read 46.8 % at 400 matches, which no round rate of 49.9 % can give,
+so it went to 900 matches and came back at 48.6 %. **Read a cell against its
+own error before you call it a bias:** 46.8 +-2.5 is 1.3 standard errors from
+fair, and it was noise.
+
+The two columns now agree on every style, which is what a fair engine looks
+like: with nothing left for a change of ends to share out, changing ends stops
+mattering. The rule of Section 7.20.24 stays, because it costs nothing and it
+bounds any ground bias that a later change to arena generation brings back.
+
 **The middle columns are the lesson.** Fixing the ground bias alone made a
 match *worse*, not better: at match level `bastion` went from 48.8 % to 57.0 %.
 The ground bias had been pulling against a team bias of about the same size,
@@ -2612,6 +2630,201 @@ batch already reports `kills from behind`, which is the number to read: it sits
 at 9.4 % with 360-degree sight.
 
 ---
+
+## 7.22 Tempo: the rhythm of a round
+
+Every other number in a round record is a **total**: kills, shots, pickups,
+ticks. A total cannot tell a steady drip of kills from five short fights with
+long walks between them. Those are opposite games, and they read the same. This
+section adds the distribution over time.
+
+### 7.22.1 Where tempo already lives
+
+Nothing in the engine used the word before this section. Tempo is set anyway,
+by four groups of constants at very different scales:
+
+| Layer | Constants | Period |
+|---|---|---|
+| A bot's own loop | `aiDecisionIntervalTicks`, `reactionTicks`, `turnRateDegreesPerTick`, `influence.intervalTicks` | 0.3 to 0.5 s |
+| An engagement | `weaponSwapTicks`, `dodgeRampTicks`, `stationaryTicksForCrit`, the cadence of a weapon | 0.4 to 1 s |
+| Death and return | `respawnDelayTicks` 60, plus the walk back at `moveSpeedCellsPerSecond` 4 | 3 s and travel |
+| The item economy | ammo 140, weapon 150, health 300, armor 550, power-up 1750 | 7 to 87.5 s |
+
+Four things follow from those numbers alone, before any batch runs:
+
+- **The clock does not push.** A round ends near 2200 of 3600 ticks, and 98.1 %
+  of rounds end on the score limit (Section 7.20.13). In most arena shooters
+  the clock makes a losing team attack. Here it does not.
+- **Losing a weapon costs almost nothing.** A weapon point comes back in 150
+  ticks, which is less than a death plus the walk back. Denial is not a lever.
+- **A power-up cannot be played around.** 1750 ticks is 87.5 s against a round
+  near 110 s, so a point yields about one time. There is no repeated contest.
+- **One window holds every item clock.** `pickupAnticipationTicks` is 220, and
+  `pickupValue` gives a point that is further away than that a value of exactly
+  zero (`src/sim/pickups.ts`). The fight for a power-up starts 11 s before it
+  lands, the same as the fight for ammo. The length of a clock decides **when**
+  an item matters, not **how long** teams contest it.
+
+### 7.22.2 What the engine counts, and what the log already holds
+
+Only one part of tempo is not in the event log: what a bot can see. Perception
+state is not an event, so `BotState` keeps two counters and `updatePerception`
+sets them:
+
+    aliveTicks      ticks that the bot was alive this round
+    contactTicks    ticks that it was alive with an enemy in either arc
+
+`contactTicks / aliveTicks` is the clearest single measure of tempo. It says
+how much of a round a bot fights and how much of it the bot walks.
+
+Everything else comes from `bus.log`, which already carries a tick on every
+event, and already holds the ids that the measure needs: `Hit` carries the
+shooter and the target, `Kill` carries both teams, `Death` and `Spawn` carry
+the bot, and `PickupRespawned` and `PickupTaken` share a slot id. **No engine
+change was needed for any of it.** `src/report/tempo.ts` is a reducer over the
+log, and `runPlannedRound` already walked that log to build a round record.
+
+### 7.22.3 The measures
+
+`TempoRecord` holds only sums and counts, never a mean, because **a sum adds
+over rounds and a mean does not.** `addTempo` adds the rounds of a batch and
+`tempoView` takes the means at the end.
+
+| Question | Fields | What the view reads |
+|---|---|---|
+| Is the round a drip or a set of fights? | `killGapSum`, `killGapSquareSum`, `killGaps` | Mean gap, its standard deviation, and **burstiness** = the two over each other |
+| Do the teams trade, or does one team run over the other? | `burstKills`, `tradeKills` | Share of kills inside `multiKillWindowTicks` of another, and the share of those that the other team answered |
+| How long is a fight? | `timeToKillSum`, `shotsToKillSum`, `engagements` | Ticks from the first hit on a life to the kill, and shots aimed in that time |
+| What share of a round is not fighting? | `deadTicksSum`, `returnTicksSum`, `aliveTicksSum`, `contactTicksSum` | Dead time, the walk back from a spawn to the next shot, and the contact share |
+| Does an advantage compound? | `leadChanges`, `maxLead`, `sameTeamPairs`, `killPairs` | Lead changes a round, the largest lead, and the chance that the next kill goes to the team that made the last one |
+| Is the item economy played, or only walked into? | `pickupWaitCount`, `pickupWaitTicks` | Ticks that a point waited after it came back, by kind |
+
+Two rules that the code holds and a reader should know:
+
+- **A time to kill belongs to one life.** When a bot dies, every fight against
+  it starts again. Without that rule the second life of a bot reads a time that
+  covers the first life as well.
+- **The first take of a round is not timed.** Every point starts ready, so
+  there is no respawn to measure against.
+
+`firstKillTick` and `openingTicks` are the two fields that hold a tick and not
+a duration. A round with no kill holds -1, because tick 0 is a real tick. In a
+total they hold a sum of the rounds that had one, and the view divides.
+
+### 7.22.4 Where to read them
+
+- `formatReport` prints three tempo tables and an item rhythm table.
+- `roundsCsv` writes every field as its own column, one row per round, so a
+  reader can take the means over any group of rounds.
+- `summarize` adds the rounds into `BatchSummary.tempo`.
+
+### 7.22.5 The question these numbers are for
+
+Section 7.20.22 found that the tactics layer moves a win rate by about seven
+points at best, and that a weapon preference moves it by none. A win rate
+answers only with yes or no. If two settings of a tactics number give the same
+kill gap, the same contact share and the same trade share, then that number
+does not reach tempo, whatever it does to the win rate. **That is a finding on
+its own, and it does not need a difference in the win rate to be true.**
+
+There is a matching worry to test. If a round is one long drip of kills with no
+clock pressure, no respawn wave, no denial value on a weapon, and one 11 s item
+window whatever the item, then the round has **one** rhythm, and a tactic can
+only change how bots fight, never when. A slider cannot reach a "when" that the
+round does not have. TBD
+
+## 7.23 Replay: a ticket for one match
+
+A batch writes totals. It never wrote an event log, and it still does not: the
+log lives in memory for the length of a round and then goes. That was never a
+problem, because the engine is deterministic and a seed rebuilds the round.
+
+**A seed is half a key.** It rebuilds a round only against the same engine and
+the same data, and both moved four times while the side bias of Section 7.20.26
+was hunted. An old seed still runs. It gives a **different** round, and nothing
+in an old `rounds.csv` says so. This section adds the other half.
+
+### 7.23.1 Three seeds, not one
+
+A match used to take one seed and give it to all three generators. That is
+fine for a replay and useless for an experiment: a player who liked a layout
+could not keep it and try a different loadout on it, because one number moved
+all three.
+
+The three seeds were already independent, because they come from three named
+streams. `nextMatch` now says so:
+
+    seed = deriveSeed(sessionSeed, `match:N`)
+      seeds.arena      = deriveSeed(seed, "arena")
+      seeds.weapons    = deriveSeed(seed, "weapons")
+      seeds.spawnTable = deriveSeed(seed, "spawnTable")
+
+`nextMatch(session, overrides)` replaces one of them and leaves the others
+where they were. Keep the ground and reroll the weapons; keep both and reroll
+the spawn table. The arena also reads **its own** seed now, not the seed of the
+match, so a new arena seed gives a new name as well as new ground.
+
+### 7.23.2 The ticket
+
+A ticket names one match, as text, so it fits in an address, a note or a line
+of a report:
+
+    seed=1758800000&match=2&style=bastion&mode=test
+    seed=1758800000&match=2&style=bastion&mode=test&weapons=91h4k
+
+The second is the first with **one** field added, and that is the whole point
+of the format. A field that is absent comes from the match seed as usual, so a
+plain ticket stays short and a changed one says what changed. Seeds are base
+36, because a 32-bit seed is 6 characters there and 10 in base 10. A bare
+number reads as a seed, because that is what a person types.
+
+`makeTicket` leaves out a seed that equals the one the match seed gives, so a
+ticket carries only what a reader needs to know.
+
+### 7.23.3 The build id
+
+`build=<commit>.<data>` is what makes a seed a whole key.
+
+- The commit comes from `vite.config.ts`, which reads git at build time,
+  because a browser has no git. A tree with changes in it gets a trailing `+`:
+  a working tree is not a version. vitest reads the same config, so a test sees
+  the real commit.
+- The data fingerprint is a hash of every data file a generator reads. They
+  import as JSON, so the same code gives the same answer in the browser, in
+  Node and in the tests, with no build step. Change one number in
+  `data/tuning.json` and the same seed gives different weapons; this is what
+  says so.
+
+A ticket from another build is **not** an error. It runs. `ticketWarning` says
+which of the two matches the reader is looking at, and the menu shows it.
+
+**A bug worth remembering:** `buildId` cut the commit to 8 characters, and the
+commit is already 8, so the `+` fell off. The one mark that says "this did not
+come from a commit" was the one the cut removed. A test now holds it.
+
+### 7.23.4 Where a ticket lives
+
+- **The address.** Every match start writes its ticket into
+  `location.hash` with `replaceState`, so the address bar **is** the ticket and
+  a match is not a page in the history.
+- **The menu.** A box takes a seed or a ticket. It describes what the ticket
+  holds, or warns that its build is not this one.
+- **`localStorage`.** A saved list, and the seed of the last session so a
+  refresh keeps a run. It belongs to one browser, it can come back empty and it
+  can throw, so every read and write is guarded and the game works with none of
+  it. **The ticket text is the record; the store is a convenience.**
+
+### 7.23.5 `run.json`
+
+Each batch writes one beside its CSV files: the commit, the data fingerprint,
+the seed, the round count, the config, and a line saying what it is for. It is
+the half of the key that every seed already written in a `rounds.csv` is
+missing.
+
+`batch-out/` is in `.gitignore`, so a result set lives only on the disk that
+made it. That is a decision, not an oversight: the guide holds the findings,
+and a CSV that outlives the code that made it is a trap. `run.json` is what
+tells a reader which of the two they have.
 
 ## 8. Match flow (sequence)
 
