@@ -36,10 +36,42 @@ export interface SessionOptions {
   ticksPerSecond?: number;
 }
 
+/**
+ * The three seeds of a match, one for each generator.
+ *
+ * They come from the match seed by default, through three named streams, so
+ * they are **independent**: change the weapons seed and the arena does not
+ * move. That is what lets a player hold a layout and try a different loadout
+ * on it (Section 7.23).
+ */
+export interface MatchSeeds {
+  arena: number;
+  weapons: number;
+  spawnTable: number;
+}
+
+/** The three seeds that a match seed gives, when nothing overrides them. */
+export function matchSeedsOf(matchSeed: number): MatchSeeds {
+  return {
+    arena: deriveSeed(matchSeed, "arena"),
+    weapons: deriveSeed(matchSeed, "weapons"),
+    spawnTable: deriveSeed(matchSeed, "spawnTable"),
+  };
+}
+
+/** The seed of match `matchNumber` of a session. */
+export function matchSeedOf(sessionSeed: number, matchNumber: number): number {
+  return deriveSeed(sessionSeed, `match:${matchNumber}`);
+}
+
 /** What one match of a session needs to start. */
 export interface MatchSetup {
   matchNumber: number;
   seed: number;
+  /** The style of the ground, so a ticket can name it back (Section 7.23). */
+  style: ArenaStyle;
+  /** The seed that each generator used. A ticket carries these. */
+  seeds: MatchSeeds;
   arena: GeneratedArena;
   weapons: Weapon[];
   spawnTable: SpawnTable;
@@ -100,26 +132,30 @@ export function nextStyle(session: Session): ArenaStyle {
  * It does not advance the session. `recordMatch` does that, so a match that is
  * abandoned does not skip a number.
  */
-export function nextMatch(session: Session): MatchSetup {
+export function nextMatch(session: Session, overrides: Partial<MatchSeeds> = {}): MatchSetup {
   const style = nextStyle(session);
   const profiles = loadArenaProfiles();
   const profile = profiles.profiles[style];
   if (!profile) throw new Error(`data/arena-profiles.json has no profile "${style}"`);
 
   // Every part of a match takes its own sub-seed, so one session seed replays
-  // the whole session (Section 7.1).
-  const seed = deriveSeed(session.seed, `match:${session.matchNumber}`);
-  const arena = generateArena(profile, createRng(deriveSeed(seed, "arena"), "arena"), seed, {
+  // the whole session (Section 7.1). `overrides` replaces one of them and
+  // leaves the others where they were, which is how a player keeps a layout
+  // and rerolls the weapons on it (Section 7.23).
+  const seed = matchSeedOf(session.seed, session.matchNumber);
+  const seeds = { ...matchSeedsOf(seed), ...overrides };
+
+  // The arena reads its own seed, not the seed of the match, so a new arena
+  // seed gives a new name as well as new ground.
+  const arena = generateArena(profile, createRng(seeds.arena, "arena"), seeds.arena, {
     rules: profiles.rules,
   });
-  const weapons = generateWeaponSet(
-    createRng(deriveSeed(seed, "weapons"), "weapons"),
-    session.weaponsPerRun,
-    { ticksPerSecond: session.ticksPerSecond },
-  );
-  const spawnTable = rollSpawnTable(arena, weapons, createRng(deriveSeed(seed, "spawnTable"), "weapons"));
+  const weapons = generateWeaponSet(createRng(seeds.weapons, "weapons"), session.weaponsPerRun, {
+    ticksPerSecond: session.ticksPerSecond,
+  });
+  const spawnTable = rollSpawnTable(arena, weapons, createRng(seeds.spawnTable, "weapons"));
 
-  return { matchNumber: session.matchNumber, seed, arena, weapons, spawnTable };
+  return { matchNumber: session.matchNumber, seed, style, seeds, arena, weapons, spawnTable };
 }
 
 /** Write down how a match ended, and move the session on to the next one. */
