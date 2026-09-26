@@ -2853,6 +2853,99 @@ window whatever the item, then the round has **one** rhythm, and a tactic can
 only change how bots fight, never when. A slider cannot reach a "when" that the
 round does not have. TBD
 
+## 7.23 Replay: a ticket for one match
+
+A batch writes totals. It never wrote an event log, and it still does not: the
+log lives in memory for the length of a round and then goes. That was never a
+problem, because the engine is deterministic and a seed rebuilds the round.
+
+**A seed is half a key.** It rebuilds a round only against the same engine and
+the same data, and both moved four times while the side bias of Section 7.20.26
+was hunted. An old seed still runs. It gives a **different** round, and nothing
+in an old `rounds.csv` says so. This section adds the other half.
+
+### 7.23.1 Three seeds, not one
+
+A match used to take one seed and give it to all three generators. That is
+fine for a replay and useless for an experiment: a player who liked a layout
+could not keep it and try a different loadout on it, because one number moved
+all three.
+
+The three seeds were already independent, because they come from three named
+streams. `nextMatch` now says so:
+
+    seed = deriveSeed(sessionSeed, `match:N`)
+      seeds.arena      = deriveSeed(seed, "arena")
+      seeds.weapons    = deriveSeed(seed, "weapons")
+      seeds.spawnTable = deriveSeed(seed, "spawnTable")
+
+`nextMatch(session, overrides)` replaces one of them and leaves the others
+where they were. Keep the ground and reroll the weapons; keep both and reroll
+the spawn table. The arena also reads **its own** seed now, not the seed of the
+match, so a new arena seed gives a new name as well as new ground.
+
+### 7.23.2 The ticket
+
+A ticket names one match, as text, so it fits in an address, a note or a line
+of a report:
+
+    seed=1758800000&match=2&style=bastion&mode=test
+    seed=1758800000&match=2&style=bastion&mode=test&weapons=91h4k
+
+The second is the first with **one** field added, and that is the whole point
+of the format. A field that is absent comes from the match seed as usual, so a
+plain ticket stays short and a changed one says what changed. Seeds are base
+36, because a 32-bit seed is 6 characters there and 10 in base 10. A bare
+number reads as a seed, because that is what a person types.
+
+`makeTicket` leaves out a seed that equals the one the match seed gives, so a
+ticket carries only what a reader needs to know.
+
+### 7.23.3 The build id
+
+`build=<commit>.<data>` is what makes a seed a whole key.
+
+- The commit comes from `vite.config.ts`, which reads git at build time,
+  because a browser has no git. A tree with changes in it gets a trailing `+`:
+  a working tree is not a version. vitest reads the same config, so a test sees
+  the real commit.
+- The data fingerprint is a hash of every data file a generator reads. They
+  import as JSON, so the same code gives the same answer in the browser, in
+  Node and in the tests, with no build step. Change one number in
+  `data/tuning.json` and the same seed gives different weapons; this is what
+  says so.
+
+A ticket from another build is **not** an error. It runs. `ticketWarning` says
+which of the two matches the reader is looking at, and the menu shows it.
+
+**A bug worth remembering:** `buildId` cut the commit to 8 characters, and the
+commit is already 8, so the `+` fell off. The one mark that says "this did not
+come from a commit" was the one the cut removed. A test now holds it.
+
+### 7.23.4 Where a ticket lives
+
+- **The address.** Every match start writes its ticket into
+  `location.hash` with `replaceState`, so the address bar **is** the ticket and
+  a match is not a page in the history.
+- **The menu.** A box takes a seed or a ticket. It describes what the ticket
+  holds, or warns that its build is not this one.
+- **`localStorage`.** A saved list, and the seed of the last session so a
+  refresh keeps a run. It belongs to one browser, it can come back empty and it
+  can throw, so every read and write is guarded and the game works with none of
+  it. **The ticket text is the record; the store is a convenience.**
+
+### 7.23.5 `run.json`
+
+Each batch writes one beside its CSV files: the commit, the data fingerprint,
+the seed, the round count, the config, and a line saying what it is for. It is
+the half of the key that every seed already written in a `rounds.csv` is
+missing.
+
+`batch-out/` is in `.gitignore`, so a result set lives only on the disk that
+made it. That is a decision, not an oversight: the guide holds the findings,
+and a CSV that outlives the code that made it is a trap. `run.json` is what
+tells a reader which of the two they have.
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

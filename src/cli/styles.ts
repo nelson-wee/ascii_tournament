@@ -16,6 +16,7 @@
  * A style is measured over several arena seeds, not one. One arena is one roll
  * of the generator, and a result from one arena says nothing about the style.
  */
+import { makeRunInfo, writeRunInfo } from "./runInfo.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { generateArena, ARENA_STYLES } from "../arena/generate.js";
@@ -570,6 +571,9 @@ function main(): void {
   }
   const seconds = (Date.now() - started) / 1000;
   const rounds = results.reduce((sum, result) => sum + result.records.length, 0);
+  // What made this run, so the seeds in the CSV files stay usable later
+  // (Section 7.23).
+  writeRunInfo(resolve(options.out), makeRunInfo({ seed: options.seed, rounds, config }));
   process.stdout.write(
     `\n${rounds} rounds in ${(seconds / 60).toFixed(1)} min ` +
       `(${((seconds / Math.max(1, rounds)) * 1000).toFixed(0)} ms per round).\n` +
