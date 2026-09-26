@@ -150,7 +150,10 @@ function main(): void {
   });
   const seconds = (Date.now() - started) / 1000;
 
-  const summary = summarize(records, { scoreLimit: simConfig.scoreLimit });
+  const summary = summarize(records, {
+    scoreLimit: simConfig.scoreLimit,
+    ticksPerSecond: simConfig.ticksPerSecond,
+  });
   process.stdout.write(`${formatReport(summary)}\n`);
 
   mkdirSync(resolve(outDir), { recursive: true });

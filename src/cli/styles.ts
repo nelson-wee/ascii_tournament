@@ -548,7 +548,10 @@ function main(): void {
             if (done === total) process.stderr.write("\n");
           },
     });
-    const summary = summarize(records, { scoreLimit: simConfig.scoreLimit });
+    const summary = summarize(records, {
+    scoreLimit: simConfig.scoreLimit,
+    ticksPerSecond: simConfig.ticksPerSecond,
+  });
     results.push(measure(style, metrics, records, summary, config.compositions ?? {}));
   }
 

@@ -2631,6 +2631,108 @@ at 9.4 % with 360-degree sight.
 
 ---
 
+## 7.22 Tempo: the rhythm of a round
+
+Every other number in a round record is a **total**: kills, shots, pickups,
+ticks. A total cannot tell a steady drip of kills from five short fights with
+long walks between them. Those are opposite games, and they read the same. This
+section adds the distribution over time.
+
+### 7.22.1 Where tempo already lives
+
+Nothing in the engine used the word before this section. Tempo is set anyway,
+by four groups of constants at very different scales:
+
+| Layer | Constants | Period |
+|---|---|---|
+| A bot's own loop | `aiDecisionIntervalTicks`, `reactionTicks`, `turnRateDegreesPerTick`, `influence.intervalTicks` | 0.3 to 0.5 s |
+| An engagement | `weaponSwapTicks`, `dodgeRampTicks`, `stationaryTicksForCrit`, the cadence of a weapon | 0.4 to 1 s |
+| Death and return | `respawnDelayTicks` 60, plus the walk back at `moveSpeedCellsPerSecond` 4 | 3 s and travel |
+| The item economy | ammo 140, weapon 150, health 300, armor 550, power-up 1750 | 7 to 87.5 s |
+
+Four things follow from those numbers alone, before any batch runs:
+
+- **The clock does not push.** A round ends near 2200 of 3600 ticks, and 98.1 %
+  of rounds end on the score limit (Section 7.20.13). In most arena shooters
+  the clock makes a losing team attack. Here it does not.
+- **Losing a weapon costs almost nothing.** A weapon point comes back in 150
+  ticks, which is less than a death plus the walk back. Denial is not a lever.
+- **A power-up cannot be played around.** 1750 ticks is 87.5 s against a round
+  near 110 s, so a point yields about one time. There is no repeated contest.
+- **One window holds every item clock.** `pickupAnticipationTicks` is 220, and
+  `pickupValue` gives a point that is further away than that a value of exactly
+  zero (`src/sim/pickups.ts`). The fight for a power-up starts 11 s before it
+  lands, the same as the fight for ammo. The length of a clock decides **when**
+  an item matters, not **how long** teams contest it.
+
+### 7.22.2 What the engine counts, and what the log already holds
+
+Only one part of tempo is not in the event log: what a bot can see. Perception
+state is not an event, so `BotState` keeps two counters and `updatePerception`
+sets them:
+
+    aliveTicks      ticks that the bot was alive this round
+    contactTicks    ticks that it was alive with an enemy in either arc
+
+`contactTicks / aliveTicks` is the clearest single measure of tempo. It says
+how much of a round a bot fights and how much of it the bot walks.
+
+Everything else comes from `bus.log`, which already carries a tick on every
+event, and already holds the ids that the measure needs: `Hit` carries the
+shooter and the target, `Kill` carries both teams, `Death` and `Spawn` carry
+the bot, and `PickupRespawned` and `PickupTaken` share a slot id. **No engine
+change was needed for any of it.** `src/report/tempo.ts` is a reducer over the
+log, and `runPlannedRound` already walked that log to build a round record.
+
+### 7.22.3 The measures
+
+`TempoRecord` holds only sums and counts, never a mean, because **a sum adds
+over rounds and a mean does not.** `addTempo` adds the rounds of a batch and
+`tempoView` takes the means at the end.
+
+| Question | Fields | What the view reads |
+|---|---|---|
+| Is the round a drip or a set of fights? | `killGapSum`, `killGapSquareSum`, `killGaps` | Mean gap, its standard deviation, and **burstiness** = the two over each other |
+| Do the teams trade, or does one team run over the other? | `burstKills`, `tradeKills` | Share of kills inside `multiKillWindowTicks` of another, and the share of those that the other team answered |
+| How long is a fight? | `timeToKillSum`, `shotsToKillSum`, `engagements` | Ticks from the first hit on a life to the kill, and shots aimed in that time |
+| What share of a round is not fighting? | `deadTicksSum`, `returnTicksSum`, `aliveTicksSum`, `contactTicksSum` | Dead time, the walk back from a spawn to the next shot, and the contact share |
+| Does an advantage compound? | `leadChanges`, `maxLead`, `sameTeamPairs`, `killPairs` | Lead changes a round, the largest lead, and the chance that the next kill goes to the team that made the last one |
+| Is the item economy played, or only walked into? | `pickupWaitCount`, `pickupWaitTicks` | Ticks that a point waited after it came back, by kind |
+
+Two rules that the code holds and a reader should know:
+
+- **A time to kill belongs to one life.** When a bot dies, every fight against
+  it starts again. Without that rule the second life of a bot reads a time that
+  covers the first life as well.
+- **The first take of a round is not timed.** Every point starts ready, so
+  there is no respawn to measure against.
+
+`firstKillTick` and `openingTicks` are the two fields that hold a tick and not
+a duration. A round with no kill holds -1, because tick 0 is a real tick. In a
+total they hold a sum of the rounds that had one, and the view divides.
+
+### 7.22.4 Where to read them
+
+- `formatReport` prints three tempo tables and an item rhythm table.
+- `roundsCsv` writes every field as its own column, one row per round, so a
+  reader can take the means over any group of rounds.
+- `summarize` adds the rounds into `BatchSummary.tempo`.
+
+### 7.22.5 The question these numbers are for
+
+Section 7.20.22 found that the tactics layer moves a win rate by about seven
+points at best, and that a weapon preference moves it by none. A win rate
+answers only with yes or no. If two settings of a tactics number give the same
+kill gap, the same contact share and the same trade share, then that number
+does not reach tempo, whatever it does to the win rate. **That is a finding on
+its own, and it does not need a difference in the win rate to be true.**
+
+There is a matching worry to test. If a round is one long drip of kills with no
+clock pressure, no respawn wave, no denial value on a weapon, and one 11 s item
+window whatever the item, then the round has **one** rhythm, and a tactic can
+only change how bots fight, never when. A slider cannot reach a "when" that the
+round does not have. TBD
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

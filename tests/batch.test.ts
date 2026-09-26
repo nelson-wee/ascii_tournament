@@ -1,3 +1,4 @@
+import { emptyTempo } from "../src/report/tempo.js";
 import { describe, expect, it } from "vitest";
 import { loadTestArena, parseArenaText } from "../src/arena/index.js";
 import { loadDefaultTactics } from "../src/core/data.js";
@@ -65,6 +66,7 @@ function record(over: Partial<RoundRecord> = {}): RoundRecord {
     deathsByRole: { tank: 8, overwatch: 9, skirmisher: 8 },
     pickupsByKind: { weapon: 12, health: 6, armor: 4, powerup: 2, ammo: 8 },
     weaponArchetypes: ["assault", "baseline", "marksman", "precision"],
+    tempo: emptyTempo(),
     ...over,
   };
 }

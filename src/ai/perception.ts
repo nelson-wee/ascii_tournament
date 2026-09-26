@@ -240,6 +240,11 @@ export function updatePerception(state: SimState): void {
     bot.visibleEnemyIds = focus;
     bot.peripheralEnemyIds = peripheral;
 
+    // The tempo counters of Section 7.22. A bot is "in contact" when it can
+    // see an enemy in either arc: it is fighting, not walking to a fight.
+    bot.aliveTicks += 1;
+    if (focus.length > 0 || peripheral.length > 0) bot.contactTicks += 1;
+
     for (const [id, seen] of bot.lastSeen) {
       if (state.tick - seen.tick > state.config.memoryTicks) bot.lastSeen.delete(id);
     }

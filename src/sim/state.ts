@@ -188,6 +188,15 @@ export interface BotState {
    */
   visibleEnemyIds: string[];
   /**
+   * Ticks that the bot was alive this round, and ticks that it was alive with
+   * an enemy in sight. The share of one over the other is the clearest single
+   * measure of tempo: it says how much of a round a bot fights, and how much
+   * of it the bot walks (Section 7.22). Perception sets both, because
+   * perception is the only place that knows what a bot can see.
+   */
+  aliveTicks: number;
+  contactTicks: number;
+  /**
    * The enemies inside the peripheral arc that the bot noticed. It knows that
    * they are there, but it must turn before it can fire.
    */
@@ -683,6 +692,8 @@ function makeBot(options: MakeBotOptions): BotState {
     visibleCells: new CellSet(options.cellCount),
     fovCell: null,
     visibleEnemyIds: [],
+    aliveTicks: 0,
+    contactTicks: 0,
     peripheralEnemyIds: [],
     peripheralTicks: new Map<string, number>(),
     lastSeen: new Map<string, LastSeen>(),
