@@ -8,6 +8,7 @@
  * the matchup, so a round always gives the same result, whatever the order of
  * the rounds.
  */
+import { tempoOf } from "./tempo.js";
 import type { ArenaMap } from "../arena/types.js";
 import type { Tactics, TeamTactics } from "../core/schemas.js";
 import type { Role } from "../sim/state.js";
@@ -197,6 +198,13 @@ export function runPlannedRound(
   }
 
   return {
+    tempo: tempoOf(bus.log, {
+      multiKillWindowTicks: config.multiKillWindowTicks,
+      contact: state.bots.map((bot) => ({
+        aliveTicks: bot.aliveTicks,
+        contactTicks: bot.contactTicks,
+      })),
+    }),
     seed: round.seed,
     arena: round.arena.name,
     teamA: round.teamA,

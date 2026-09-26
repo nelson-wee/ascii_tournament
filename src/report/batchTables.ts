@@ -2,6 +2,7 @@
  * The terminal tables and the CSV files of the batch harness
  * (dev-guide Section 7.16).
  */
+import { tempoView, type TempoRecord } from "./tempo.js";
 import type { RoundRecord, BatchSummary, WinRecord } from "./batchStats.js";
 import { standardError, winRate } from "./batchStats.js";
 
@@ -159,6 +160,65 @@ export function formatReport(summary: BatchSummary): string {
       ),
   );
 
+  // The rhythm of a round (Section 7.22). Every other table here is a total,
+  // and a total cannot tell a steady drip of kills from a set of short fights.
+  const tempo = tempoView(summary.tempo, summary.rounds);
+  const rate = Math.max(1, summary.ticksPerSecond);
+  const seconds = (ticks: number): string => (ticks / rate).toFixed(1);
+  parts.push(
+    "TEMPO: the rhythm of a round\n" +
+      table(
+        ["kill gap", "burstiness", "in a burst", "trades", "time to kill", "shots to kill"],
+        [
+          [
+            `${seconds(tempo.killGapMean)} s`,
+            tempo.burstiness.toFixed(2),
+            percent(tempo.burstShare),
+            percent(tempo.tradeShare),
+            `${seconds(tempo.timeToKill)} s`,
+            tempo.shotsToKill.toFixed(1),
+          ],
+        ],
+        [true, true, true, true, true, true],
+      ) +
+      "\n" +
+      table(
+        ["first shot", "first kill", "dead", "walk back", "in contact"],
+        [
+          [
+            `${seconds(tempo.openingTicks)} s`,
+            `${seconds(tempo.firstKillTick)} s`,
+            `${seconds(tempo.deadTicks)} s`,
+            `${seconds(tempo.returnTicks)} s`,
+            percent(tempo.contactShare),
+          ],
+        ],
+        [true, true, true, true, true],
+      ) +
+      "\n" +
+      table(
+        ["lead changes", "largest lead", "next kill to the same team"],
+        [[tempo.leadChanges.toFixed(1), tempo.maxLead.toFixed(1), percent(tempo.sameTeamNext)]],
+        [true, true, true],
+      ),
+  );
+
+  const waits = Object.keys(tempo.pickupWait).sort();
+  if (waits.length > 0) {
+    parts.push(
+      "ITEM RHYTHM: how long a point waits after it comes back\n" +
+        table(
+          ["kind", "mean wait", "takes"],
+          waits.map((kind) => [
+            kind,
+            `${seconds(tempo.pickupWait[kind] ?? 0)} s`,
+            String(summary.tempo.pickupWaitCount[kind] ?? 0),
+          ]),
+          [false, true, true],
+        ),
+    );
+  }
+
   const warnings: string[] = [...summary.balanceFailures];
   if (summary.lowKillRounds > 0) {
     warnings.push(
@@ -190,6 +250,34 @@ function csv(rows: (string | number)[][]): string {
     .join("\n")
     .concat("\n");
 }
+
+/**
+ * The tempo fields that go in a round row, in order. They are the numeric
+ * fields of `TempoRecord`; the two by-kind records get their own columns.
+ */
+const TEMPO_COLUMNS = [
+  "firstKillTick",
+  "openingTicks",
+  "kills",
+  "killGaps",
+  "killGapSum",
+  "killGapSquareSum",
+  "burstKills",
+  "tradeKills",
+  "engagements",
+  "timeToKillSum",
+  "shotsToKillSum",
+  "deaths",
+  "deadTicksSum",
+  "returns",
+  "returnTicksSum",
+  "aliveTicksSum",
+  "contactTicksSum",
+  "leadChanges",
+  "maxLead",
+  "killPairs",
+  "sameTeamPairs",
+] as const satisfies readonly (keyof TempoRecord)[];
 
 /** One row per round. */
 export function roundsCsv(records: readonly RoundRecord[]): string {
@@ -230,6 +318,11 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       ...kinds.map((kind) => `pickups_${kind}`),
       "archetypesInSet",
       ...archetypes.map((archetype) => `kills_${archetype}`),
+      // Tempo, as sums and counts, so a reader can take the means over any
+      // group of rounds (Section 7.22).
+      ...TEMPO_COLUMNS,
+      ...kinds.map((kind) => `pickupWaitCount_${kind}`),
+      ...kinds.map((kind) => `pickupWaitTicks_${kind}`),
     ],
   ];
   for (const round of records) {
@@ -257,6 +350,9 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       ...kinds.map((kind) => round.pickupsByKind[kind] ?? 0),
       round.weaponArchetypes.join(";"),
       ...archetypes.map((archetype) => round.killsByArchetype[archetype] ?? 0),
+      ...TEMPO_COLUMNS.map((column) => round.tempo[column]),
+      ...kinds.map((kind) => round.tempo.pickupWaitCount[kind] ?? 0),
+      ...kinds.map((kind) => round.tempo.pickupWaitTicks[kind] ?? 0),
     ]);
   }
   return csv(rows);

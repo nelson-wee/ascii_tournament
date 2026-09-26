@@ -9,6 +9,7 @@
  * (Section 7.2) arrives with M7, so the name of the arena file stands in its
  * place. The rest of Section 7.16 is marked in `missingReports`.
  */
+import { addTempo, emptyTempo, type TempoRecord } from "./tempo.js";
 import type { RoundEndReason } from "../sim/state.js";
 
 export interface RoundRecord {
@@ -58,6 +59,8 @@ export interface RoundRecord {
    * kills by the rounds that held the archetype, and the two come apart.
    */
   weaponArchetypes: readonly string[];
+  /** The rhythm of the round (Section 7.22). Every field is a sum or a count. */
+  tempo: TempoRecord;
 }
 
 export interface WinRecord {
@@ -99,6 +102,10 @@ export interface BatchSummary {
   lowKillRounds: number;
   killsByArchetype: Map<string, number>;
   shotsByWeapon: Map<string, number>;
+  /** The tempo of every round added together. `tempoView` reads it. */
+  tempo: TempoRecord;
+  /** Ticks per second, so a reader can turn the tempo ticks into seconds. */
+  ticksPerSecond: number;
   balanceFailures: string[];
   missingReports: string[];
 }
@@ -141,6 +148,8 @@ export interface SummarizeOptions {
   /** A round below this share of the score limit made too few kills. TBD */
   lowKillShare?: number;
   scoreLimit?: number;
+  /** Ticks per second, so the tempo table can read in seconds. */
+  ticksPerSecond?: number;
 }
 
 export function summarize(
@@ -150,6 +159,7 @@ export function summarize(
   const balanceFailureRate = options.balanceFailureRate ?? 0.6;
   const lowKillShare = options.lowKillShare ?? 0.5;
   const scoreLimit = options.scoreLimit ?? 15;
+  const ticksPerSecond = options.ticksPerSecond ?? 20;
 
   const byPreset = new Map<string, WinRecord>();
   const byPresetArena = new Map<string, WinRecord>();
@@ -169,6 +179,7 @@ export function summarize(
   let hits = 0;
   let unawareKills = 0;
   let lowKillRounds = 0;
+  const tempo = emptyTempo();
 
   for (const round of records) {
     arenas.add(round.arena);
@@ -202,6 +213,7 @@ export function summarize(
     for (const [weapon, count] of Object.entries(round.shotsByWeapon)) {
       shotsByWeapon.set(weapon, (shotsByWeapon.get(weapon) ?? 0) + count);
     }
+    addTempo(tempo, round.tempo);
   }
 
   // Section 7.16: a doctrine that wins on every arena is a balance failure.
@@ -240,6 +252,8 @@ export function summarize(
     lowKillRounds,
     killsByArchetype,
     shotsByWeapon,
+    tempo,
+    ticksPerSecond,
     balanceFailures,
     missingReports: [
       "Trait distribution in winning teams needs the progression of M10.",
