@@ -3215,6 +3215,97 @@ The role and the team are not in the event log, so `roundBrief` takes the bots
 as an option. `state.bots` fits it: the same object already carries the contact
 counters of Section 7.22, so one option replaced two.
 
+## 7.28 The first composition sweep: bastion
+
+3000 rounds, 3 generated `bastion` arenas, every multiset of three roles from
+three — ten compositions, the whole decision space. `useRoleTactics` is set, so
+the roles own the tactics and the table measures what a player actually
+chooses. Commit `8225b209`, data `1injtqz`, seed 20260928.
+
+### 7.28.1 Compositions matter now, and by a lot
+
+| Composition | Win rate | | Composition | Win rate |
+|---|---:|---|---|---:|
+| 1T2S | **68.0 ±2.0** | | 2T1O | 48.8 ±2.0 |
+| 2T1S | 66.8 ±1.9 | | 1O2S | 46.5 ±2.0 |
+| 3T | 65.7 ±1.9 | | 1T2O | 38.7 ±2.0 |
+| 3S | 61.2 ±2.0 | | 2O1S | 33.2 ±1.9 |
+| 1T1O1S | 53.8 ±2.0 | | 3O | **17.3 ±1.5** |
+
+**A spread of 50.7 points.** The old table of Section 7.20.13 read 52.8 / 48.8 /
+48.5 — a spread of 4.3 — because it measured the six behaviour weights alone
+(Section 7.26). Giving the roles their tactics back turned a rounding error
+into the main decision of the game.
+
+### 7.28.2 It is a dominance order, not a cycle
+
+The matchup matrix has no rock-paper-scissors in it. The top four are inside
+noise of each other and beat everything below them:
+
+    against      3T  2T1S  1T2S    3S  1T1O1S  2T1O  1O2S  1T2O  2O1S    3O
+    3T           50    48    47    55      70    68    62    87    80    90
+    2T1S         52    50    53    53      60    67    72    80    90    92
+    3S           45    47    43    50      65    58    65    80    73    85
+    3O           10     8     8    15       8    12    13    25    23    50
+
+One number explains the whole table:
+
+| Overwatch in the team | Win rate |
+|---|---:|
+| 0 | 65.4 ±1.0 |
+| 1 | 49.7 ±1.2 |
+| 2 | 35.9 ±1.4 |
+| 3 | 17.3 ±1.5 |
+
+**About sixteen points for each overwatch, in a straight line.** Nothing else
+in the table needs reading.
+
+### 7.28.3 The reason is legible, and it is the map
+
+`bastion` takes **5.7 % of its kills at long range** and 36.7 % at close.
+`overwatch` ranks `long > mid > close` and reaches for marksman weapons. It is
+playing for a band that this ground barely has.
+
+The role is not broken — it plays a coherent game and loses it. The tempo
+signatures of the mirror matchups say so, and they are the acceptance test of
+Section 7.26 passing:
+
+| Both teams | ticks | kills | close | mid | long | contact | kill gap |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 3T | 2692 | 27.6 | **58 %** | 39 % | 2 % | 39 % | 4.4 s |
+| 3S | 2811 | 27.5 | 17 % | **81 %** | 2 % | 39 % | 4.6 s |
+| 1T1O1S | 2793 | 24.5 | 33 % | 62 % | 5 % | 35 % | 5.2 s |
+| 3O | 3208 | 23.2 | 1 % | 52 % | **46 %** | **69 %** | 5.5 s |
+
+Three roles, three different games. An overwatch team holds sightlines — 69 %
+of its living ticks are spent with an enemy in view, against 39 % for a tank
+team — and it still kills the least and takes the longest. **A role that two
+teams can play is not a label.**
+
+### 7.28.4 What this table is not
+
+- **One map.** `bastion` is the close-quarters style. An overwatch *should* be
+  weak here. The question this sweep cannot answer is whether it is strong on
+  `openfield`, which takes five times the long-range share. Until that runs, we
+  know one half of a specialisation and cannot tell it from a weak role. **TBD**
+- **The matchup cells are thin.** 60 rounds a cell, ±6.5. Read the structure,
+  not a cell.
+- **A 2-point side bias remains.** Team A won 47.9 ±0.9 over the batch. Every
+  composition played 300 rounds as A and 300 as B, so it cancels in the column
+  above, but it is 2.3 standard errors from fair and it is not gone.
+
+### 7.28.5 The balance judgement
+
+A choice that loses five rounds in six is not a choice, it is a trap. Even if
+`openfield` reverses it exactly, 17.3 % against 68.0 % is too wide for a player
+to be asked to pick blind.
+
+**Do not tune it from this table alone.** Run the same sweep on `openfield`
+first. If `overwatch` tops that one, the roles are specialised correctly and
+only the magnitude needs narrowing; if it loses there too, the role is weak and
+its weapon and range rankings are the thing to change. Tuning now would be
+fitting one map. TBD
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.
