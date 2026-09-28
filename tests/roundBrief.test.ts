@@ -99,7 +99,7 @@ describe("roundBrief", () => {
     const brief = roundBrief(result.events, 1, {
       ticksPerSecond: config.ticksPerSecond,
       multiKillWindowTicks: config.multiKillWindowTicks,
-      contact: state.bots,
+      bots: state.bots,
     });
     expect(brief.kills.A + brief.kills.B).toBe(state.score.A + state.score.B);
     expect(brief.killGapSeconds).toBeGreaterThan(0);
@@ -171,5 +171,85 @@ describe("the weapons of a tournament (Section 7.25)", () => {
     expect(session.pinned.weapons).toBeDefined();
     expect(session.pinned.weapons).not.toBe(perMatch.weapons);
     expect(nextMatch(session).seeds.weapons).toBe(session.pinned.weapons);
+  });
+});
+
+describe("the per-bot view (Section 7.27)", () => {
+  const BOTS = [
+    { id: "A0", teamId: "A" as const, role: "tank", aliveTicks: 100, contactTicks: 40 },
+    { id: "A1", teamId: "A" as const, role: "overwatch", aliveTicks: 100, contactTicks: 10 },
+    { id: "B0", teamId: "B" as const, role: "tank", aliveTicks: 80, contactTicks: 40 },
+  ];
+  const WITH_BOTS = { ...OPTIONS, bots: BOTS };
+
+  function kill(tick: number, killer: string, victim: string, extra: Record<string, unknown> = {}) {
+    return [
+      event("Kill", tick, 1, {
+        killerId: killer,
+        victimId: victim,
+        killerTeamId: killer.slice(0, 1),
+        rangeBand: "mid",
+        weaponId: "w1",
+        weaponArchetype: "assault",
+        ...extra,
+      }),
+      event("Death", tick, 1, { botId: victim }),
+    ];
+  }
+
+  it("gives every bot a row, in the order the caller gave", () => {
+    const brief = roundBrief(kill(10, "A0", "B0"), 1, WITH_BOTS);
+    expect(brief.bots.map((bot) => bot.botId)).toEqual(["A0", "A1", "B0"]);
+    expect(brief.bots.map((bot) => bot.role)).toEqual(["tank", "overwatch", "tank"]);
+  });
+
+  it("counts the kills and the deaths of each bot", () => {
+    const events = [...kill(10, "A0", "B0"), ...kill(30, "A0", "B0"), ...kill(50, "B0", "A1")];
+    const brief = roundBrief(events, 1, WITH_BOTS);
+    const [a0, a1, b0] = brief.bots;
+    expect(a0?.kills).toBe(2);
+    expect(a0?.deaths).toBe(0);
+    expect(a1?.kills).toBe(0);
+    expect(a1?.deaths).toBe(1);
+    expect(b0?.kills).toBe(1);
+    expect(b0?.deaths).toBe(2);
+  });
+
+  it("gives the kills as the ratio when a bot never died", () => {
+    // Dividing by zero would read as infinity, and a bot that never died is
+    // the best case, not an undefined one.
+    const brief = roundBrief([...kill(10, "A0", "B0"), ...kill(20, "A0", "B0")], 1, WITH_BOTS);
+    expect(brief.bots[0]?.ratio).toBe(2);
+    expect(brief.bots[2]?.ratio).toBe(0);
+  });
+
+  it("names the weapons a bot killed with, most kills first", () => {
+    const events = [
+      ...kill(10, "A0", "B0", { weaponId: "rare" }),
+      ...kill(20, "A0", "B0", { weaponId: "common" }),
+      ...kill(30, "A0", "B0", { weaponId: "common" }),
+    ];
+    const brief = roundBrief(events, 1, WITH_BOTS);
+    expect(brief.bots[0]?.weapons.map((w) => w.weaponId)).toEqual(["common", "rare"]);
+    expect(brief.bots[0]?.weapons[0]?.kills).toBe(2);
+    expect(brief.bots[1]?.weapons).toEqual([]);
+  });
+
+  it("reads the contact share of each bot from its own counters", () => {
+    const brief = roundBrief([], 1, WITH_BOTS);
+    expect(brief.bots[0]?.contactShare).toBeCloseTo(0.4, 10);
+    expect(brief.bots[1]?.contactShare).toBeCloseTo(0.1, 10);
+    expect(brief.bots[2]?.contactShare).toBeCloseTo(0.5, 10);
+  });
+
+  it("counts a kill from behind against the bot that made it", () => {
+    const brief = roundBrief(kill(10, "A0", "B0", { targetAware: false }), 1, WITH_BOTS);
+    expect(brief.bots[0]?.unawareKills).toBe(1);
+    expect(brief.unawareKills).toBe(1);
+  });
+
+  it("gives an empty list when the caller gave no bots", () => {
+    // A role and a team cannot be read from the event log.
+    expect(roundBrief(kill(10, "A0", "B0"), 1, OPTIONS).bots).toEqual([]);
   });
 });

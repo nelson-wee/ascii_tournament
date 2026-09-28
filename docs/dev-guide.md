@@ -3183,6 +3183,38 @@ after this should set `useRoleTactics`, sweep the ten compositions against each
 other, and read two things: the win-rate matrix, and whether each role's tempo
 signature matches its name. TBD
 
+## 7.27 The round summary, by bot
+
+The round view of Section 7.25 says **which weapon** did the work. It cannot
+say **which bot** did it, so it cannot answer the question a player asks before
+they change a composition: *does this role earn its place on this ground?*
+
+A toggle on the same block switches between the two. One row a bot, team A
+first, in slot order:
+
+    A1 overwatch  2/3 (0.67)  c0 m2 l0 · in contact 13 %
+                              baseline-rifle ×1 · heavy-tile-0 ×1
+    B2 skirmisher 4/2 (2.00)  c0 m4 l0 · in contact 14 %, 1 from behind
+                              heavy-tile-0 ×3 · sniper-hitscan-2 ×1
+
+Both teams are on the list, not only the player's. A role that the enemy plays
+better on this ground is the same finding, and reading it costs a row.
+
+**Three decisions in the shape of it.**
+
+- **Deaths come from the `Death` event, not from `Kill`.** They are one to one
+  today, but a death is the thing being counted, and a kill is one way to
+  reach it.
+- **A bot that never died gets its kills as the ratio.** Dividing by zero reads
+  as infinity, and a bot that never died is the best case, not an undefined
+  one. A bot with no kills and no deaths reads `—`.
+- **Every bot gets a row, including one that did nothing.** `A0 tank 0/1 · no
+  kill` is an answer, and leaving it out would hide it.
+
+The role and the team are not in the event log, so `roundBrief` takes the bots
+as an option. `state.bots` fits it: the same object already carries the contact
+counters of Section 7.22, so one option replaced two.
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

@@ -374,6 +374,34 @@
         font-size: 0.72rem;
       }
       .brief-stat b { color: var(--team-a); }
+      /* The per-bot view of the round (dev-guide Section 7.27). */
+      .brief-head { justify-content: space-between; align-items: center; }
+      .brief-head h3 { margin: 0; }
+      .brief-head .choice { min-height: 30px; padding: 0 10px; font-size: 0.7rem; }
+      .brief-bots {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .brief-bots .bot-row {
+        display: grid;
+        grid-template-columns: minmax(14ch, auto) auto minmax(0, 1fr);
+        grid-template-areas: "name kd where" "name kd guns";
+        gap: 0 12px;
+        align-items: baseline;
+        font-size: 0.7rem;
+        padding: 3px 6px;
+        border-left: 2px solid var(--team-a);
+        background: var(--panel);
+      }
+      .brief-bots .bot-row.away { border-left-color: var(--team-b); }
+      .brief-bots b { grid-area: name; }
+      .brief-kd { grid-area: kd; color: var(--fg); font-weight: 700; }
+      .brief-bots .dim:nth-of-type(1) { grid-area: where; }
+      .brief-bots .dim:nth-of-type(2) { grid-area: guns; overflow-wrap: anywhere; }
       .screen .choice {
         min-height: 40px;
         padding: 0 14px;

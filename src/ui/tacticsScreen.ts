@@ -87,16 +87,53 @@ const BAND_WORDS: Readonly<Record<string, string>> = {
 };
 
 /**
- * What the last round did, in the three things a player can act on: where the
- * fighting happened, which weapons did it, and how fast it ran
- * (Section 7.25).
+ * What the last round did (Section 7.25), in two views (Section 7.27).
+ *
+ * **The round** says where the fighting happened, which weapons did it, and
+ * how fast it ran. **By bot** says which bot did it, with its role, its kills
+ * and deaths, and the weapons it killed with. The round view cannot answer
+ * "does this role earn its place on this ground"; the per-bot view can, and
+ * that is the question a player asks before they change a composition.
  */
 function briefBlock(brief: RoundBrief): HTMLElement {
   const group = document.createElement("div");
   group.className = "menu-group";
+
+  const head = document.createElement("div");
+  head.className = "menu-row brief-head";
   const heading = document.createElement("h3");
   heading.textContent = `Round ${brief.roundNumber}: what happened`;
-  group.append(heading);
+  head.append(heading);
+
+  const body = document.createElement("div");
+  const roundView = roundBlock(brief);
+  const botView = botBlock(brief);
+
+  let showingBots = false;
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "choice";
+  const draw = (): void => {
+    toggle.textContent = showingBots ? "Show the round" : "Show each bot";
+    toggle.setAttribute("aria-pressed", String(showingBots));
+    body.replaceChildren(showingBots ? botView : roundView);
+  };
+  toggle.addEventListener("click", () => {
+    showingBots = !showingBots;
+    draw();
+  });
+  // A bot view with no bots would be an empty panel, so the toggle only
+  // appears when the caller gave the bots.
+  if (brief.bots.length > 0) head.append(toggle);
+
+  draw();
+  group.append(head, body);
+  return group;
+}
+
+/** The round view: bands, rhythm, weapons and items. */
+function roundBlock(brief: RoundBrief): HTMLElement {
+  const wrap = document.createElement("div");
 
   const kills = brief.kills.A + brief.kills.B;
   const bands = document.createElement("div");
@@ -110,7 +147,7 @@ function briefBlock(brief: RoundBrief): HTMLElement {
   bands.append(stat("a fight lasts", `${brief.timeToKillSeconds.toFixed(1)} s`));
   bands.append(stat("in contact", `${Math.round(brief.contactShare * 100)} %`));
   if (brief.unawareKills > 0) bands.append(stat("killed from behind", String(brief.unawareKills)));
-  group.append(bands);
+  wrap.append(bands);
 
   if (brief.weapons.length > 0) {
     const list = document.createElement("ul");
@@ -124,7 +161,7 @@ function briefBlock(brief: RoundBrief): HTMLElement {
         `${weapon.kills === 1 ? "kill" : "kills"}, mostly at ${BAND_WORDS[weapon.band] ?? weapon.band} range`;
       list.append(item);
     }
-    group.append(list);
+    wrap.append(list);
   }
 
   const taken = Object.entries(brief.pickupsByKind).sort((a, b) => b[1] - a[1]);
@@ -132,9 +169,60 @@ function briefBlock(brief: RoundBrief): HTMLElement {
     const items = document.createElement("p");
     items.className = "dim";
     items.textContent = `items taken: ${taken.map(([kind, count]) => `${count}× ${kind}`).join("  ·  ")}`;
-    group.append(items);
+    wrap.append(items);
   }
-  return group;
+  return wrap;
+}
+
+/** Kills over deaths, as a reader wants to see it. */
+function ratioText(bot: RoundBrief["bots"][number]): string {
+  if (bot.deaths === 0) return bot.kills === 0 ? "—" : `${bot.kills}.0`;
+  return (bot.kills / bot.deaths).toFixed(2);
+}
+
+/** The per-bot view: one row a bot, team A first (Section 7.27). */
+function botBlock(brief: RoundBrief): HTMLElement {
+  const wrap = document.createElement("div");
+  const list = document.createElement("ul");
+  list.className = "brief-bots";
+
+  for (const bot of brief.bots) {
+    const item = document.createElement("li");
+    item.className = bot.teamId === "B" ? "bot-row away" : "bot-row";
+
+    const name = document.createElement("b");
+    name.textContent = `${bot.botId} ${bot.role}`;
+    const score = document.createElement("span");
+    score.className = "brief-kd";
+    score.textContent = `${bot.kills}/${bot.deaths}  (${ratioText(bot)})`;
+
+    const where = document.createElement("span");
+    where.className = "dim";
+    const bands = (["close", "mid", "long"] as const)
+      .map((band) => `${band[0]}${bot.byBand[band] ?? 0}`)
+      .join(" ");
+    const flank = bot.unawareKills > 0 ? `, ${bot.unawareKills} from behind` : "";
+    where.textContent = `${bands}  ·  in contact ${Math.round(bot.contactShare * 100)} %${flank}`;
+
+    const guns = document.createElement("span");
+    guns.className = "dim";
+    guns.textContent =
+      bot.weapons.length === 0
+        ? "no kill"
+        : bot.weapons
+            .slice(0, 3)
+            .map((weapon) => `${weapon.weaponId} ×${weapon.kills}`)
+            .join("  ·  ");
+
+    item.append(name, score, where, guns);
+    list.append(item);
+  }
+
+  const legend = document.createElement("p");
+  legend.className = "dim";
+  legend.textContent = "kills/deaths (ratio) · kills by band, close mid long · the weapons it killed with";
+  wrap.append(list, legend);
+  return wrap;
 }
 
 /**

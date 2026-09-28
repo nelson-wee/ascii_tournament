@@ -578,7 +578,9 @@ try {
             brief: roundBrief(bus.log, nextRound - 1, {
               ticksPerSecond: config.ticksPerSecond,
               multiKillWindowTicks: config.multiKillWindowTicks,
-              ...(state ? { contact: state.bots } : {}),
+              // The bots carry the contact counters and the role of each one,
+              // which is what the per-bot view reads (Section 7.27).
+              ...(state ? { bots: state.bots } : {}),
             }),
           }
         : {}),
