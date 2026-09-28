@@ -29,6 +29,9 @@ import {
   teamSideIndex,
   type BotState,
   type SimState,
+  topRange,
+  rangeWeight,
+  weaponWeight,
 } from "../sim/state.js";
 import { hasAmmo } from "../sim/combat.js";
 import { pickupValue } from "../sim/pickups.js";
@@ -158,12 +161,14 @@ export function bandDistance(state: SimState, band: RangeBand): number {
  * (Section 7.20.12). The weapon carries the band; the tactic breaks the tie.
  */
 export function wantedBand(state: SimState, bot: BotState): RangeBand {
-  const bias = state.config.preferredRangeBias;
-  let best: RangeBand = bot.tactics.preferredRange;
+  const bias = state.config.rangePrefBias;
+  let best: RangeBand = topRange(bot.tactics);
   let bestValue = -Infinity;
   for (const band of RANGE_BANDS) {
     if (bandDistance(state, band) > bot.weapon.rangeMax) continue;
-    const value = bot.weapon.dpsProfile[band] * (band === bot.tactics.preferredRange ? 1 + bias : 1);
+    // `rangePref` ranks all three bands, so the band a role likes least is
+    // worth less than neutral, not the same as neutral (Section 7.26).
+    const value = bot.weapon.dpsProfile[band] * rangeWeight(bot.tactics, band, bias);
     if (value > bestValue) {
       best = band;
       bestValue = value;
@@ -191,12 +196,12 @@ export function bestWeaponAt(state: SimState, bot: BotState, distance: number): 
     if (distance > weapon.rangeMax) continue;
     // An empty weapon is not a choice. The magazine is a real limit.
     if (!hasAmmo(bot, weapon)) continue;
-    let value = weapon.dpsProfile[band];
-    // The weapon role preference is a bias, not a rule. It is the tournament
-    // weapon priority that a player sets (Section 7.20.8).
-    if (bot.tactics.weaponRolePref !== null && weapon.archetype === bot.tactics.weaponRolePref) {
-      value *= 1 + state.config.weaponRolePrefBonus;
-    }
+    // The weapon preference is a bias, not a rule, and it is a **ranking**: a
+    // run offers five weapons, and one favourite archetype was silent about
+    // four of them (Section 7.26).
+    const value =
+      weapon.dpsProfile[band] *
+      weaponWeight(bot.tactics, weapon.archetype, state.config.weaponPrefBonus);
     if (value > bestValue) {
       best = weapon;
       bestValue = value;
@@ -212,11 +217,10 @@ export function bestWeaponAt(state: SimState, bot: BotState, distance: number): 
  * band alone carries a short-range weapon into a mid-range arena and then
  * cannot fire at all: that, and not the walk, is what the close preference
  * cost the aggressive preset (Section 7.20.12). So the value of a weapon is
- * its damage over every band it reaches, and the `preferredRange` tactic
- * raises one of those bands.
+ * its damage over every band it reaches, and `rangePref` ranks those bands.
  */
 export function bestWeaponOverall(state: SimState, bot: BotState): Weapon {
-  const bias = state.config.preferredRangeBias;
+  const bias = state.config.rangePrefBias;
   const share = state.config.bandShare;
   let best = bot.weapons[0] ?? bot.weapon;
   let bestValue = -Infinity;
@@ -229,12 +233,9 @@ export function bestWeaponOverall(state: SimState, bot: BotState): Weapon {
       // weight that the power budget uses (Section 7.20.15). The AI and the
       // budget must read one number, or the AI takes a weapon that the budget
       // called strong and the arena calls weak.
-      value +=
-        weapon.dpsProfile[band] * share[band] * (band === bot.tactics.preferredRange ? 1 + bias : 1);
+      value += weapon.dpsProfile[band] * share[band] * rangeWeight(bot.tactics, band, bias);
     }
-    if (bot.tactics.weaponRolePref !== null && weapon.archetype === bot.tactics.weaponRolePref) {
-      value *= 1 + state.config.weaponRolePrefBonus;
-    }
+    value *= weaponWeight(bot.tactics, weapon.archetype, state.config.weaponPrefBonus);
     if (value > bestValue) {
       best = weapon;
       bestValue = value;

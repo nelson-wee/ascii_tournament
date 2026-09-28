@@ -29,6 +29,7 @@ import {
 import { damageBot, isInCover, rangeBandOf } from "./damage.js";
 import { applyDot } from "./damage.js";
 import {
+  topRange,
   botCell,
   cellCenter,
   distanceBetween,
@@ -99,7 +100,7 @@ export function effectiveReaction(bot: BotState, band: RangeBand, aggressionDisc
 export function currentBand(state: SimState, bot: BotState): RangeBand {
   const target = bot.targetId === null ? null : findBot(state, bot.targetId);
   if (target?.alive) return rangeBandOf(state, distanceBetween(bot, target));
-  return bot.tactics.preferredRange;
+  return topRange(bot.tactics);
 }
 
 /**

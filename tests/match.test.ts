@@ -91,7 +91,7 @@ describe("runMatch", () => {
   it("lets the plan change the tactics between rounds", () => {
     const bold = { ...loadDefaultTactics(), aggression: 0.95 };
     const shy = { ...loadDefaultTactics(), aggression: 0.05 };
-    const plan = (tactics: typeof bold): MatchPlan => ({ A: { tactics } });
+    const plan = (tacticsOverride: typeof bold): MatchPlan => ({ A: { tacticsOverride } });
 
     const boldBus = new EventBus();
     runMatch({ ...matchOptions(7, boldBus), getTactics: () => plan(bold) });
@@ -118,7 +118,7 @@ describe("createRoundState", () => {
     const state = createRoundState(
       { ...options, spawnTable },
       2,
-      { A: { tactics: bold, roles } },
+      { A: { tacticsOverride: bold, roles } },
       spawnTable,
       config,
       new EventBus(),

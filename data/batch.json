@@ -8,8 +8,12 @@
   "presets": {
     "balanced": {
       "aggression": 0.5,
-      "preferredRange": "mid",
-      "weaponRolePref": null,
+      "rangePref": [
+        "mid",
+        "close",
+        "long"
+      ],
+      "weaponPref": [],
       "itemControl": 0.5,
       "holdPosition": 0.2,
       "evasion": 0.3,
@@ -17,8 +21,12 @@
     },
     "aggressive": {
       "aggression": 0.9,
-      "preferredRange": "close",
-      "weaponRolePref": null,
+      "rangePref": [
+        "close",
+        "mid",
+        "long"
+      ],
+      "weaponPref": [],
       "itemControl": 0.3,
       "holdPosition": 0.1,
       "evasion": 0.2,
@@ -26,8 +34,12 @@
     },
     "anchor": {
       "aggression": 0.5,
-      "preferredRange": "mid",
-      "weaponRolePref": null,
+      "rangePref": [
+        "mid",
+        "close",
+        "long"
+      ],
+      "weaponPref": [],
       "itemControl": 0.4,
       "holdPosition": 0.65,
       "evasion": 0.2,
@@ -35,9 +47,21 @@
     }
   },
   "compositions": {
-    "standard": ["tank", "overwatch", "skirmisher"],
-    "rush": ["skirmisher", "skirmisher", "tank"],
-    "turtle": ["overwatch", "overwatch", "tank"]
+    "standard": [
+      "tank",
+      "overwatch",
+      "skirmisher"
+    ],
+    "rush": [
+      "skirmisher",
+      "skirmisher",
+      "tank"
+    ],
+    "turtle": [
+      "overwatch",
+      "overwatch",
+      "tank"
+    ]
   },
   "outDir": "batch-out"
 }

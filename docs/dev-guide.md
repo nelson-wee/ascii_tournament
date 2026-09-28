@@ -3094,6 +3094,95 @@ The tempo numbers are the ones of Section 7.22, and this is the first place a
 player sees them. Before round 1 there is no round to read, so the ground takes
 its place (Section 7.24).
 
+## 7.26 The role owns the tactics
+
+**The finding that started this.** `createSimState` read:
+
+    const preset = options.tactics ? tacticsFor(teamId) : (roleData?.tactics ?? ...)
+
+A caller that passed tactics **threw the role preset away**. The browser always
+passed them, and so did the batch, so the role preset was used almost nowhere.
+A `tank` and an `overwatch` differed only by their six `behavior` weights;
+everything that makes a tank a tank — the band it wants, the weapon it reaches
+for, how much it holds ground — came from one team-wide slider and was
+identical for all three bots.
+
+Two things follow. The composition table of Section 7.20.13 (`standard` 52.8 %,
+`turtle` 48.8 %, `rush` 48.5 %) measured **only the behaviour weights**; four
+points from six multipliers alone is more encouraging than it looked. And
+"weapon priority moved a win rate by none" had an obvious cause: it was one
+value for a whole team, over a weapon set that changed with every arena.
+
+### 7.26.1 Why a template beats a slider
+
+Seven continuous values over a team **cannot be swept**. A batch cannot walk a
+seven-dimensional space, so the numbers read as noise no matter what they do. A
+composition is one categorical choice with ten values (a multiset of three from
+three roles), and ten against ten is a hundred cells, which one batch covers.
+
+A preset can also carry a balance target that a person can state and a test can
+check: "skirmisher beats overwatch, overwatch beats tank, tank beats
+skirmisher". `aggression: 0.62` has no such target.
+
+**And the tempo measures of Section 7.22 can check a role against its own
+name**, with no win rate at all. A tank and an overwatch must differ in their
+band distribution and their contact share. Two roles with the same tempo
+signature are one role with two labels, and that is a finding on its own.
+
+### 7.26.2 What changed
+
+- **The role owns the tactics.** `roleData.tactics` is the base for every bot,
+  always.
+- **`tactics` became `tacticsOverride`.** It still throws the role presets away,
+  for a batch or a test that wants one uniform team, and its name now says so.
+  A batch that measures compositions sets `useRoleTactics` and leaves it out.
+- **The team screen lost its seven sliders.** It picks a role for each of the
+  three bots, shows the composition as counts (`2 tank · 1 skirmisher`), and
+  prints what each role does, read from `data/roles.json` rather than repeated
+  in the code.
+
+A team-wide layer will come back as something more tactical than a slider. That
+decision is open. TBD
+
+### 7.26.3 Two rankings, not two favourites
+
+| Field | Was | Is |
+|---|---|---|
+| `preferredRange` | one band | `rangePref`: all three bands, best first |
+| `weaponRolePref` | one archetype, or null | `weaponPref`: archetypes, best first, may be partial |
+
+**A range ranking, because a role has an opinion about all three bands.** A role
+that likes close quarters also minds long range more than mid, and one
+favourite band could not say that. The weights keep the old tuning honest: the
+head of the list is worth `1 + bias`, exactly what one favourite band was worth;
+the middle band is neutral; the last is worth `1 / (1 + bias)`, so a role walks
+**away** from the band it likes least instead of merely preferring elsewhere.
+
+| Role | Range, best first | Weapons, best first |
+|---|---|---|
+| tank | close > mid > long | heavy > splash > assault > versatile > denial |
+| overwatch | long > mid > close | marksman > precision > denial > versatile > assault |
+| skirmisher | mid > close > long | assault > versatile > precision > splash > marksman |
+
+**A weapon ranking, because a run offers five weapons.** One favourite archetype
+was silent about four of them. The head of the list takes the whole bonus and
+each place after it takes less, down to one share for the last; an archetype
+the list leaves out takes none, so a role can be silent about a weapon instead
+of ranking every one. A list of one gives exactly the old weight, so nothing
+about the tuning constant changed meaning.
+
+`ai.preferredRangeBias` and `ai.weaponRolePrefBonus` are now `ai.rangePrefBias`
+and `ai.weaponPrefBonus`. A name that describes a field which no longer exists
+is the shape of defect this project keeps paying for (Section 7.20.18).
+
+### 7.26.4 Not measured yet
+
+Every composition number in this guide predates this change and was taken with
+the role presets disabled. **They are history, not a baseline.** The first batch
+after this should set `useRoleTactics`, sweep the ten compositions against each
+other, and read two things: the win-rate matrix, and whether each role's tempo
+signature matches its name. TBD
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

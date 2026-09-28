@@ -92,7 +92,7 @@ describe("roundBrief", () => {
       seed,
       config,
       bus: new EventBus(),
-      tactics: loadDefaultTactics(),
+      tacticsOverride: loadDefaultTactics(),
     });
     const result = runRound(state);
 

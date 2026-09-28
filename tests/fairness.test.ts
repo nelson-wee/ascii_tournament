@@ -104,7 +104,7 @@ describe("the mirror test", () => {
         config,
         bus: new EventBus(),
         weapons,
-        tactics: loadDefaultTactics(),
+        tacticsOverride: loadDefaultTactics(),
         spawnTable,
       });
       state.rng = flatRng("sim");

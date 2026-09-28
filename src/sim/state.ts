@@ -27,7 +27,7 @@ import {
   type SpawnTable,
 } from "./pickups.js";
 import type { Cell, Vec2 } from "../core/types.js";
-import type { Weapon } from "../weapons/types.js";
+import type { RangeBand, Weapon } from "../weapons/types.js";
 
 /** Team ids of Milestone M3. Generated team names arrive with M11. */
 export const TEAM_IDS = ["A", "B"] as const;
@@ -245,8 +245,8 @@ export interface SimConfig {
   holdContactTicks: number;
   holdBlindShare: number;
   holdSuppressesPickup: number;
-  preferredRangeBias: number;
-  weaponRolePrefBonus: number;
+  rangePrefBias: number;
+  weaponPrefBonus: number;
   pickupRiskWeight: number;
   /** Two pickup points this close in value count as a tie (Section 7.20.25). */
   pickupTieShare: number;
@@ -370,8 +370,15 @@ export interface CreateSimStateOptions {
    */
   weapons?: readonly Weapon[];
   attributes?: Attributes;
-  /** The tactics of every bot, or of one team. */
-  tactics?: Tactics | Partial<Record<TeamId, Tactics>>;
+  /**
+   * **Throw the role presets away** and give every bot of a team these tactics
+   * (Section 7.26).
+   *
+   * A role owns the tactics of a bot. This is for a batch or a test that wants
+   * one uniform team, and it is destructive on purpose: a composition means
+   * nothing while it is set.
+   */
+  tacticsOverride?: Tactics | Partial<Record<TeamId, Tactics>>;
   /** The spawn table of the match. One is rolled if none is given. */
   spawnTable?: SpawnTable;
   /** The role of each bot slot of a team (Section 7.11). */
@@ -411,8 +418,8 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     holdContactTicks: tuning.ai.holdContactTicks,
     holdBlindShare: tuning.ai.holdBlindShare,
     holdSuppressesPickup: tuning.ai.holdSuppressesPickup,
-    preferredRangeBias: tuning.ai.preferredRangeBias,
-    weaponRolePrefBonus: tuning.ai.weaponRolePrefBonus,
+    rangePrefBias: tuning.ai.rangePrefBias,
+    weaponPrefBonus: tuning.ai.weaponPrefBonus,
     pickupRiskWeight: tuning.ai.pickupRiskWeight,
     pickupTieShare: tuning.ai.pickupTieShare,
     team: {
@@ -532,12 +539,52 @@ export function botsInTickOrder(state: SimState): BotState[] {
 }
 
 /**
+ * The band that a bot likes most (Section 7.26).
+ *
+ * `rangePref` is a ranking of all three bands, so the places that need one
+ * band ask for the head of it.
+ */
+export function topRange(tactics: Tactics): RangeBand {
+  return tactics.rangePref[0] ?? "mid";
+}
+
+/**
+ * What a band is worth to a bot, from its place in `rangePref`.
+ *
+ * The favourite band keeps the weight that one favourite band had before this
+ * ranking existed, `1 + bias`. The middle band is neutral. The last band is
+ * worth the reciprocal, so a role that hates a band walks away from it instead
+ * of merely preferring somewhere else.
+ */
+export function rangeWeight(tactics: Tactics, band: RangeBand, bias: number): number {
+  const rank = tactics.rangePref.indexOf(band);
+  if (rank === 0) return 1 + bias;
+  if (rank === 1) return 1;
+  return 1 / (1 + bias);
+}
+
+/**
+ * What an archetype is worth to a bot, from its place in `weaponPref`.
+ *
+ * The head of the list takes the whole bonus and each place after it takes
+ * less, down to one share for the last. An archetype that the list leaves out
+ * takes none, so a role can be silent about a weapon instead of ranking every
+ * one of them.
+ */
+export function weaponWeight(tactics: Tactics, archetype: string, bonus: number): number {
+  const list = tactics.weaponPref;
+  const rank = list.indexOf(archetype as (typeof list)[number]);
+  if (rank < 0) return 1;
+  return 1 + (bonus * (list.length - rank)) / list.length;
+}
+
+/**
  * The reaction of a bot this tick, in ticks.
  * `sim/combat.ts` holds the same calculation for the aim delay.
  */
 function reactionOf(state: SimState, bot: BotState): number {
   const target = bot.targetId === null ? null : findBot(state, bot.targetId);
-  let band = bot.tactics.preferredRange;
+  let band = topRange(bot.tactics);
   if (target?.alive) {
     const distance = distanceBetween(bot, target);
     band =
@@ -741,11 +788,11 @@ export function createSimState(options: CreateSimStateOptions): SimState {
   const pickupTables = loadPickups();
   const spawnTable =
     options.spawnTable ?? rollSpawnTable(map, weapons, createRng(seed, "weapons"), pickupTables);
-  const tacticsOption = options.tactics ?? loadDefaultTactics();
-  const tacticsFor = (teamId: TeamId): Tactics =>
-    "aggression" in tacticsOption
-      ? tacticsOption
-      : (tacticsOption[teamId] ?? loadDefaultTactics());
+  const overrideOption = options.tacticsOverride ?? loadDefaultTactics();
+  const overrideFor = (teamId: TeamId): Tactics =>
+    "aggression" in overrideOption
+      ? overrideOption
+      : (overrideOption[teamId] ?? loadDefaultTactics());
 
   const needed = config.teamSize * TEAM_IDS.length;
   if (map.spawns.length < needed) {
@@ -761,11 +808,17 @@ export function createSimState(options: CreateSimStateOptions): SimState {
     const side = teamSideIndex(teamId, roundNumber, sideOffset);
     for (let slot = 0; slot < config.teamSize; slot += 1) {
       const spawn = map.spawns[side * config.teamSize + slot] as Cell;
-      // A role gives its tactics preset. The player can change the tactics
-      // after the role applies it (Section 7.11).
+      // **The role owns the tactics** (Section 7.26). It used to be the other
+      // way round: a caller that passed `tactics` silently threw the role
+      // preset away, and every caller passed it, so a tank and an overwatch
+      // differed only by six action weights. `tacticsOverride` still replaces
+      // them, for a batch that wants one uniform team, and its name now says
+      // what it does.
       const role = options.roles?.[teamId]?.[slot] ?? DEFAULT_ROLES[slot % DEFAULT_ROLES.length]!;
       const roleData = rolesData.roles[role];
-      const preset = options.tactics ? tacticsFor(teamId) : (roleData?.tactics ?? tacticsFor(teamId));
+      const preset = options.tacticsOverride
+        ? overrideFor(teamId)
+        : (roleData?.tactics ?? loadDefaultTactics());
       bots.push(
         makeBot({
           id: `${teamId}${slot}`,

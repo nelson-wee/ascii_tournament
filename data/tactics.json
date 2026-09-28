@@ -1,11 +1,11 @@
 {
-  "_notes": "Tactics presets. The player sets these values before a match. Every number is a placeholder. TBD",
+  "_notes": "The tactics that a role carries (dev-guide Section 7.26). A role owns these now; there is no team-wide slider over them. `rangePref` names all three bands, best first. `weaponPref` names archetypes, best first, and may leave some out. This file holds the neutral set that a bot with no role would take. Every number is a placeholder. TBD",
   "default": {
     "aggression": 0.5,
-    "preferredRange": "mid",
-    "weaponRolePref": null,
+    "rangePref": ["mid", "close", "long"],
+    "weaponPref": [],
     "itemControl": 0.5,
-    "holdPosition": 0.2,
+    "holdPosition": 0.3,
     "evasion": 0.3,
     "hazardTolerance": 0.3
   }

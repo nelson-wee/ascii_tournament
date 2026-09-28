@@ -8,8 +8,12 @@
   "presets": {
     "solo": {
       "aggression": 0.5,
-      "preferredRange": "mid",
-      "weaponRolePref": null,
+      "rangePref": [
+        "mid",
+        "close",
+        "long"
+      ],
+      "weaponPref": [],
       "itemControl": 0.5,
       "holdPosition": 0.2,
       "evasion": 0.3,

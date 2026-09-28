@@ -215,7 +215,7 @@ describe("the simulation counts contact", () => {
       seed,
       config,
       bus: new EventBus(),
-      tactics: loadDefaultTactics(),
+      tacticsOverride: loadDefaultTactics(),
     });
     const result = runRound(state);
 

@@ -47,7 +47,7 @@ function roomState(tactics?: Partial<Tactics>, seed = 1): SimState {
   return createSimState({
     map: parseArenaText(ROOM, { source: "room" }),
     seed,
-    tactics: { ...loadDefaultTactics(), ...tactics },
+    tacticsOverride: { ...loadDefaultTactics(), ...tactics },
   });
 }
 
@@ -56,7 +56,7 @@ function arenaState(tactics?: Partial<Tactics>, seed = 1, bus = new EventBus()):
     map: loadTestArena(),
     seed,
     bus,
-    tactics: { ...loadDefaultTactics(), ...tactics },
+    tacticsOverride: { ...loadDefaultTactics(), ...tactics },
   });
 }
 
@@ -136,9 +136,10 @@ describe("tactics change the weights", () => {
     );
   });
 
-  it("preferredRange sets the band of Reposition", () => {
+  it("the head of rangePref sets the band of Reposition", () => {
     for (const band of ["close", "mid", "long"] as const) {
-      const state = roomState({ preferredRange: band });
+      const rest = (["close", "mid", "long"] as const).filter((other) => other !== band);
+      const state = roomState({ rangePref: [band, rest[0]!, rest[1]!] });
       const [bot] = face(state, 4);
       const action = scoreActions(state, bot).find((c) => c.action.kind === "Reposition")?.action;
       if (action?.kind === "Reposition") expect(action.band).toBe(band);
@@ -201,7 +202,7 @@ describe("bestWeaponAt", () => {
   });
 
   it("gives the preferred archetype a bias", () => {
-    const state = roomState({ weaponRolePref: "precision" });
+    const state = roomState({ weaponPref: ["precision"] });
     const bot = state.bots[0] as BotState;
     const baseline = loadBaselineWeapon();
     const precision = { ...baseline, id: "precision-gun", archetype: "precision" as const };
@@ -371,7 +372,7 @@ describe("aggression changes the result of a round", () => {
           weapons: generateWeaponSet(createRng(deriveSeed(seed, "weapons"), "weapons"), 5, {
             ticksPerSecond: 20,
           }),
-          tactics: {
+          tacticsOverride: {
             A: { ...base, aggression: 0.95 },
             B: { ...base, aggression: 0.05 },
           },
@@ -397,10 +398,10 @@ describe("aggression changes the result of a round", () => {
     const busBold = new EventBus();
     const busShy = new EventBus();
     runRound(
-      createSimState({ map: loadTestArena(), seed: 8, bus: busBold, tactics: { ...base, aggression: 1 } }),
+      createSimState({ map: loadTestArena(), seed: 8, bus: busBold, tacticsOverride: { ...base, aggression: 1 } }),
     );
     runRound(
-      createSimState({ map: loadTestArena(), seed: 8, bus: busShy, tactics: { ...base, aggression: 0 } }),
+      createSimState({ map: loadTestArena(), seed: 8, bus: busShy, tacticsOverride: { ...base, aggression: 0 } }),
     );
     expect(busBold.log.length).not.toBe(busShy.log.length);
   });
@@ -411,7 +412,7 @@ describe("aggression changes the result of a round", () => {
     const second = new EventBus();
     for (const bus of [first, second]) {
       runRound(
-        createSimState({ map: loadTestArena(), seed: 12, bus, tactics: { ...base, aggression: 0.7 } }),
+        createSimState({ map: loadTestArena(), seed: 12, bus, tacticsOverride: { ...base, aggression: 0.7 } }),
       );
     }
     expect(JSON.stringify(second.log)).toBe(JSON.stringify(first.log));
@@ -466,7 +467,7 @@ describe("wantedBand", () => {
   it("takes the band where the weapon of the bot is strongest", () => {
     const state = roomState();
     const bot = state.bots[0] as BotState;
-    bot.tactics = { ...bot.tactics, preferredRange: "close" };
+    bot.tactics = { ...bot.tactics, rangePref: ["close", "mid", "long"] };
     bot.weapon = {
       ...bot.weapon,
       rangeMax: 100,
@@ -479,16 +480,16 @@ describe("wantedBand", () => {
     const state = roomState();
     const bot = state.bots[0] as BotState;
     bot.weapon = { ...bot.weapon, rangeMax: 100, dpsProfile: { close: 10, mid: 10, long: 10 } };
-    bot.tactics = { ...bot.tactics, preferredRange: "close" };
+    bot.tactics = { ...bot.tactics, rangePref: ["close", "mid", "long"] };
     expect(wantedBand(state, bot)).toBe("close");
-    bot.tactics = { ...bot.tactics, preferredRange: "long" };
+    bot.tactics = { ...bot.tactics, rangePref: ["long", "close", "mid"] };
     expect(wantedBand(state, bot)).toBe("long");
   });
 
   it("never names a band that the weapon cannot reach", () => {
     const state = roomState();
     const bot = state.bots[0] as BotState;
-    bot.tactics = { ...bot.tactics, preferredRange: "long" };
+    bot.tactics = { ...bot.tactics, rangePref: ["long", "close", "mid"] };
     bot.weapon = {
       ...bot.weapon,
       rangeMax: bandDistance(state, "close"),
@@ -519,7 +520,7 @@ describe("bestWeaponOverall", () => {
     bot.weapons = [shortRange, allRound];
     bot.ammo.set("short", 50);
     bot.ammo.set("all-round", 50);
-    bot.tactics = { ...bot.tactics, preferredRange: "close" };
+    bot.tactics = { ...bot.tactics, rangePref: ["close", "mid", "long"] };
     expect(bestWeaponOverall(state, bot).id).toBe("all-round");
   });
 
@@ -543,7 +544,7 @@ describe("bestWeaponOverall", () => {
     bot.weapons = [longOnly, midWeapon];
     bot.ammo.set("long-only", 50);
     bot.ammo.set("mid", 50);
-    bot.tactics = { ...bot.tactics, preferredRange: "mid" };
+    bot.tactics = { ...bot.tactics, rangePref: ["mid", "close", "long"] };
     expect(bestWeaponOverall(state, bot).id).toBe("mid");
   });
 
@@ -718,9 +719,9 @@ describe("a weapon swap has a cost", () => {
     bot.ammo.set("plain", 50);
     bot.ammo.set("wanted", 50);
 
-    bot.tactics = { ...bot.tactics, weaponRolePref: null };
+    bot.tactics = { ...bot.tactics, weaponPref: [] };
     expect(bestWeaponAt(state, bot, 10).id).toBe("plain");
-    bot.tactics = { ...bot.tactics, weaponRolePref: "marksman" };
+    bot.tactics = { ...bot.tactics, weaponPref: ["marksman"] };
     expect(bestWeaponAt(state, bot, 10).id).toBe("wanted");
   });
 });

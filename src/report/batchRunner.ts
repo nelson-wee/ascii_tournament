@@ -41,6 +41,12 @@ export interface BatchPlanOptions {
    * `STANDARD_COMPOSITION`, which is what the simulation gives by default.
    */
   compositions?: Readonly<Record<string, readonly Role[]>> | undefined;
+  /**
+   * Let the roles own the tactics of every round (Section 7.26). Set it in a
+   * batch that measures compositions; leave it out in one that measures
+   * presets, because a preset is a team-wide override of the role presets.
+   */
+  useRoleTactics?: boolean | undefined;
   rounds: number;
   seed: number;
 }
@@ -61,6 +67,15 @@ export interface PlannedRound {
   compB: string;
   seed: number;
   index: number;
+  /**
+   * Let the roles own the tactics, instead of giving both teams a preset
+   * (Section 7.26).
+   *
+   * A preset is a team-wide override that throws the role presets away, so a
+   * batch that measures **compositions** must set this. A batch that measures
+   * presets must not.
+   */
+  useRoleTactics?: boolean;
 }
 
 /**
@@ -93,7 +108,12 @@ export function planRounds(options: BatchPlanOptions): PlannedRound[] {
     const label =
       `${cell.arena.name}|${cell.teamA}|${cell.teamB}|${cell.compA}|${cell.compB}` +
       `|${Math.floor(index / cells.length)}`;
-    planned.push({ ...cell, seed: deriveSeed(options.seed, label), index });
+    planned.push({
+      ...cell,
+      seed: deriveSeed(options.seed, label),
+      index,
+      ...(options.useRoleTactics === true ? { useRoleTactics: true } : {}),
+    });
   }
   return planned;
 }
@@ -138,7 +158,11 @@ export function runPlannedRound(
     config,
     bus,
     weapons,
-    tactics: { A: teamATactics, B: teamBTactics },
+    // A preset is a **team-wide override**: it throws the role presets away, so
+    // a batch that measures compositions must leave it out (Section 7.26).
+    ...(round.useRoleTactics
+      ? {}
+      : { tacticsOverride: { A: teamATactics, B: teamBTactics } }),
     ...(teamAxis?.A && teamAxis.B ? { teamTactics: { A: teamAxis.A, B: teamAxis.B } } : {}),
     roles: {
       A: compositions[round.compA] ?? STANDARD_COMPOSITION,

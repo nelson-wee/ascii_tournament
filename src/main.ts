@@ -12,10 +12,9 @@
  * the state of the round through `SimArenaView` and it reads the event bus for
  * the effects, so the display never reaches into a system of the simulation.
  */
-import { loadDefaultTactics, loadTuning } from "./core/data.js";
+import { loadTuning } from "./core/data.js";
 import { EventBus, type GameEvent } from "./core/events.js";
 import { deriveSeed } from "./core/rng.js";
-import type { Tactics } from "./core/schemas.js";
 import {
   createSession,
   matchSeedOf,
@@ -425,9 +424,11 @@ try {
     roundWins = { A: 0, B: 0 };
     matchWinner = null;
     roundNumber = 1;
+    // The roles own the tactics, so a plan carries roles and nothing else
+    // (Section 7.26). The player keeps the composition they last chose.
     plan = {
-      A: { tactics: plan.A?.tactics ?? loadDefaultTactics(), roles: [...(plan.A?.roles ?? DEFAULT_ROLES)] },
-      B: { tactics: loadDefaultTactics(), roles: [...DEFAULT_ROLES] },
+      A: { roles: [...(plan.A?.roles ?? DEFAULT_ROLES)] },
+      B: { roles: [...DEFAULT_ROLES] },
     };
 
     // A match gets its own palette from the seed of the session, so a run has
@@ -559,7 +560,6 @@ try {
     screen = openTacticsScreen({
       container: stageEl,
       teamId: "A",
-      tactics: plan.A?.tactics ?? loadDefaultTactics(),
       roles: plan.A?.roles ?? DEFAULT_ROLES,
       rounds,
       roundWins,
@@ -582,9 +582,9 @@ try {
             }),
           }
         : {}),
-      onStart: (tactics: Tactics, roles: Role[]) => {
+      onStart: (roles: Role[]) => {
         closeScreen();
-        plan.A = { tactics, roles };
+        plan.A = { roles };
         roundNumber = nextRound;
         beginRound();
       },

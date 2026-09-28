@@ -8,8 +8,12 @@
   "presets": {
     "rangeClose": {
       "aggression": 0.5,
-      "preferredRange": "close",
-      "weaponRolePref": null,
+      "rangePref": [
+        "close",
+        "mid",
+        "long"
+      ],
+      "weaponPref": [],
       "itemControl": 0.5,
       "holdPosition": 0.2,
       "evasion": 0.3,
@@ -17,8 +21,12 @@
     },
     "rangeMid": {
       "aggression": 0.5,
-      "preferredRange": "mid",
-      "weaponRolePref": null,
+      "rangePref": [
+        "mid",
+        "close",
+        "long"
+      ],
+      "weaponPref": [],
       "itemControl": 0.5,
       "holdPosition": 0.2,
       "evasion": 0.3,
@@ -26,8 +34,12 @@
     },
     "rangeLong": {
       "aggression": 0.5,
-      "preferredRange": "long",
-      "weaponRolePref": null,
+      "rangePref": [
+        "long",
+        "close",
+        "mid"
+      ],
+      "weaponPref": [],
       "itemControl": 0.5,
       "holdPosition": 0.2,
       "evasion": 0.3,
@@ -35,8 +47,14 @@
     },
     "prefMarksman": {
       "aggression": 0.5,
-      "preferredRange": "mid",
-      "weaponRolePref": "marksman",
+      "rangePref": [
+        "mid",
+        "close",
+        "long"
+      ],
+      "weaponPref": [
+        "marksman"
+      ],
       "itemControl": 0.5,
       "holdPosition": 0.2,
       "evasion": 0.3,
@@ -44,8 +62,14 @@
     },
     "prefHeavy": {
       "aggression": 0.5,
-      "preferredRange": "mid",
-      "weaponRolePref": "heavy",
+      "rangePref": [
+        "mid",
+        "close",
+        "long"
+      ],
+      "weaponPref": [
+        "heavy"
+      ],
       "itemControl": 0.5,
       "holdPosition": 0.2,
       "evasion": 0.3,
@@ -53,8 +77,14 @@
     },
     "prefAssault": {
       "aggression": 0.5,
-      "preferredRange": "mid",
-      "weaponRolePref": "assault",
+      "rangePref": [
+        "mid",
+        "close",
+        "long"
+      ],
+      "weaponPref": [
+        "assault"
+      ],
       "itemControl": 0.5,
       "holdPosition": 0.2,
       "evasion": 0.3,
@@ -62,7 +92,11 @@
     }
   },
   "compositions": {
-    "standard": ["tank", "overwatch", "skirmisher"]
+    "standard": [
+      "tank",
+      "overwatch",
+      "skirmisher"
+    ]
   },
   "outDir": "batch-out/tactics"
 }

@@ -1,11 +1,21 @@
 {
-  "_notes": "Roles (dev-guide Section 7.11). A role is a tactics preset plus a few behavior weights. The player can change the tactics after the role applies its preset. Every number is a placeholder. TBD",
+  "_notes": "Roles (dev-guide Sections 7.11 and 7.26). A role owns the tactics of a bot: there is no team-wide slider over them any more, so what a role says is what a bot does. `rangePref` names all three bands, best first, and `weaponPref` names archetypes, best first. A player builds a team by choosing a role for each of the three bots, which makes the composition one categorical choice that a batch can sweep. Every number is a placeholder. TBD",
   "roles": {
     "overwatch": {
       "tactics": {
         "aggression": 0.4,
-        "preferredRange": "long",
-        "weaponRolePref": "precision",
+        "rangePref": [
+          "long",
+          "mid",
+          "close"
+        ],
+        "weaponPref": [
+          "marksman",
+          "precision",
+          "denial",
+          "versatile",
+          "assault"
+        ],
         "itemControl": 0.4,
         "holdPosition": 0.75,
         "evasion": 0.2,
@@ -23,8 +33,18 @@
     "tank": {
       "tactics": {
         "aggression": 0.8,
-        "preferredRange": "mid",
-        "weaponRolePref": "heavy",
+        "rangePref": [
+          "close",
+          "mid",
+          "long"
+        ],
+        "weaponPref": [
+          "heavy",
+          "splash",
+          "assault",
+          "versatile",
+          "denial"
+        ],
         "itemControl": 0.8,
         "holdPosition": 0.3,
         "evasion": 0.2,
@@ -42,8 +62,18 @@
     "skirmisher": {
       "tactics": {
         "aggression": 0.6,
-        "preferredRange": "mid",
-        "weaponRolePref": null,
+        "rangePref": [
+          "mid",
+          "close",
+          "long"
+        ],
+        "weaponPref": [
+          "assault",
+          "versatile",
+          "precision",
+          "splash",
+          "marksman"
+        ],
         "itemControl": 0.6,
         "holdPosition": 0.1,
         "evasion": 0.7,

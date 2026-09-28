@@ -154,7 +154,7 @@ export const TuningSchema = z
          * equipped weapon deals the most damage. 0 makes the weapon decide
          * alone. TBD
          */
-        preferredRangeBias: z.number().min(0),
+        rangePrefBias: z.number().min(0),
         /**
          * How much the `weaponRolePref` tactic raises the weapon it names. It
          * is the tournament weapon priority of Section 7.20.8, and it is what a
@@ -162,7 +162,7 @@ export const TuningSchema = z
          * (`combat.weaponSwapTicks`), so a bot armed by its doctrine out of the
          * fight keeps that weapon in it (Section 7.20.17). TBD
          */
-        weaponRolePrefBonus: z.number().min(0),
+        weaponPrefBonus: z.number().min(0),
         /**
          * How much the danger of a pickup point lowers its worth. Item control
          * won 19 points of win rate and never turned over, because a run
@@ -275,23 +275,44 @@ export const TuningSchema = z
 
 export type Tuning = z.infer<typeof TuningSchema>;
 
-/** `data/tactics.json`: the tactics presets (Section 6.4). */
+const RANGE_BANDS = ["close", "mid", "long"] as const;
+
+/** The archetypes that a role can rank. `redeemer` is a power-up, not a pick. */
+export const PREFERABLE_ARCHETYPES = [
+  "precision",
+  "assault",
+  "marksman",
+  "heavy",
+  "splash",
+  "denial",
+  "versatile",
+  "baseline",
+] as const;
+
+/**
+ * `data/tactics.json`: the tactics of a role (Section 6.4, Section 7.26).
+ *
+ * Two of these are **rankings**, not single picks:
+ *
+ * - `rangePref` names all three bands, best first. A role that likes close
+ *   quarters also has an opinion about which of mid and long it minds less,
+ *   and one favourite band could not say that.
+ * - `weaponPref` names archetypes, best first, and may leave some out. A run
+ *   offers five weapons, so a single favourite archetype is silent about four
+ *   of them; a ranking gives an opinion on every one it names.
+ */
 export const TacticsSchema = z
   .object({
     aggression: unitRange,
-    preferredRange: z.enum(["close", "mid", "long"]),
-    weaponRolePref: z
-      .enum([
-        "precision",
-        "assault",
-        "marksman",
-        "heavy",
-        "splash",
-        "denial",
-        "versatile",
-        "baseline",
-      ])
-      .nullable(),
+    /** All three bands, best first, each one time. */
+    rangePref: z
+      .array(z.enum(RANGE_BANDS))
+      .length(3)
+      .refine((value) => new Set(value).size === 3, "rangePref names each band one time"),
+    /** Archetypes, best first. An archetype that is absent gets no bonus. */
+    weaponPref: z
+      .array(z.enum(PREFERABLE_ARCHETYPES))
+      .refine((value) => new Set(value).size === value.length, "weaponPref has no repeat"),
     itemControl: unitRange,
     holdPosition: unitRange,
     evasion: unitRange,

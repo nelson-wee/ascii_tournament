@@ -1,0 +1,187 @@
+import { describe, expect, it } from "vitest";
+import { loadDefaultTactics, loadRoles } from "../src/core/data.js";
+import { TacticsSchema, type Tactics } from "../src/core/schemas.js";
+import { parseArenaText } from "../src/arena/index.js";
+import { EventBus } from "../src/core/events.js";
+import {
+  createSimState,
+  rangeWeight,
+  topRange,
+  weaponWeight,
+  ROLES,
+  type BotState,
+  type Role,
+} from "../src/sim/index.js";
+
+const ROOM = [
+  "###############",
+  "#SSS.......SSS#",
+  "#.............#",
+  "#.............#",
+  "###############",
+].join("\n");
+
+function room() {
+  return parseArenaText(ROOM, { source: "room" });
+}
+
+function stateWithRoles(roles: readonly Role[]) {
+  return createSimState({
+    map: room(),
+    seed: 4,
+    bus: new EventBus(),
+    roles: { A: roles, B: roles },
+  });
+}
+
+describe("the roles own the tactics (Section 7.26)", () => {
+  it("gives each bot the tactics of its own role", () => {
+    // This is the whole change. Before it, a caller that passed tactics threw
+    // the role preset away, and every caller passed them, so a tank and an
+    // overwatch differed only by six action weights.
+    const state = stateWithRoles(["tank", "overwatch", "skirmisher"]);
+    const [tank, overwatch, skirmisher] = state.bots as [BotState, BotState, BotState];
+
+    expect(topRange(tank.tactics)).toBe("close");
+    expect(topRange(overwatch.tactics)).toBe("long");
+    expect(topRange(skirmisher.tactics)).toBe("mid");
+    expect(tank.tactics.aggression).not.toBe(overwatch.tactics.aggression);
+    expect(overwatch.tactics.holdPosition).toBeGreaterThan(skirmisher.tactics.holdPosition);
+  });
+
+  it("gives two bots of the same role the same tactics", () => {
+    const state = stateWithRoles(["tank", "tank", "overwatch"]);
+    const [one, two, other] = state.bots as [BotState, BotState, BotState];
+    expect(one.tactics).toEqual(two.tactics);
+    expect(one.tactics).not.toEqual(other.tactics);
+  });
+
+  it("throws the role presets away when a caller asks for an override", () => {
+    // A batch that measures presets needs this, and its name now says what it
+    // does. A composition means nothing while it is set.
+    const flat = { ...loadDefaultTactics(), aggression: 0.42 };
+    const state = createSimState({
+      map: room(),
+      seed: 4,
+      bus: new EventBus(),
+      roles: { A: ["tank", "overwatch", "skirmisher"], B: ["tank", "overwatch", "skirmisher"] },
+      tacticsOverride: flat,
+    });
+    for (const bot of state.bots) {
+      expect(bot.tactics.aggression).toBe(0.42);
+      expect(topRange(bot.tactics)).toBe(topRange(flat));
+    }
+  });
+});
+
+describe("the role rankings that the design asks for", () => {
+  const roles = loadRoles().roles;
+
+  it("ranks the bands as the design says", () => {
+    expect(roles["tank"]?.tactics.rangePref).toEqual(["close", "mid", "long"]);
+    expect(roles["overwatch"]?.tactics.rangePref).toEqual(["long", "mid", "close"]);
+    expect(roles["skirmisher"]?.tactics.rangePref).toEqual(["mid", "close", "long"]);
+  });
+
+  it("gives every role a weapon ranking, not one favourite", () => {
+    // A run offers five weapons, so one favourite archetype was silent about
+    // four of them.
+    for (const name of ROLES) {
+      const list = roles[name]?.tactics.weaponPref ?? [];
+      expect(list.length).toBeGreaterThanOrEqual(3);
+      expect(new Set(list).size).toBe(list.length);
+    }
+  });
+
+  it("puts a weapon each role should want at the head of its list", () => {
+    expect(roles["tank"]?.tactics.weaponPref[0]).toBe("heavy");
+    expect(roles["overwatch"]?.tactics.weaponPref[0]).toBe("marksman");
+    expect(roles["skirmisher"]?.tactics.weaponPref[0]).toBe("assault");
+  });
+});
+
+describe("rangeWeight", () => {
+  const tactics: Tactics = { ...loadDefaultTactics(), rangePref: ["long", "mid", "close"] };
+
+  it("keeps the old weight for the favourite band", () => {
+    // One favourite band used to be worth `1 + bias`. The head of the ranking
+    // still is, so the tuning constant means what it meant.
+    expect(rangeWeight(tactics, "long", 0.25)).toBeCloseTo(1.25, 10);
+  });
+
+  it("leaves the middle band neutral and pushes the last one down", () => {
+    expect(rangeWeight(tactics, "mid", 0.25)).toBe(1);
+    expect(rangeWeight(tactics, "close", 0.25)).toBeCloseTo(1 / 1.25, 10);
+  });
+
+  it("falls to neutral when the bias is zero", () => {
+    for (const band of ["close", "mid", "long"] as const) {
+      expect(rangeWeight(tactics, band, 0)).toBe(1);
+    }
+  });
+});
+
+describe("weaponWeight", () => {
+  const ranked: Tactics = {
+    ...loadDefaultTactics(),
+    weaponPref: ["heavy", "splash", "assault", "versatile"],
+  };
+
+  it("gives the head of the list the whole bonus", () => {
+    expect(weaponWeight(ranked, "heavy", 0.6)).toBeCloseTo(1.6, 10);
+  });
+
+  it("gives less to each place after it, and never less than neutral", () => {
+    const heavy = weaponWeight(ranked, "heavy", 0.6);
+    const splash = weaponWeight(ranked, "splash", 0.6);
+    const assault = weaponWeight(ranked, "assault", 0.6);
+    const versatile = weaponWeight(ranked, "versatile", 0.6);
+    expect(heavy).toBeGreaterThan(splash);
+    expect(splash).toBeGreaterThan(assault);
+    expect(assault).toBeGreaterThan(versatile);
+    expect(versatile).toBeGreaterThan(1);
+  });
+
+  it("gives nothing to an archetype the list leaves out", () => {
+    // A role can be silent about a weapon instead of ranking every one.
+    expect(weaponWeight(ranked, "marksman", 0.6)).toBe(1);
+  });
+
+  it("matches the old one-favourite weight for a list of one", () => {
+    const single: Tactics = { ...loadDefaultTactics(), weaponPref: ["marksman"] };
+    expect(weaponWeight(single, "marksman", 0.6)).toBeCloseTo(1.6, 10);
+    expect(weaponWeight(single, "heavy", 0.6)).toBe(1);
+  });
+
+  it("gives nothing to anything when the list is empty", () => {
+    const none = { ...loadDefaultTactics(), weaponPref: [] };
+    expect(weaponWeight(none, "heavy", 0.6)).toBe(1);
+  });
+});
+
+describe("the tactics schema holds the shape of a ranking", () => {
+  const base = loadDefaultTactics();
+
+  it("takes a ranking that names each band one time", () => {
+    expect(TacticsSchema.safeParse({ ...base, rangePref: ["long", "close", "mid"] }).success).toBe(
+      true,
+    );
+  });
+
+  it("refuses a ranking that repeats a band or leaves one out", () => {
+    expect(TacticsSchema.safeParse({ ...base, rangePref: ["mid", "mid", "long"] }).success).toBe(
+      false,
+    );
+    expect(TacticsSchema.safeParse({ ...base, rangePref: ["mid", "long"] }).success).toBe(false);
+  });
+
+  it("refuses a weapon ranking that repeats an archetype", () => {
+    expect(
+      TacticsSchema.safeParse({ ...base, weaponPref: ["heavy", "heavy"] }).success,
+    ).toBe(false);
+  });
+
+  it("takes an empty weapon ranking, which means no preference", () => {
+    expect(TacticsSchema.safeParse({ ...base, weaponPref: [] }).success).toBe(true);
+  });
+});

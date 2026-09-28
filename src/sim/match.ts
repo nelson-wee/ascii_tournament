@@ -30,7 +30,11 @@ import {
 
 /** What the player or the AI sets for one team before a round. */
 export interface TeamPlan {
-  tactics?: Tactics;
+  /**
+   * Throw the role presets of this team away (Section 7.26). A composition
+   * means nothing while it is set, so the browser never sets it.
+   */
+  tacticsOverride?: Tactics;
   teamTactics?: TeamTactics;
   roles?: readonly Role[];
 }
@@ -74,12 +78,12 @@ export function createRoundState(
   config: SimConfig,
   bus: EventBus,
 ): SimState {
-  const tactics: Partial<Record<TeamId, Tactics>> = {};
+  const tacticsOverride: Partial<Record<TeamId, Tactics>> = {};
   const teamTactics: Partial<Record<TeamId, TeamTactics>> = {};
   const roles: Partial<Record<TeamId, readonly Role[]>> = {};
   for (const teamId of TEAM_IDS) {
     const team = plan[teamId];
-    if (team?.tactics) tactics[teamId] = team.tactics;
+    if (team?.tacticsOverride) tacticsOverride[teamId] = team.tacticsOverride;
     if (team?.teamTactics) teamTactics[teamId] = team.teamTactics;
     if (team?.roles) roles[teamId] = team.roles;
   }
@@ -98,7 +102,7 @@ export function createRoundState(
     bus,
     weapons: options.weapons,
     spawnTable,
-    ...(Object.keys(tactics).length > 0 ? { tactics } : {}),
+    ...(Object.keys(tacticsOverride).length > 0 ? { tacticsOverride } : {}),
     ...(Object.keys(teamTactics).length > 0 ? { teamTactics } : {}),
     ...(Object.keys(roles).length > 0 ? { roles } : {}),
   });
