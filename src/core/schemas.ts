@@ -439,6 +439,12 @@ export const AnnouncementsSchema = z
     multiKillTemplate: z.string().min(1),
     spreeTemplate: z.string().min(1),
     spreeEndedTemplate: z.string().min(1),
+    /** A critical hit (Section 7.24). */
+    headShotTemplate: z.string().min(1),
+    /** One hit that took a large share of full health (Section 7.24). */
+    heavyHitTemplate: z.string().min(1),
+    /** How much of full health one hit must take to be called out. */
+    heavyHitShare: z.number().gt(0).lte(1),
   })
   .strict()
   .refine(

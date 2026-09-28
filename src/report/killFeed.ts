@@ -37,20 +37,30 @@ export function announcementLine(
 ): string | null {
   if (event.type !== "Announcement") return null;
   const { data } = event;
+  const kind = data["kind"];
+  // A spree that ended names the victim in `botId` and the killer in
+  // `killerId`. A head shot and a heavy hit name the shooter in `botId` and
+  // the bot that took it in `victimId`, so both read their own field.
+  const shooterSide = kind === "headShot" || kind === "heavyHit";
   const values = {
     bot: text(data["botId"]),
-    killer: text(data["killerId"]),
-    victim: text(data["botId"]),
+    killer: shooterSide ? text(data["botId"]) : text(data["killerId"]),
+    victim: shooterSide ? text(data["victimId"]) : text(data["botId"]),
     text: text(data["text"]),
     count: String(data["count"] ?? ""),
+    damage: String(data["damage"] ?? ""),
   };
-  switch (data["kind"]) {
+  switch (kind) {
     case "multiKill":
       return fill(tables.multiKillTemplate, values);
     case "spree":
       return fill(tables.spreeTemplate, values);
     case "spreeEnded":
       return fill(tables.spreeEndedTemplate, values);
+    case "headShot":
+      return fill(tables.headShotTemplate, values);
+    case "heavyHit":
+      return fill(tables.heavyHitTemplate, values);
     case "suddenDeath":
       return values.text;
     default:

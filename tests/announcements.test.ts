@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { updatePerception } from "../src/ai/perception.js";
 import { parseArenaText } from "../src/arena/index.js";
 import { loadAnnouncements } from "../src/core/data.js";
-import { EventBus } from "../src/core/events.js";
+import { EventBus, type GameEvent } from "../src/core/events.js";
 import { announcementLine, feedLines } from "../src/report/killFeed.js";
 import {
   cellCenter,
@@ -10,6 +10,8 @@ import {
   effectiveReaction,
   enterSuddenDeathIfNeeded,
   checkRoundEnd,
+  damageBot,
+  simConfigFromTuning,
   step,
   tryFire,
   type BotState,
@@ -164,6 +166,28 @@ describe("announcement lines", () => {
     expect(announcementLine(bus.log[3]!)).toBe("Sudden Death");
   });
 
+  it("builds a head shot and a heavy hit line", () => {
+    // Section 7.24. These two name the shooter in `botId` and the bot that
+    // took the hit in `victimId`, the other way round from a spree that ended.
+    const bus = new EventBus();
+    bus.emit("Announcement", 1, 1, {
+      kind: "headShot",
+      botId: "A0",
+      teamId: "A",
+      victimId: "B2",
+      damage: 44,
+    });
+    bus.emit("Announcement", 2, 1, {
+      kind: "heavyHit",
+      botId: "B1",
+      teamId: "B",
+      victimId: "A2",
+      damage: 117,
+    });
+    expect(announcementLine(bus.log[0]!)).toBe("A0: HEAD SHOT on B2!");
+    expect(announcementLine(bus.log[1]!)).toBe("B1 hit A2 for 117");
+  });
+
   it("gives null for another event", () => {
     const bus = new EventBus();
     bus.emit("Kill", 1, 1, {});
@@ -251,5 +275,63 @@ describe("sudden death", () => {
     step(state);
     expect(state.outcome?.reason).toBe("suddenDeath");
     expect(state.outcome?.winnerTeamId).toBe("A");
+  });
+});
+
+describe("the announcements that explain a sudden drop (Section 7.24)", () => {
+  /** A bot on full health, and one hit of `damage` against it. */
+  function hitFor(damage: number): GameEvent[] {
+    const state = rangeState();
+    const [shooter, target] = state.bots as [BotState, BotState];
+    const before = state.bus.log.length;
+    damageBot(state, shooter, target, damage, {
+      weaponId: "test",
+      weaponArchetype: "assault",
+      attackType: "hitscan",
+      source: "shot",
+    });
+    return state.bus.log.slice(before);
+  }
+
+  it("calls out one hit that takes half of full health", () => {
+    const events = hitFor(60);
+    const heavy = events.filter(
+      (event) => event.type === "Announcement" && event.data["kind"] === "heavyHit",
+    );
+    expect(heavy).toHaveLength(1);
+    expect(heavy[0]?.data["damage"]).toBe(60);
+  });
+
+  it("says nothing about a hit below the share", () => {
+    const events = hitFor(10);
+    expect(
+      events.some((event) => event.type === "Announcement" && event.data["kind"] === "heavyHit"),
+    ).toBe(false);
+  });
+
+  it("reads the share from the data file, not from a number in the code", () => {
+    const config = simConfigFromTuning();
+    expect(config.heavyHitShare).toBe(loadAnnouncements().heavyHitShare);
+    expect(config.heavyHitShare).toBeGreaterThan(0);
+    expect(config.heavyHitShare).toBeLessThanOrEqual(1);
+  });
+
+  it("calls a critical hit a head shot", () => {
+    const state = rangeState();
+    const [shooter, target] = state.bots as [BotState, BotState];
+    const before = state.bus.log.length;
+    damageBot(state, shooter, target, 20, {
+      weaponId: "test",
+      weaponArchetype: "marksman",
+      attackType: "hitscan",
+      source: "shot",
+      crit: true,
+    });
+    const shot = state.bus.log.slice(before).filter(
+      (event) => event.type === "Announcement" && event.data["kind"] === "headShot",
+    );
+    expect(shot).toHaveLength(1);
+    expect(shot[0]?.data["botId"]).toBe(shooter.id);
+    expect(shot[0]?.data["victimId"]).toBe(target.id);
   });
 });

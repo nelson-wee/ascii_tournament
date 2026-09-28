@@ -10,6 +10,7 @@
  * The screen holds no simulation state: it takes a plan, it gives a plan back,
  * and the match loop does the rest.
  */
+import { describeArena, type ArenaMetrics } from "../arena/metrics.js";
 import type { Tactics } from "../core/schemas.js";
 import type { Role, RoundOutcome, TeamId } from "../sim/state.js";
 import { ROLES } from "../sim/state.js";
@@ -56,6 +57,18 @@ export interface TacticsScreenOptions {
   roundWins: Readonly<Record<TeamId, number>>;
   /** The number of the round that starts next. */
   nextRoundNumber: number;
+  /**
+   * True when the team starts this round on the near half.
+   *
+   * The caller works it out with `teamSideIndex`, because the half comes from
+   * the round number **and** the offset that the match seed gives
+   * (Section 7.20.24). The parity of the round number alone was wrong for half
+   * of all matches.
+   */
+  startsNear: boolean;
+  /** The ground, on the screen that opens before round 1 (Section 7.24). */
+  arenaName?: string;
+  arenaMetrics?: ArenaMetrics;
   /** The player pressed "start the round". */
   onStart: (tactics: Tactics, roles: Role[]) => void;
 }
@@ -109,11 +122,27 @@ export function openTacticsScreen(options: TacticsScreenOptions): TacticsScreen 
       : `${played}  ·  rounds won A ${options.roundWins.A} — ${options.roundWins.B} B`;
   screen.append(summary);
 
+  // The ground, before round 1. A player sets tactics for the arena ahead, and
+  // before this screen opened the first round of a match ran on the tactics of
+  // the match before it (Section 7.24).
+  const { arenaName, arenaMetrics } = options;
+  if (arenaName !== undefined) {
+    const where = document.createElement("h3");
+    where.textContent = arenaName;
+    screen.append(where);
+    if (arenaMetrics !== undefined) {
+      const words = document.createElement("p");
+      words.className = "dim";
+      words.textContent = describeArena(arenaMetrics).join(" ");
+      screen.append(words);
+    }
+  }
+
   // The teams change ends after every round (Section 7.20.24). The player has
   // to know: the ground that the team starts on decides the first fight.
   const ends = document.createElement("p");
   ends.className = "dim";
-  const side = options.nextRoundNumber % 2 === 0 ? "the far end" : "the near end";
+  const side = options.startsNear ? "the near end" : "the far end";
   ends.textContent = `Teams change ends. Team ${options.teamId} starts this round at ${side}.`;
   screen.append(ends);
 

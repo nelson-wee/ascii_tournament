@@ -39,8 +39,10 @@ import type { WeaponVisualHints } from "./render/vfxLayer.js";
 import {
   createRoundState,
   DEFAULT_ROLES,
+  sideOffsetOf,
   simConfigFromTuning,
   step,
+  teamSideIndex,
   TEAM_IDS,
   type MatchPlan,
   type Role,
@@ -405,7 +407,9 @@ try {
     ].join("  ·  ");
     updateAddress();
 
-    beginRound();
+    // Round 1 of a match now asks for tactics, like every other round. The
+    // ground is on the screen, because that is what the player plans for.
+    openTactics(1, true);
   }
 
   function matchOptions() {
@@ -494,8 +498,19 @@ try {
     });
   }
 
-  /** The between-round screen of Section 7.4. */
-  function openBetweenRounds(): void {
+  /**
+   * The tactics screen (Section 7.4). It opens between two rounds **and**
+   * before round 1 of a match.
+   *
+   * Before this, round 1 of a match ran on the tactics of the match before it,
+   * which a player had set for different ground (Section 7.24).
+   */
+  function openTactics(nextRound: number, ground: boolean): void {
+    if (!session || !setup) return;
+    // The half that team A holds comes from the round number and from the
+    // offset of the match, so the parity of the round number is not enough
+    // (Section 7.20.24).
+    const startsNear = teamSideIndex("A", nextRound, sideOffsetOf(setup.seed)) === 0;
     screen = openTacticsScreen({
       container: stageEl,
       teamId: "A",
@@ -503,14 +518,26 @@ try {
       roles: plan.A?.roles ?? DEFAULT_ROLES,
       rounds,
       roundWins,
-      nextRoundNumber: roundNumber + 1,
+      nextRoundNumber: nextRound,
+      startsNear,
+      ...(ground
+        ? {
+            arenaName: `${setup.arena.profile.style} ${setup.arena.width}×${setup.arena.height}`,
+            arenaMetrics: setup.arena.metrics,
+          }
+        : {}),
       onStart: (tactics: Tactics, roles: Role[]) => {
         closeScreen();
         plan.A = { tactics, roles };
-        roundNumber += 1;
+        roundNumber = nextRound;
         beginRound();
       },
     });
+  }
+
+  /** The between-round screen of Section 7.4. */
+  function openBetweenRounds(): void {
+    openTactics(roundNumber + 1, false);
   }
 
   // ------------------------------------------------------------------------

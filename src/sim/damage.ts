@@ -149,7 +149,30 @@ export function damageBot(
       targetId: target.id,
       damage: left,
     });
+    // A crit is rare: it needs a condition AND a roll, so a round makes 0 to 2
+    // of them (Section 7.24). That is why it is worth calling out.
+    state.bus.emit("Announcement", tick, roundNumber, {
+      kind: "headShot",
+      botId: attacker.id,
+      teamId: attacker.teamId,
+      victimId: target.id,
+      damage: Math.round(left),
+    });
   }
+
+  // One hit that takes a large share of full health. A crit is not what drops
+  // a bot from near full health; a single sniper shot is, and it read 85 to
+  // 194 against 100 health in the measurement of Section 7.24.
+  if (left >= state.config.healthMax * state.config.heavyHitShare) {
+    state.bus.emit("Announcement", tick, roundNumber, {
+      kind: "heavyHit",
+      botId: attacker.id,
+      teamId: attacker.teamId,
+      victimId: target.id,
+      damage: Math.round(left),
+    });
+  }
+
   if (target.health > 0) return;
 
   const distance = distanceBetween(attacker, target);

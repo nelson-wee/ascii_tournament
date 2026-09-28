@@ -2946,6 +2946,70 @@ made it. That is a decision, not an oversight: the guide holds the findings,
 and a CSV that outlives the code that made it is a trap. `run.json` is what
 tells a reader which of the two they have.
 
+## 7.24 Reading a fight: what killed that bot, and when tactics are set
+
+Two changes that a player asked for, and a measurement that changed one of
+them.
+
+### 7.24.1 A critical hit is not what drops a bot
+
+The request was to announce a **head shot** on a critical hit, because a bot
+dropping from near full health is hard to follow. The first half is now in.
+The second half is not what a crit does.
+
+A crit needs **both** a condition (`targetUnaware` or `targetStationary`) and a
+roll of `critChance`. Six single rounds, two of each style:
+
+| Style | Hits | Crits | Kills | Crit kills | Biggest single hit |
+|---|---:|---:|---:|---:|---|
+| bastion #0 | 126 | 0 | 28 | 0 | 170 (`sniper-hitscan-0`) |
+| bastion #1 | 148 | 0 | 29 | 0 | 85 (`sniper-hitscan-2`) |
+| openfield #0 | 763 | 1 | 29 | 0 | 194 (`sniper-hitscan-3`) |
+| openfield #1 | 131 | 2 | 21 | 0 | 61 (`precise-hitscan-0`) |
+| cavern #0 | 199 | 1 | 22 | 0 | 117 (`redeemer`, area) |
+| cavern #1 | 208 | 0 | 26 | 0 | 26 (`heavy-cone-2`, area) |
+
+**A round makes 0 to 2 crits, and not one of them killed.** What drops a bot
+from near full health is a single sniper shot of 85 to 194 against a health
+maximum of 100. Health also falls by 80 in 4 to 6 ticks, which is a fifth of a
+second: at any speed above 1× the bar is full in one frame and empty in the
+next.
+
+So there are two announcements, not one:
+
+- **`headShot`**, on a critical hit, as asked. It is the rarest line in the
+  feed and it gets the loudest colour.
+- **`heavyHit`**, when one hit takes at least `heavyHitShare` of full health.
+  This was **not** asked for. It is the line that answers the question behind
+  the request, and the browser check showed it doing exactly that: `B1 hit A0
+  for 58` immediately above `B1 killed A0 with a marksman weapon at mid range`.
+
+`heavyHitShare` is in `data/announcements.json` and defaults to 0.5. Set it to
+1 to hear only the hits that take a whole bar, or raise it above 1 to turn the
+line off without touching any code.
+
+**The lesson is the one of Section 7.20.18 again.** The request named a cause,
+the cause was wrong, and six rounds of measurement cost less than shipping a
+feature that fires twice a round and explains nothing.
+
+### 7.24.2 Round 1 of a match now asks for tactics
+
+The tactics screen opened between two rounds and nowhere else, so round 1 of
+every match ran on the tactics of the **previous match**, which a player had
+set for different ground. The screen now opens before round 1 as well, and it
+names the arena and describes it in plain words, because the ground is what the
+player is planning for.
+
+`openTactics(nextRound, ground)` serves both: the between-round screen leaves
+the arena out, because the player has been looking at it for three minutes.
+
+**A bug it uncovered.** The screen said which end a team starts on, and it
+worked that out from `nextRoundNumber % 2`. That stopped being true when
+Section 7.20.24 gave the starting half to the match seed, so the line was wrong
+in about half of all matches. It now calls `teamSideIndex` with the real
+offset. **A number that the display recomputes instead of reading is a number
+that will drift away from the engine.**
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

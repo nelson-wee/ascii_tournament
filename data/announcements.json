@@ -1,5 +1,5 @@
 {
-  "_notes": "UT99-style kill announcements. The words are the classic ones. The counts are lower than UT99, because a 3v3 round ends at 15 team kills: the classic 5/10/15/20/25 spree steps never happen in this format. TBD",
+  "_notes": "UT99-style kill announcements. The words are the classic ones. The counts are lower than UT99, because a 3v3 round ends at 15 team kills: the classic 5/10/15/20/25 spree steps never happen in this format. `heavyHitShare` is the share of full health that one hit must take to be called out; a measurement of six rounds found single sniper hits of 85 to 194 against 100 health, and those, not crits, are what drop a bot from near full health (Section 7.24). Every number is a placeholder. TBD",
   "multiKill": [
     {
       "count": 2,
@@ -46,5 +46,8 @@
   ],
   "multiKillTemplate": "{bot}: {text}!",
   "spreeTemplate": "{bot} is on a {text}!",
-  "spreeEndedTemplate": "{killer} ended {victim}'s {text}"
+  "spreeEndedTemplate": "{killer} ended {victim}'s {text}",
+  "headShotTemplate": "{killer}: HEAD SHOT on {victim}!",
+  "heavyHitTemplate": "{killer} hit {victim} for {damage}",
+  "heavyHitShare": 0.5
 }

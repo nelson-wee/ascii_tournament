@@ -161,6 +161,10 @@
       #feed li + li { margin-top: 1px; }
       #feed li:last-child { color: var(--fg); }
       #feed li.announce { color: #ffd166; }
+      /* A head shot is the rarest line in the feed. It gets the loudest
+         colour, and a heavy hit gets a quieter one (dev-guide Section 7.24). */
+      #feed li.headShot { color: #ff4d6d; font-weight: 700; letter-spacing: 0.04em; }
+      #feed li.heavyHit { color: #ff9f5a; }
       #feed li.spreeEnded { color: #ff6a8a; }
       #feed li.suddenDeath { color: var(--accent); letter-spacing: 0.1em; }
       #status.urgent { color: var(--accent); }
