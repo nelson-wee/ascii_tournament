@@ -3010,6 +3010,90 @@ in about half of all matches. It now calls `teamSideIndex` with the real
 offset. **A number that the display recomputes instead of reading is a number
 that will drift away from the engine.**
 
+## 7.25 The weapons of a tournament, the lobby, and a round that says what it did
+
+Three changes that share one aim: **give the player something to learn, and
+something to read.**
+
+### 7.25.1 One weapon set for a tournament
+
+Section 7.20.22 found that a weapon preference moved a win rate by none. That
+is not surprising in hindsight: a new weapon set arrived with every arena, so a
+preference never had two matches to act over, and a player never had two
+matches to learn the guns.
+
+A tournament now pins the **weapons** seed to the session. The set holds for
+the whole tournament, and only the ground and the spawn table change. The same
+five guns, on new ground, with the items in new places.
+
+`Session.pinned` is the mechanism, and `nextMatch` reads three layers:
+
+    the match seed  ->  what the session pinned  ->  what a ticket asked for
+
+A ticket wins, because a ticket names one match exactly. A hand-edited
+`weapons=` therefore applies to that one match, and the match after it goes
+back to the pin. A plain replay of a session seed is unaffected, because the
+pin is derived from that seed.
+
+**The spawn table stays per match on purpose.** Same guns, different places:
+the ground and the item layout are the variables, and the loadout is the
+constant a player can learn. That is option B of the three that were weighed;
+option A moved the spawn table too, and option C is a draft, which belongs with
+the run structure of M11. TBD
+
+### 7.25.2 The lobby, in test mode
+
+A tournament gives no choice. Test mode is for asking a question, and a
+question needs a control, so it gets a lobby before every match:
+
+    ground        keep · reroll · a seed
+    weapons       keep · reroll · a seed
+    spawn table   keep · reroll · a seed
+
+**Keep one and reroll another, and the lobby is an experiment.** Hold the
+layout and change the guns, and the difference belongs to the guns. Hold both
+and change where the items lie, and it belongs to the spawn table. It is the
+instrument of Section 7.20.26 — change one thing and hold the rest equal — in
+the hands of the player.
+
+Three rules that the code holds:
+
+- **It shows the answer before the player takes it.** Every change rebuilds the
+  match and redraws all three parts, because the arena decides what the weapons
+  lie on.
+- **A reroll always moves.** Each part has a counter, and a reroll takes
+  `lobby:<part>:<match>:<step>`, so pressing it twice never gives the same seed
+  back.
+- **The lobby answer holds.** What the player chose becomes `session.pinned`,
+  so a kept layout stays kept until they change it.
+
+The lobby opens **before** the tactics screen. A player sets tactics for ground
+and guns they can see.
+
+### 7.25.3 A round that says what it did
+
+The tactics screen showed the score of the last round and nothing else. A score
+says who won. It does not say why, and a tactic is a guess without that.
+
+`roundBrief` reads one round out of the match log and gives the three things a
+player can act on, each one tied to a control on the same screen:
+
+| It shows | It decides |
+|---|---|
+| Kills by range band | `preferredRange`, and the weapon a bot reaches for |
+| Kills per weapon, and the band most of them landed at | `weaponRolePref` |
+| Seconds between kills, how long a fight lasts, the contact share | `aggression`, `holdPosition`, `itemControl` |
+
+A real round read: `close 5 (19 %) · mid 18 (67 %) · long 4 (15 %) · kill every
+5.7 s · a fight lasts 6.9 s · in contact 36 % · killed from behind 3`, above
+`sniper-line-0 (marksman) — 16 kills, mostly at mid range`. Sixteen of
+twenty-seven kills came from one marksman rifle at mid range. **That is a
+tactics screen that answers itself.**
+
+The tempo numbers are the ones of Section 7.22, and this is the first place a
+player sees them. Before round 1 there is no round to read, so the ground takes
+its place (Section 7.24).
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

@@ -351,6 +351,29 @@
       }
       .ticket-actions { grid-area: actions; display: flex; gap: 4px; }
       .ticket-actions .choice { min-height: 32px; padding: 0 10px; }
+      /* The lobby and the round brief (dev-guide Section 7.25). */
+      .lobby-weapons, .brief-weapons {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: 0.72rem;
+      }
+      .lobby-weapons li, .brief-weapons li { color: var(--fg); }
+      .brief-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+      }
+      .brief-stat {
+        display: flex;
+        gap: 6px;
+        align-items: baseline;
+        font-size: 0.72rem;
+      }
+      .brief-stat b { color: var(--team-a); }
       .screen .choice {
         min-height: 40px;
         padding: 0 14px;

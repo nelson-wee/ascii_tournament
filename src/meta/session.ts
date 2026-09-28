@@ -99,6 +99,21 @@ export interface Session {
   /** Matches won, by team. A drawn match counts for neither. */
   matchWins: Record<TeamId, number>;
   history: MatchRecord[];
+  /**
+   * Seeds that hold across the matches of a session (Section 7.25).
+   *
+   * A tournament pins the **weapons**: one set of guns for the whole
+   * tournament, and only the ground and the spawn table change. A weapon
+   * preference cannot be a tactic while the weapons change before a player can
+   * learn them.
+   *
+   * Test mode pins nothing at the start; the lobby writes here, so a player can
+   * keep a layout and reroll the guns on it, or the other way round.
+   *
+   * A ticket still wins: `nextMatch` reads the match seed first, then a pin,
+   * then the override that the ticket carries.
+   */
+  pinned: Partial<MatchSeeds>;
 }
 
 const DEFAULT_STYLES: readonly ArenaStyle[] = ["bastion", "openfield", "cavern"];
@@ -116,6 +131,12 @@ export function createSession(options: SessionOptions): Session {
     ticksPerSecond: options.ticksPerSecond ?? 20,
     matchWins: { A: 0, B: 0 },
     history: [],
+    // A tournament holds its weapons. Test mode starts with nothing pinned and
+    // the lobby decides (Section 7.25).
+    pinned:
+      (options.mode ?? "tournament") === "tournament"
+        ? { weapons: deriveSeed(options.seed, "weapons") }
+        : {},
   };
 }
 
@@ -143,7 +164,9 @@ export function nextMatch(session: Session, overrides: Partial<MatchSeeds> = {})
   // leaves the others where they were, which is how a player keeps a layout
   // and rerolls the weapons on it (Section 7.23).
   const seed = matchSeedOf(session.seed, session.matchNumber);
-  const seeds = { ...matchSeedsOf(seed), ...overrides };
+  // The match seed first, then what the session pinned, then what a ticket
+  // asked for. A ticket names one match, so it wins (Section 7.25).
+  const seeds = { ...matchSeedsOf(seed), ...session.pinned, ...overrides };
 
   // The arena reads its own seed, not the seed of the match, so a new arena
   // seed gives a new name as well as new ground.

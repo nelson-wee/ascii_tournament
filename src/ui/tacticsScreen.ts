@@ -10,6 +10,7 @@
  * The screen holds no simulation state: it takes a plan, it gives a plan back,
  * and the match loop does the rest.
  */
+import type { RoundBrief } from "../report/roundBrief.js";
 import { describeArena, type ArenaMetrics } from "../arena/metrics.js";
 import type { Tactics } from "../core/schemas.js";
 import type { Role, RoundOutcome, TeamId } from "../sim/state.js";
@@ -69,6 +70,14 @@ export interface TacticsScreenOptions {
   /** The ground, on the screen that opens before round 1 (Section 7.24). */
   arenaName?: string;
   arenaMetrics?: ArenaMetrics;
+  /**
+   * What the round that just ended looked like (Section 7.25).
+   *
+   * A score says who won. It does not say where the fighting happened, which
+   * weapon did the work, or how fast the round ran, and a tactic is a guess
+   * without those.
+   */
+  brief?: RoundBrief;
   /** The player pressed "start the round". */
   onStart: (tactics: Tactics, roles: Role[]) => void;
 }
@@ -76,6 +85,76 @@ export interface TacticsScreenOptions {
 export interface TacticsScreen {
   /** Take the screen off the page. */
   close(): void;
+}
+
+/** One row of a small table: a label and a value. */
+function stat(label: string, value: string): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "brief-stat";
+  const name = document.createElement("span");
+  name.className = "dim";
+  name.textContent = label;
+  const text = document.createElement("b");
+  text.textContent = value;
+  row.append(name, text);
+  return row;
+}
+
+const BAND_WORDS: Readonly<Record<string, string>> = {
+  close: "close",
+  mid: "mid",
+  long: "long",
+};
+
+/**
+ * What the last round did, in the three things a player can act on: where the
+ * fighting happened, which weapons did it, and how fast it ran
+ * (Section 7.25).
+ */
+function briefBlock(brief: RoundBrief): HTMLElement {
+  const group = document.createElement("div");
+  group.className = "menu-group";
+  const heading = document.createElement("h3");
+  heading.textContent = `Round ${brief.roundNumber}: what happened`;
+  group.append(heading);
+
+  const kills = brief.kills.A + brief.kills.B;
+  const bands = document.createElement("div");
+  bands.className = "brief-stats";
+  for (const band of ["close", "mid", "long"]) {
+    const count = brief.killsByBand[band] ?? 0;
+    const share = kills === 0 ? 0 : Math.round((count / kills) * 100);
+    bands.append(stat(`${BAND_WORDS[band] ?? band} kills`, `${count}  (${share} %)`));
+  }
+  bands.append(stat("kill every", `${brief.killGapSeconds.toFixed(1)} s`));
+  bands.append(stat("a fight lasts", `${brief.timeToKillSeconds.toFixed(1)} s`));
+  bands.append(stat("in contact", `${Math.round(brief.contactShare * 100)} %`));
+  if (brief.unawareKills > 0) bands.append(stat("killed from behind", String(brief.unawareKills)));
+  group.append(bands);
+
+  if (brief.weapons.length > 0) {
+    const list = document.createElement("ul");
+    list.className = "brief-weapons";
+    // The weapons that made a kill, most kills first. A weapon that made none
+    // is not on this list, and that is itself an answer.
+    for (const weapon of brief.weapons.slice(0, 6)) {
+      const item = document.createElement("li");
+      item.textContent =
+        `${weapon.weaponId} (${weapon.archetype}) — ${weapon.kills} ` +
+        `${weapon.kills === 1 ? "kill" : "kills"}, mostly at ${BAND_WORDS[weapon.band] ?? weapon.band} range`;
+      list.append(item);
+    }
+    group.append(list);
+  }
+
+  const taken = Object.entries(brief.pickupsByKind).sort((a, b) => b[1] - a[1]);
+  if (taken.length > 0) {
+    const items = document.createElement("p");
+    items.className = "dim";
+    items.textContent = `items taken: ${taken.map(([kind, count]) => `${count}× ${kind}`).join("  ·  ")}`;
+    group.append(items);
+  }
+  return group;
 }
 
 function field(label: string, help: string, control: HTMLElement): HTMLElement {
@@ -137,6 +216,9 @@ export function openTacticsScreen(options: TacticsScreenOptions): TacticsScreen 
       screen.append(words);
     }
   }
+
+  const { brief } = options;
+  if (brief !== undefined) screen.append(briefBlock(brief));
 
   // The teams change ends after every round (Section 7.20.24). The player has
   // to know: the ground that the team starts on decides the first fight.

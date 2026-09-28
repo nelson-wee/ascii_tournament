@@ -14,9 +14,11 @@
  */
 import { loadDefaultTactics, loadTuning } from "./core/data.js";
 import { EventBus, type GameEvent } from "./core/events.js";
+import { deriveSeed } from "./core/rng.js";
 import type { Tactics } from "./core/schemas.js";
 import {
   createSession,
+  matchSeedOf,
   matchSeedsOf,
   nextMatch,
   recordMatch,
@@ -51,6 +53,8 @@ import {
   type TeamId,
 } from "./sim/index.js";
 import { openMainMenu, openMatchOverScreen, type MenuChoice, type Screen } from "./ui/menu.js";
+import { openLobbyScreen } from "./ui/lobbyScreen.js";
+import { roundBrief } from "./report/roundBrief.js";
 import {
   formatTicket,
   makeTicket,
@@ -341,6 +345,9 @@ try {
    */
   let pendingSeeds: Partial<MatchSeeds> = {};
 
+  /** How many times the lobby rerolled each part, so a reroll always moves. */
+  const lobbyRolls = new Map<string, number>();
+
   /** The ticket of the match on screen, or `null` when no match is running. */
   function currentTicket(): ReplayTicket | null {
     if (!session || !setup) return null;
@@ -367,6 +374,44 @@ try {
     } catch {
       // A sandboxed frame refuses this. It costs the address, nothing else.
     }
+  }
+
+  /**
+   * Open the lobby, in test mode, or go straight to the match.
+   *
+   * A tournament gives no choice: new ground, and the weapons the session
+   * pinned. Test mode is for asking a question, so it gets the controls
+   * (Section 7.25).
+   */
+  function beginMatch(): void {
+    if (!session) return;
+    if (session.mode !== "test") {
+      startMatch();
+      return;
+    }
+    const current = session;
+    const opening = { ...matchSeedsOf(matchSeedOf(current.seed, current.matchNumber)), ...current.pinned, ...pendingSeeds };
+    screen = openLobbyScreen({
+      container: stageEl,
+      matchNumber: current.matchNumber,
+      seeds: opening,
+      build: (seeds) => nextMatch(current, seeds),
+      // A reroll takes the next value of a stream of its own, so pressing it
+      // twice never gives the same seed back.
+      reroll: (part) => {
+        const step = (lobbyRolls.get(part) ?? 0) + 1;
+        lobbyRolls.set(part, step);
+        return deriveSeed(current.seed, `lobby:${part}:${current.matchNumber}:${step}`);
+      },
+      onStart: (seeds) => {
+        closeScreen();
+        // The lobby holds its answer for this match and for the ones after it,
+        // so a player who kept a layout keeps it until they change it.
+        current.pinned = { ...seeds };
+        pendingSeeds = {};
+        startMatch();
+      },
+    });
   }
 
   /** Build the arena and the first round of the next match of the session. */
@@ -489,7 +534,7 @@ try {
       },
       onNext: () => {
         closeScreen();
-        startMatch();
+        beginMatch();
       },
       onMenu: () => {
         closeScreen();
@@ -524,6 +569,17 @@ try {
         ? {
             arenaName: `${setup.arena.profile.style} ${setup.arena.width}×${setup.arena.height}`,
             arenaMetrics: setup.arena.metrics,
+          }
+        : {}),
+      // Between two rounds, what the last one did (Section 7.25). Before round
+      // 1 there is no round to read, and the ground takes its place.
+      ...(nextRound > 1
+        ? {
+            brief: roundBrief(bus.log, nextRound - 1, {
+              ticksPerSecond: config.ticksPerSecond,
+              multiKillWindowTicks: config.multiKillWindowTicks,
+              ...(state ? { contact: state.bots } : {}),
+            }),
           }
         : {}),
       onStart: (tactics: Tactics, roles: Role[]) => {
@@ -578,7 +634,7 @@ try {
         const warning = ticketWarning(choice);
         if (warning !== null) statusEl.textContent = warning;
         plan = {};
-        startMatch();
+        beginMatch();
       },
     });
   }
