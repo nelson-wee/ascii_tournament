@@ -1,0 +1,77 @@
+{
+  "_notes": "The composition sweep of Section 7.26. `useRoleTactics` is the point of it: a preset is a team-wide override that throws the role presets away, so a batch that measures compositions must set it. One preset is here because the schema asks for one; it is never read. The ten compositions are every multiset of three roles from three, which is the whole decision space that a player has. Every number is a placeholder. TBD",
+  "rounds": 3000,
+  "seed": 20260928,
+  "arenas": [
+    "data/arenas/test-arena.txt"
+  ],
+  "presets": {
+    "roles": {
+      "aggression": 0.5,
+      "rangePref": [
+        "mid",
+        "close",
+        "long"
+      ],
+      "weaponPref": [],
+      "itemControl": 0.5,
+      "holdPosition": 0.3,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    }
+  },
+  "compositions": {
+    "3T": [
+      "tank",
+      "tank",
+      "tank"
+    ],
+    "2T1O": [
+      "tank",
+      "tank",
+      "overwatch"
+    ],
+    "2T1S": [
+      "tank",
+      "tank",
+      "skirmisher"
+    ],
+    "1T2O": [
+      "tank",
+      "overwatch",
+      "overwatch"
+    ],
+    "1T1O1S": [
+      "tank",
+      "overwatch",
+      "skirmisher"
+    ],
+    "1T2S": [
+      "tank",
+      "skirmisher",
+      "skirmisher"
+    ],
+    "3O": [
+      "overwatch",
+      "overwatch",
+      "overwatch"
+    ],
+    "2O1S": [
+      "overwatch",
+      "overwatch",
+      "skirmisher"
+    ],
+    "1O2S": [
+      "overwatch",
+      "skirmisher",
+      "skirmisher"
+    ],
+    "3S": [
+      "skirmisher",
+      "skirmisher",
+      "skirmisher"
+    ]
+  },
+  "useRoleTactics": true,
+  "outDir": "batch-out/roles"
+}

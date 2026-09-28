@@ -380,6 +380,15 @@ export const BatchConfigSchema = z
      * also in `presets` takes those tactics instead of the default.
      */
     teamPresets: z.record(z.string().min(1), TeamTacticsSchema).optional(),
+    /**
+     * Let the roles own the tactics (Section 7.26).
+     *
+     * A preset is a **team-wide override**: it throws the role presets away, so
+     * a batch that measures compositions must set this, or a tank and an
+     * overwatch differ only by their six action weights and the table says
+     * nothing. A batch that measures presets must leave it out.
+     */
+    useRoleTactics: z.boolean().optional(),
     outDir: z.string().min(1),
   })
   .strict()

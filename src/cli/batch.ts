@@ -144,6 +144,7 @@ function main(): void {
     arenas,
     presets: config.presets,
     compositions: config.compositions,
+    useRoleTactics: config.useRoleTactics,
     rounds,
     seed,
     config: simConfig,

@@ -538,6 +538,7 @@ function main(): void {
       presets: config.presets,
       compositions: config.compositions,
       teamPresets: config.teamPresets,
+      useRoleTactics: config.useRoleTactics,
       rounds: options.rounds,
       seed: deriveSeed(options.seed, `style:${style}`),
       config: simConfig,
