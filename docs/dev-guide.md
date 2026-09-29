@@ -4500,6 +4500,85 @@ Two new tests, and both fail if the bands are collapsed back to a flat count:
 Sections 7.35 to 7.37 exists to get right, so it is worth testing directly rather
 than through the action that calls it.
 
+## 7.38 The band-split sweep: the range came back, the role did not
+
+1200 rounds over 3 openfield arenas, same config and seed. Three runs now compare
+on this ground: before the conflict zone, with the flat coverage of Section 7.35,
+and with the band split of Section 7.37.
+
+### 7.38.1 The mechanism worked
+
+| measure | pre-zone | flat zone | **band zone** |
+|---|---|---|---|
+| kills at long range | 25.5 % | 21.9 % | **26.4 %** |
+| kills at close range | 36.7 % | 36.7 % | **33.6 %** |
+| mean kill distance | 11.53 | 10.98 | **11.59** cells |
+
+The range compression of Section 7.36.2 is not merely undone, it is reversed:
+the long band now holds more of the kills than it did before the conflict zone
+existed, and the fight happens further apart than in either earlier run. The
+band split does exactly what it was built to do.
+
+Side bias came back to even as well: pooled mirror A **50.0 ± 4.6** and
+51.3 ± 1.4 over every round, against 57.1 and 53.2 last time. The 53.2 of
+Section 7.36.2 was noise, as the three symmetry checks there suggested.
+
+### 7.38.2 The composition table moved, half way
+
+| overwatch in the team | pre-zone | flat zone | **band zone** |
+|---|---|---|---|
+| 0 | 66.4 % | 65.8 % | **64.7 %** |
+| 1 | 48.1 % | 51.5 % | **49.7 %** |
+| 2 | 33.9 % | 31.9 % | **36.9 %** |
+| 3 | 22.7 % | 18.3 % | **18.3 %** |
+
+Two overwatch is the best it has ever been: 36.9 %, up 5.0 points on the flat
+zone and 3.0 on the pre-zone baseline. Zero overwatch came down a little. But
+**3O did not move at all**, and the gap is still about 15 points of win rate for
+every Overwatch bot a team fields.
+
+### 7.38.3 The real size of the problem, measured at last
+
+Per-role production tells the story the composition table only hints at:
+
+| run | Tank K/D | Skirmisher K/D | **Overwatch K/D** | Overwatch kills a seat |
+|---|---|---|---|---|
+| pre-zone | 1.08 | 1.14 | 0.75 | 2.62 |
+| flat zone | 1.21 | 1.21 | 0.60 | 2.50 |
+| **band zone** | 1.18 | 1.17 | **0.65** | **2.67** |
+
+An Overwatch bot makes **2.67 kills a seat against 4.97 and 4.69** for the other
+two roles, and it dies more often than it kills. It is about 55 % as productive
+as a Tank, and that is the 15 points a seat, stated as a mechanism.
+
+Sections 7.35 to 7.37 moved it from 2.50 to 2.67 kills a seat and its K/D from
+0.60 to 0.65 — a real gain of about 7 %, against a deficit of 45 %. **The
+positioning was a genuine defect and it was not the main one.**
+
+### 7.38.4 What to measure next, before changing anything
+
+Four candidate causes, and the round record cannot currently separate them:
+
+1. **It shoots less.** `holdPosition` 0.75 and `aggression` 0.4 are both the
+   lowest of the three roles, so an Overwatch bot may spend its ticks holding
+   rather than firing.
+2. **It misses more.** Even with the curve of Section 7.33, a long shot faces the
+   full dodge of a moving target where a close shot does not.
+3. **It is outnumbered where it stands.** A bot alone on a ridge meets two
+   enemies at once, and `focusFireWeight` rewards them for it.
+4. **Its weapon trades rate for damage.** A marksman fires slowly, so a missed
+   shot costs more than a missed assault burst.
+
+One cheap instrument separates the first two from the rest: add `shots_role_*`
+and `hits_role_*` to the round record beside the kills and deaths that are
+already there. Shots a seat answers "does it shoot less", and hits over shots
+answers "does it miss more". Neither needs a new system and both come from events
+the bus already carries.
+
+Measure before tuning. Three weapon reworks and two positioning reworks have each
+fixed a real defect without moving this number, and the reason each time was that
+the defect found was not the binding one. **TBD**
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.
