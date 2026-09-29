@@ -11,6 +11,7 @@ import {
   runPlannedRound,
   type BatchArena,
 } from "../src/report/batchRunner.js";
+import { simConfigFromTuning } from "../src/sim/index.js";
 import {
   standardError,
   summarize,
@@ -64,6 +65,9 @@ function record(over: Partial<RoundRecord> = {}): RoundRecord {
     killDistanceSum: 200,
     killsByRole: { tank: 8, overwatch: 9, skirmisher: 8 },
     deathsByRole: { tank: 8, overwatch: 9, skirmisher: 8 },
+    shotsByRole: { tank: 40, overwatch: 20, skirmisher: 40 },
+    hitsByRole: { tank: 18, overwatch: 8, skirmisher: 14 },
+    damageByRole: { tank: 300, overwatch: 260, skirmisher: 240 },
     pickupsByKind: { weapon: 12, health: 6, armor: 4, powerup: 2, ammo: 8 },
     weaponArchetypes: ["assault", "baseline", "marksman", "precision"],
     tempo: emptyTempo(),
@@ -147,6 +151,103 @@ describe("runPlannedRound", () => {
   it("throws for an unknown preset", () => {
     const [round] = planRounds({ arenas: arenas(), presets: presets(), rounds: 1, seed: 3 });
     expect(() => runPlannedRound({ ...round!, teamA: "missing" }, presets())).toThrow(/preset/);
+  });
+});
+
+describe("shots and hits by role (Section 7.39)", () => {
+  const compositions = {
+    // Two roles only, and three seats, so every counter has a home and the
+    // totals are easy to hold to account.
+    mixed: ["overwatch", "tank", "tank"],
+  } as const;
+
+  function oneRound(): ReturnType<typeof runPlannedRound> {
+    const [round] = planRounds({
+      arenas: arenas(),
+      presets: presets(),
+      compositions,
+      rounds: 1,
+      seed: 4,
+    });
+    // The compositions must reach the runner too, or it falls back to the
+    // default one and the roles in the record are not the roles that played.
+    return runPlannedRound(round!, presets(), simConfigFromTuning(), compositions);
+  }
+
+  it("counts every shot fired against some role", () => {
+    const result = oneRound();
+    const shotTotal = Object.values(result.shotsByRole).reduce((sum, n) => sum + n, 0);
+    expect(shotTotal).toBe(result.shots);
+    expect(result.shots).toBeGreaterThan(0);
+  });
+
+  it("counts only the damage a shot delivered, never a burn or a hazard tick", () => {
+    // `hits` counts every damage event of the round, burns and hazard tiles
+    // included. `hitsByRole` counts the ones a shot delivered, so it is a share
+    // of `hits` and never the whole of it (Section 7.39.2). Without this the
+    // ratio would call a weapon with a long burn accurate.
+    const result = oneRound();
+    const hitTotal = Object.values(result.hitsByRole).reduce((sum, n) => sum + n, 0);
+    expect(hitTotal).toBeGreaterThan(0);
+    expect(hitTotal).toBeLessThanOrEqual(result.hits);
+  });
+
+  it("names only the roles the composition fielded", () => {
+    const result = oneRound();
+    for (const role of Object.keys(result.shotsByRole)) {
+      expect(["overwatch", "tank"]).toContain(role);
+    }
+    for (const role of Object.keys(result.hitsByRole)) {
+      expect(["overwatch", "tank"]).toContain(role);
+    }
+  });
+
+  it("gives every fielded role some shots, so nothing is silently dropped", () => {
+    const result = oneRound();
+    expect(result.shotsByRole["overwatch"] ?? 0).toBeGreaterThan(0);
+    expect(result.shotsByRole["tank"] ?? 0).toBeGreaterThan(0);
+  });
+
+  it("answers the two questions Section 7.38.4 could not", () => {
+    const result = oneRound();
+    // Shots a seat: does the role shoot less? Two Tank seats a team against one
+    // Overwatch seat, and both teams field the same composition.
+    const overwatchShots = (result.shotsByRole["overwatch"] ?? 0) / 2;
+    const tankShots = (result.shotsByRole["tank"] ?? 0) / 4;
+    expect(overwatchShots).toBeGreaterThan(0);
+    expect(tankShots).toBeGreaterThan(0);
+    // Hits over shots: does it miss more? Both are real ratios, not placeholders.
+    const landed = (role: string): number =>
+      (result.hitsByRole[role] ?? 0) / Math.max(1, result.shotsByRole[role] ?? 0);
+    expect(landed("overwatch")).toBeGreaterThan(0);
+    expect(landed("tank")).toBeGreaterThan(0);
+  });
+
+  it("records the damage a role dealt, which kills do not", () => {
+    const result = oneRound();
+    const total = Object.values(result.damageByRole).reduce((sum, n) => sum + n, 0);
+    expect(total).toBeGreaterThan(0);
+    for (const role of ["overwatch", "tank"]) {
+      expect(result.damageByRole[role] ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it("carries all three into the rounds CSV", () => {
+    const csv = roundsCsv([record()]);
+    const header = csv.split("\n")[0] ?? "";
+    for (const column of [
+      "shots_role_tank",
+      "shots_role_overwatch",
+      "hits_role_tank",
+      "hits_role_overwatch",
+      "damage_role_tank",
+      "damage_role_overwatch",
+    ]) {
+      expect(header).toContain(column);
+    }
+    const row = csv.split("\n")[1] ?? "";
+    expect(row.split(",")).toContain("40");
+    expect(row.split(",")).toContain("18");
   });
 });
 

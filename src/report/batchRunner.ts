@@ -176,6 +176,9 @@ export function runPlannedRound(
   const killsByBand: Record<string, number> = {};
   const killsByRole: Record<string, number> = {};
   const deathsByRole: Record<string, number> = {};
+  const shotsByRole: Record<string, number> = {};
+  const hitsByRole: Record<string, number> = {};
+  const damageByRole: Record<string, number> = {};
   const pickupsByKind: Record<string, number> = {};
   let shots = 0;
   let hits = 0;
@@ -201,8 +204,26 @@ export function runPlannedRound(
       shots += 1;
       const weapon = String(event.data["weaponId"] ?? "unknown");
       shotsByWeapon[weapon] = (shotsByWeapon[weapon] ?? 0) + 1;
+      const shooter = roleOf(event.data["shooterId"]);
+      shotsByRole[shooter] = (shotsByRole[shooter] ?? 0) + 1;
     } else if (event.type === "Hit") {
       hits += 1;
+      // Only damage that a SHOT delivered counts against the shots fired. A
+      // `Hit` also fires for every tick of a burn and every tick of a hazard
+      // tile, and counting those would make `hitsByRole / shotsByRole` a number
+      // that does not mean what its name says: a weapon with a long burn would
+      // read as accurate (Section 7.39.2).
+      const source = String(event.data["source"] ?? "");
+      const shooter = roleOf(event.data["shooterId"]);
+      if (source === "shot" || source === "area") {
+        hitsByRole[shooter] = (hitsByRole[shooter] ?? 0) + 1;
+      }
+      // Damage counts every source, the burn a shot left behind included,
+      // because all of it is work the role did (Section 7.39.3).
+      const dealt = event.data["damage"];
+      if (typeof dealt === "number") {
+        damageByRole[shooter] = (damageByRole[shooter] ?? 0) + dealt;
+      }
     } else if (event.type === "PickupTaken") {
       const kind = String(event.data["kind"] ?? "unknown");
       pickupsByKind[kind] = (pickupsByKind[kind] ?? 0) + 1;
@@ -249,6 +270,9 @@ export function runPlannedRound(
     killDistanceSum,
     killsByRole,
     deathsByRole,
+    shotsByRole,
+    hitsByRole,
+    damageByRole,
     pickupsByKind,
     weaponArchetypes: [...new Set(weapons.map((weapon) => weapon.archetype))].sort(),
   };

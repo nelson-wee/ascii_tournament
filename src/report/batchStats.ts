@@ -47,6 +47,39 @@ export interface RoundRecord {
   killsByRole: Readonly<Record<string, number>>;
   /** Deaths by the role of the bot that died. */
   deathsByRole: Readonly<Record<string, number>>;
+  /**
+   * Shots fired by the role of the shooter (Section 7.39).
+   *
+   * Kills and deaths say how a role finished. These two say how it spent the
+   * round. An Overwatch bot makes 2.67 kills a seat against 4.97 for a Tank
+   * (Section 7.38.3), and nothing in the record could say whether it shot less
+   * or missed more. Shots a seat answers the first.
+   */
+  shotsByRole: Readonly<Record<string, number>>;
+  /**
+   * Shots that landed, by the role of the shooter, which answers the second.
+   *
+   * It counts only damage a shot delivered: the `shot` and `area` sources, never
+   * a tick of a burn or of a hazard tile. Counting those would make
+   * `hitsByRole / shotsByRole` a number that does not mean what its name says,
+   * because a weapon with a long burn would read as accurate (Section 7.39.2).
+   *
+   * **It is still not quite a hit rate.** One shot from an area weapon lands on
+   * every bot it touches and emits a `Hit` for each, so the ratio passes 1 for a
+   * role that carries blasts. For a role whose weapons hit one bot at a time —
+   * Overwatch takes marksman and precision first — it is the landing rate, and
+   * that is the comparison Section 7.38.4 asked for.
+   */
+  hitsByRole: Readonly<Record<string, number>>;
+  /**
+   * Damage dealt by the role of the shooter (Section 7.39.3).
+   *
+   * Kills are credited to whoever lands the last blow, so a role that softens a
+   * target and lets a teammate finish it scores nothing. Damage is the work
+   * itself, and the two apart say whether a role is unproductive or merely
+   * unrewarded. Every source counts here, the burn a shot left behind included.
+   */
+  damageByRole: Readonly<Record<string, number>>;
   /** Items taken, by kind (Section 7.12). */
   pickupsByKind: Readonly<Record<string, number>>;
   /**

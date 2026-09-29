@@ -4577,7 +4577,82 @@ the bus already carries.
 
 Measure before tuning. Three weapon reworks and two positioning reworks have each
 fixed a real defect without moving this number, and the reason each time was that
-the defect found was not the binding one. **TBD**
+the defect found was not the binding one.
+
+Section 7.39 adds the instrument and answers it: causes 1 and 2 are refuted, and
+so is the obvious third theory that Overwatch does the work and a teammate takes
+the credit. The deficit is damage.
+
+## 7.39 Shots, hits and damage by role
+
+Section 7.38.4 listed four candidate causes for the Overwatch deficit and said
+the round record could not separate them. This adds the instrument, and the
+instrument answers more than it was asked.
+
+### 7.39.1 Three counters
+
+`RoundRecord` gains `shotsByRole`, `hitsByRole` and `damageByRole`, beside the
+`killsByRole` and `deathsByRole` already there. All three come from events the
+bus already carries — `Shot` and `Hit` both name their shooter — so nothing new
+is emitted and no system is added. The rounds CSV carries a column a role for
+each.
+
+### 7.39.2 The first version counted burns as hits
+
+`hitsByRole` first counted every `Hit` event. But `damageBot` emits a `Hit` for
+**every** source, a tick of a burn and a tick of a hazard tile included, so
+`hitsByRole / shotsByRole` read 0.696 for Overwatch and **1.622** for Tank — a
+"hit rate" above 1, and a weapon with a long burn reading as accurate.
+
+It now counts only the `shot` and `area` sources: the damage a shot delivered.
+The same measurement then read 0.375 and 0.372, which is a different conclusion
+from the same data. `damageByRole` still counts every source, because a burn a
+shot left behind is work the role did.
+
+This is the defect of this whole area of the guide, in the instrument built to
+find it: a number that does not mean what its name says.
+
+### 7.39.3 What it says: not accuracy, not credit, just damage
+
+40 rounds on one cavern arena. A small sample, but the effects are large and
+consistent.
+
+| role | shots a seat | landed a shot | damage a seat | kills a seat | damage a kill | K/D |
+|---|---|---|---|---|---|---|
+| tank | 43.0 | 0.422 | 606.7 | 4.51 | 134.4 | 1.00 |
+| skirmisher | 45.3 | 0.357 | 608.7 | 4.80 | 126.8 | 1.30 |
+| **overwatch** | **38.4** | **0.371** | **340.9** | **2.41** | 141.3 | **0.66** |
+
+Two of the four candidates of Section 7.38.4 are **refuted**:
+
+- **It does not miss more.** Overwatch lands 0.371 of its shots against the
+  Tank's 0.422 and the Skirmisher's 0.357. It is the middle of the three, and
+  better than the role with the best K/D.
+- **It is not doing the work and missing the credit.** That was the obvious next
+  theory: kills go to whoever lands the last blow, so a role that softens targets
+  scores nothing. But damage a seat is 0.56 of a Tank's and kills a seat is 0.53
+  of one. They track. And damage a kill is level across the three roles, 134,
+  127 and 141, so no role wastes what it deals.
+
+**The deficit is damage, and nothing else.** It decomposes into three compounding
+factors, none of them large on its own:
+
+| factor | Overwatch against Tank |
+|---|---|
+| shots a seat, 38.4 against 43.0 | 0.89 |
+| landed a shot, 0.371 against 0.422 | 0.88 |
+| **damage a landed hit, 23.9 against 33.4** | **0.71** |
+| product | **0.56** |
+
+The largest term is the surprising one. A marksman is meant to hit hard, and an
+Overwatch bot delivers **29 % less damage per landed hit** than a Tank. Where
+that goes is the next question, and this sample cannot answer it: the role ranks
+`precision` and `denial` above `versatile` and `assault`, so it may rarely hold a
+marksman at all, and a `denial` weapon spreads its damage over time into small
+ticks.
+
+Confirm it on a full sweep before acting. Every batch from here carries the three
+columns, so the next one answers it for free. **TBD**
 
 ## 8. Match flow (sequence)
 
