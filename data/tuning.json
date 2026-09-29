@@ -104,6 +104,10 @@
   "ai": {
     "flankWeight": 0.6,
     "flankTurnCost": 0.12,
+    "conflictWeight": 0.8,
+    "takePositionIntervalTicks": 20,
+    "takePositionMargin": 1.25,
+    "takePositionRadiusCells": 14,
     "hysteresisMargin": 1.2,
     "hazardAvoidBelowTolerance": 0.5,
     "teamSpacingCells": 12,
@@ -113,7 +117,8 @@
       "seekPickup": 0.8,
       "holdPosition": 0.5,
       "reposition": 0.7,
-      "follow": 0.4
+      "follow": 0.4,
+      "takePosition": 0.9
     },
     "pickupAnticipationTicks": 220,
     "pickupAnticipationShare": 0.55,
@@ -160,5 +165,11 @@
     "holdWeight": 0.4,
     "objectiveWeight": 0.6,
     "focusFireWeight": 0.35
+  },
+  "conflict": {
+    "_notes": "The conflict zone of an arena (Section 7.35): where the two teams arrive together, and which ground overlooks it. Measured once when the arena is built. Every number is TBD.",
+    "contestedSpanSteps": 6,
+    "sampleCells": 160,
+    "bestCount": 8
   }
 }

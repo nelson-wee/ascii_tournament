@@ -7,6 +7,7 @@
  * of this type.
  */
 import type { Cell } from "../core/types.js";
+import type { ConflictField } from "./conflict.js";
 
 /** The value of one grid cell. */
 export enum Tile {
@@ -39,6 +40,14 @@ export interface ArenaMap {
   tiles: Uint8Array;
   spawns: Cell[];
   pickups: PickupPoint[];
+  /**
+   * Where the fight happens and which ground overlooks it (Section 7.35).
+   *
+   * Measured once when the arena is built, and the first arena measurement that
+   * a bot actually reads. Absent on a map that nothing measured, and every
+   * reader treats that as zero.
+   */
+  conflict?: ConflictField;
 }
 
 /** The index in `tiles` of one cell. */

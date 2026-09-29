@@ -22,6 +22,8 @@ import { Tile, cellIndex, isWalkable, tileAt, type ArenaMap, type PickupKind, ty
 import { checkArenaFairness, distanceField, isContested, pickupEvenness } from "./contested.js";
 import { orderSpawnsForFairness } from "./spawnOrder.js";
 import { measureArena, validateArena, type ArenaMetrics, type ArenaRules } from "./metrics.js";
+import { conflictOptions } from "./conflictOptions.js";
+import { measureConflict } from "./conflict.js";
 import type { Rng } from "../core/rng.js";
 import type { Cell } from "../core/types.js";
 
@@ -665,6 +667,8 @@ function attempt(
     rules,
   };
   map.metrics = measureArena(map, TEAM_SIZE);
+  // Section 7.35: the first arena measurement a bot actually reads.
+  map.conflict = measureConflict(map, conflictOptions());
   return map;
 }
 

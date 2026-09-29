@@ -129,6 +129,26 @@ export const TuningSchema = z
         targetSwitchMargin: unitRange,
       })
       .strict(),
+    conflict: z
+      .object({
+        _notes: z.string().optional(),
+        /**
+         * How many steps of difference between the two teams still counts as
+         * contested ground (Section 7.35). The score falls to nothing over this
+         * span, so the conflict zone has an edge rather than a wall. TBD
+         */
+        contestedSpanSteps: positiveNumber,
+        /**
+         * How many contested cells the coverage measure tests against. Every
+         * floor cell is tested against this many, so it sets the cost of
+         * building an arena. An even spread, so the answer does not move with
+         * the number. TBD
+         */
+        sampleCells: positiveInt,
+        /** How many of the best cells the field keeps, for the report. TBD */
+        bestCount: positiveInt,
+      })
+      .strict(),
     cover: z
       .object({
         _notes: z.string().optional(),
@@ -174,6 +194,26 @@ export const TuningSchema = z
          * fighting. TBD
          */
         flankTurnCost: z.number().nonnegative(),
+        /**
+         * How much a bot values ground that overlooks the conflict zone
+         * (Section 7.35). At 0 the measurement exists and no bot reads it,
+         * which is the state Section 7.31 described. TBD
+         */
+        conflictWeight: z.number().nonnegative(),
+        /**
+         * How often a bot looks for better ground, in ticks. The search costs
+         * about 25 candidate cells, so it does not belong on every tick of
+         * every bot. TBD
+         */
+        takePositionIntervalTicks: positiveInt,
+        /**
+         * How much better a candidate cell must be than the one the bot stands
+         * on. Without a margin a bot walks for a rounding difference and never
+         * arrives. TBD
+         */
+        takePositionMargin: z.number().min(1),
+        /** How far a bot will look for better ground, in cells. TBD */
+        takePositionRadiusCells: positiveNumber,
         /** A new action must score this much more than the current one. TBD */
         hysteresisMargin: z.number().min(1),
         /** A bot with a lower hazard tolerance walks around a hazard tile. TBD */
@@ -252,6 +292,8 @@ export const TuningSchema = z
             holdPosition: positiveNumber,
             reposition: positiveNumber,
             follow: positiveNumber,
+            /** Move to ground that overlooks the conflict zone (Section 7.35). */
+            takePosition: positiveNumber,
           })
           .strict(),
       })

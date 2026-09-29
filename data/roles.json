@@ -27,7 +27,8 @@
         "seekPickup": 0.8,
         "follow": 0.7,
         "reposition": 1.2,
-        "chase": 0.7
+        "chase": 0.7,
+        "takePosition": 1.6
       }
     },
     "tank": {
@@ -56,7 +57,8 @@
         "seekPickup": 1.3,
         "follow": 0.9,
         "reposition": 0.9,
-        "chase": 1.15
+        "chase": 1.15,
+        "takePosition": 0.6
       }
     },
     "skirmisher": {
@@ -85,7 +87,8 @@
         "seekPickup": 1.1,
         "follow": 1.4,
         "reposition": 1.15,
-        "chase": 1.1
+        "chase": 1.1,
+        "takePosition": 0.9
       }
     }
   },

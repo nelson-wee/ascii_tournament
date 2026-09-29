@@ -4244,6 +4244,112 @@ any further weapon tuning. **TBD**
   that an Overwatch bot works when two Tanks hold the close band in front of it
   and fails in any other mix. A sweep aimed at that question would settle it.
 
+## 7.35 The conflict zone, and an action that walks to it
+
+Section 7.34.4 said the blocker was not the weapon. Three weapon reworks, each
+fixing a real defect, and the Overwatch composition did not move once. The
+constraint was Section 7.31.2: **no action moves a bot to chosen ground.** This
+builds the measurement and the action together, because either alone changes
+nothing.
+
+### 7.35.1 What the arena now tells a bot
+
+`src/arena/conflict.ts` measures two fields per cell, once, when the arena is
+built:
+
+- **`contested`** — how evenly the two teams reach the cell. It is
+  `1 - |stepsA - stepsB| / conflict.contestedSpanSteps`, floored at 0, from the
+  two breadth-first walks that `pickupEvenness` already used. Both teams
+  arriving together means the ground is fought over. This is the conflict zone.
+- **`coverage`** — how much of that contested ground the cell can see, by the
+  same rule a weapon shoots along, out to `perception.sightRadiusCells`.
+  Normalised so the best cell of the arena reads 1.
+
+`coverage` is the number an Overwatch bot wants. On the three styles the
+conflict zone is 8 % to 12 % of the floor, and the centre of the map scores 0.85
+to 0.92 against 1.00 at the best cell — which is the bastion centre room saying
+what it is.
+
+The field hangs off `ArenaMap.conflict`, and `parseArenaText` fills it too, so a
+hand-drawn test arena behaves like a generated one. It is a walk of the grid with
+no RNG, so the same arena always gives the same field.
+
+### 7.35.2 The float line walk was not mirror-exact, and it was worth 0.059
+
+The first version of `cellSeesCell` sampled the line with floats and took
+`Math.floor`. The conflict field came out **asymmetric**: 90 cells on bastion,
+340 on openfield, 150 on cavern, differing from their own mirror image by as much
+as **0.059**. An arena is symmetric by construction, so a field that is not is a
+side bias with extra steps.
+
+A first probe of 20 000 random cell pairs found no disagreement, which was
+misleading — the geometry that breaks it is specific. Testing one asymmetric cell
+against every other cell found it at once:
+
+```
+from (31,3)->(27,14) = true    mirror (28,26)->(32,15) = false
+from (31,3)->(26,17) = true    mirror (28,26)->(33,12) = false
+```
+
+The cause is exact: a sample sits at `p = from.x + 0.5 + dx * i / steps`. Its
+mirror sits at `W - p`. And `floor(W - p)` equals `W - 1 - floor(p)` **only when
+`p` is not an integer**. For dx = −4 and steps = 24, `p` is an integer at
+i = 3, 9, 15 and 21, and there the mirrored walk reads a different column.
+
+So the walk is now integer arithmetic. The sample at step `i` is the exact
+rational `((2 * from + 1) * steps + 2 * d * i) / (2 * steps)`, every term an
+integer, so mirroring negates the numerator exactly. A sample that lands exactly
+on a cell boundary touches **both** neighbours and the line counts as blocked if
+either is a wall — a rule that is symmetric, because the pair of cells either
+side of a boundary maps to the pair either side of the mirrored boundary.
+
+The field is now exactly symmetric on all three styles, and a test holds it.
+
+### 7.35.3 `TakePosition`
+
+The seventh action, and the first that moves a bot to ground it chose:
+
+```
+groundValue(cell) = coverage(cell) * ai.conflictWeight      what it overlooks
+                  + coverFromVisible(cell) * cover.aiWeight  what shields it
+                  - min(0.4, danger(cell) * 0.05)            what threatens it
+```
+
+`bestGround` scans 24 candidates — eight bearings at three distances out to
+`ai.takePositionRadiusCells` — plus the cell the bot stands on. The bearings are
+rotations of a unit vector rather than angles, for the reason of Section 7.32.8.
+
+Two guards keep it honest:
+
+- **It runs every `ai.takePositionIntervalTicks`, not every tick.** A bot decides
+  every tick and the scan costs 24 candidate cells; the answer is kept on the bot
+  between searches.
+- **A candidate must beat the current cell by `ai.takePositionMargin`.** Without a
+  margin a bot walks for a rounding difference, arrives, finds the cell it left is
+  now better by the same rounding, and walks back.
+
+It answers to `holdPosition`, the same tactic as `HoldPosition`, because the two
+are halves of one idea: that tactic says how much a bot values ground at all. An
+Overwatch bot carries 0.75 of it and a Tank 0.3, so the role that needs a
+sightline goes looking for one and the role that needs a fight does not. The role
+`behavior` weights sharpen it further: Overwatch 1.6, Skirmisher 0.9, Tank 0.6.
+
+Four of the tests fail with `ai.conflictWeight` at zero, which is the check that
+they test the feature and not the scaffolding.
+
+### 7.35.4 What this does not do yet
+
+- **Tank and Skirmisher do not route around the conflict zone.** Section 7.31.2
+  wanted conflict exposure on the **path** to a pickup, so the two roles that
+  cross the map take the safer way. `groundValue` scores a destination, not a
+  route. **TBD**
+- **`contested` is unused by any bot.** Only `coverage` reaches a decision. A bot
+  that wanted to avoid the zone, rather than overlook it, would read the other
+  field. **TBD**
+- **Nothing is measured.** The next sweep is openfield, where the sight lines are
+  longest (p75 is 17.1 cells against 14.3 in cavern) and the long band should pay
+  the most.
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

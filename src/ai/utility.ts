@@ -38,6 +38,7 @@ import { hasAmmo, rangeBandsOf } from "../sim/combat.js";
 import { bandDistanceOf } from "../weapons/range.js";
 import { clearLine } from "../sim/attacks.js";
 import { coverAgainst, coverBandOf, coverFromVisible } from "../sim/cover.js";
+import { coverageAt } from "../arena/conflict.js";
 import { pickupValue } from "../sim/pickups.js";
 import { controlAt, dangerFor } from "./influence.js";
 import { findPath } from "./navigation.js";
@@ -47,6 +48,7 @@ export type Action =
   | { kind: "Chase"; targetId: string }
   | { kind: "SeekPickup"; slotId: string }
   | { kind: "HoldPosition"; cell: Cell }
+  | { kind: "TakePosition"; cell: Cell }
   | { kind: "Reposition"; band: RangeBand }
   | { kind: "Follow"; teammateId: string }
   | { kind: "Idle" };
@@ -593,6 +595,26 @@ export function scoreActions(state: SimState, bot: BotState): ScoredAction[] {
     tactics.holdPosition * 2,
   );
 
+  // TakePosition: walk to ground that overlooks the conflict zone
+  // (Section 7.35).
+  //
+  // Benefit: the bot ends up where the fight will be, with a sightline over it.
+  // Cost: it is not fighting or taking items while it walks, and the ground it
+  // leaves may be the ground it needed.
+  //
+  // It answers to the same tactic as HoldPosition, because they are two halves
+  // of one idea: `holdPosition` says how much a bot values ground at all. An
+  // Overwatch bot carries 0.75 of it and a Tank 0.3, so the role that needs a
+  // sightline goes looking for one and the role that needs a fight does not.
+  const ground = bestGround(state, bot);
+  if (ground) {
+    push(
+      { kind: "TakePosition", cell: ground },
+      (base["takePosition"] ?? 1) * groundValue(state, bot, ground),
+      tactics.holdPosition * 2,
+    );
+  }
+
   // Follow: a teammate is far away (cohesion).
   const mate = nearestTeammate(state, bot);
   if (mate) {
@@ -602,6 +624,82 @@ export function scoreActions(state: SimState, bot: BotState): ScoredAction[] {
   }
 
   return scored;
+}
+
+/**
+ * The bearings and the distances a bot looks along for better ground.
+ *
+ * Eight bearings at three distances, plus the cell it stands on, so 25
+ * candidates. The pattern is fixed and holds no RNG, and it is written as
+ * rotations of a unit vector rather than angles for the reason of
+ * Section 7.32.8: a mirrored input must give an exactly mirrored output.
+ */
+const SCAN_BEARINGS: readonly { x: number; y: number }[] = Array.from(
+  { length: 8 },
+  (_unused, i) => ({ x: Math.cos((i * Math.PI) / 4), y: Math.sin((i * Math.PI) / 4) }),
+);
+const SCAN_SHARES: readonly number[] = [0.35, 0.7, 1];
+
+/**
+ * What a cell is worth to stand on and shoot from (Section 7.35).
+ *
+ * Three terms, and the first is the new one:
+ *
+ * - **What it overlooks.** `coverageAt` is the share of the conflict zone the
+ *   cell can see. This is the arena measurement finally reaching a bot, which
+ *   Section 7.31.1 found it never did.
+ * - **What shields it.** The cover it has from the enemies in sight
+ *   (Section 7.32.4).
+ * - **What threatens it.** The danger map.
+ */
+function groundValue(state: SimState, bot: BotState, cell: Cell): number {
+  const overlook = coverageAt(state.map, cell.x, cell.y) * state.config.conflictWeight;
+  const shielded = coverFromVisible(state, bot, cell) * state.config.cover.aiWeight;
+  const danger = Math.min(0.4, dangerFor(state, bot, cell) * 0.05);
+  return Math.max(0, overlook + shielded - danger);
+}
+
+/**
+ * The best ground within reach, or `null` when the bot already stands on it.
+ *
+ * The answer is kept on the bot for `takePositionIntervalTicks`, because the
+ * search costs 25 candidate cells and a bot decides every tick.
+ *
+ * A candidate must beat the current cell by `takePositionMargin`. Without a
+ * margin a bot walks for a rounding difference, arrives, finds the cell it left
+ * is now better by the same rounding, and walks back.
+ */
+export function bestGround(state: SimState, bot: BotState): Cell | null {
+  const { config } = state;
+  if (state.tick - bot.positionGoalTick < config.takePositionIntervalTicks) {
+    return bot.positionGoal;
+  }
+  bot.positionGoalTick = state.tick;
+
+  const here = botCell(bot);
+  const floor = groundValue(state, bot, here) * config.takePositionMargin;
+  let best: Cell | null = null;
+  let bestValue = floor;
+
+  for (const share of SCAN_SHARES) {
+    const reach = config.takePositionRadiusCells * share;
+    for (const bearing of SCAN_BEARINGS) {
+      const cell = {
+        x: Math.min(state.map.width - 1, Math.max(0, Math.floor(here.x + 0.5 + bearing.x * reach))),
+        y: Math.min(state.map.height - 1, Math.max(0, Math.floor(here.y + 0.5 + bearing.y * reach))),
+      };
+      if (cell.x === here.x && cell.y === here.y) continue;
+      if (!isWalkable(tileAt(state.map, cell.x, cell.y))) continue;
+      const value = groundValue(state, bot, cell);
+      if (value > bestValue) {
+        bestValue = value;
+        best = cell;
+      }
+    }
+  }
+
+  bot.positionGoal = best;
+  return best;
 }
 
 /**
@@ -875,6 +973,19 @@ export function applyAction(state: SimState, bot: BotState, action: Action): voi
     case "Follow": {
       const mate = findBot(state, action.teammateId);
       if (!mate?.alive || !pathTo(state, bot, botCell(mate))) bot.path = [];
+      return;
+    }
+    case "TakePosition": {
+      const at = botCell(bot);
+      if (at.x === action.cell.x && at.y === action.cell.y) {
+        bot.path = [];
+        return;
+      }
+      if (!pathTo(state, bot, action.cell)) {
+        // Nothing reaches it, so do not choose it again until the next search.
+        bot.positionGoal = null;
+        bot.path = [];
+      }
       return;
     }
     case "HoldPosition":

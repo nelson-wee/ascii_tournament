@@ -22,6 +22,8 @@
  * file (row-major). The same file always gives the same slot ids.
  */
 import type { Cell } from "../core/types.js";
+import { measureConflict } from "./conflict.js";
+import { conflictOptions } from "./conflictOptions.js";
 import { Tile, type ArenaMap, type PickupKind, type PickupPoint } from "./types.js";
 import { orderSpawnsForFairness } from "./spawnOrder.js";
 
@@ -153,7 +155,7 @@ export function parseArenaText(text: string, options: ParseArenaOptions = {}): A
     throw new ArenaParseError(source, `the map has ${spawns.length} spawn cells, but 2 is the minimum`);
   }
 
-  return {
+  const map: ArenaMap = {
     name: header["name"] ?? source,
     source,
     width,
@@ -164,6 +166,10 @@ export function parseArenaText(text: string, options: ParseArenaOptions = {}): A
     spawns: orderSpawnsForFairness(spawns, width, height, options.teamSize ?? 3),
     pickups,
   };
+  // A parsed map gets the conflict field too (Section 7.35), so a test arena and
+  // a generated one behave the same way. It is one walk of the grid.
+  map.conflict = measureConflict(map, conflictOptions());
+  return map;
 }
 
 /**
