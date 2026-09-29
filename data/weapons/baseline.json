@@ -8,6 +8,8 @@
   "damage": 14,
   "fireIntervalTicks": 12,
   "rangeMax": 30,
+  "optimalRange": 12,
+  "rangeTolerance": 16,
   "projectileSpeed": null,
   "aoeRadius": 0,
   "coneHalfAngle": 0,
@@ -29,9 +31,9 @@
     "long": 6
   },
   "dpsProfile": {
-    "close": 12.8,
-    "mid": 12.8,
-    "long": 12.8
+    "close": 8.98,
+    "mid": 12.59,
+    "long": 9.58
   },
   "budgetUsed": 0,
   "hazardDamagePerTick": 0

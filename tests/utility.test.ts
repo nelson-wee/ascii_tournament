@@ -136,14 +136,37 @@ describe("tactics change the weights", () => {
     );
   });
 
-  it("the head of rangePref sets the band of Reposition", () => {
+  it("the head of rangePref sets the band of Reposition, when the weapon is neutral", () => {
+    // `rangePref` is a BIAS on the weapon a bot is holding, not a command
+    // (Section 7.33.8). Give it a weapon with no opinion of its own and the
+    // tactic is the only signal left, so it decides.
     for (const band of ["close", "mid", "long"] as const) {
       const rest = (["close", "mid", "long"] as const).filter((other) => other !== band);
       const state = roomState({ rangePref: [band, rest[0]!, rest[1]!] });
       const [bot] = face(state, 4);
+      bot.weapon = {
+        ...loadBaselineWeapon(),
+        rangeMax: 26,
+        dpsProfile: { close: 20, mid: 20, long: 20 },
+      };
       const action = scoreActions(state, bot).find((c) => c.action.kind === "Reposition")?.action;
       if (action?.kind === "Reposition") expect(action.band).toBe(band);
     }
+  });
+
+  it("lets the weapon overrule the tactic when it has a strong opinion", () => {
+    // The other half of the same contract. A bot that prefers the close band and
+    // carries a marksman weapon fights at long range, because a preference that
+    // beats the weapon in your hands is a preference for missing.
+    const state = roomState({ rangePref: ["close", "mid", "long"] });
+    const [bot] = face(state, 4);
+    bot.weapon = {
+      ...loadBaselineWeapon(),
+      rangeMax: 26,
+      dpsProfile: { close: 4, mid: 18, long: 60 },
+    };
+    const action = scoreActions(state, bot).find((c) => c.action.kind === "Reposition")?.action;
+    if (action?.kind === "Reposition") expect(action.band).toBe("long");
   });
 
   it("gives every band its own distance", () => {

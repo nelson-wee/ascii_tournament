@@ -10,10 +10,6 @@
         6,
         10
       ],
-      "rangeMax": [
-        17,
-        26
-      ],
       "ammoMax": [
         40,
         80
@@ -26,11 +22,6 @@
         "targetStationary",
         "targetUnaware"
       ],
-      "bandMultiplier": {
-        "close": 1.0,
-        "mid": 1.0,
-        "long": 0.95
-      },
       "reactionByBand": {
         "close": [
           2,
@@ -59,6 +50,14 @@
         "Needle",
         "Eye",
         "Thorn"
+      ],
+      "optimalRange": [
+        11,
+        16
+      ],
+      "rangeTolerance": [
+        9,
+        13
       ]
     },
     "assault": {
@@ -69,10 +68,6 @@
       "fireIntervalTicks": [
         3,
         6
-      ],
-      "rangeMax": [
-        14,
-        24
       ],
       "ammoMax": [
         80,
@@ -85,11 +80,6 @@
       "critConditions": [
         "targetUnaware"
       ],
-      "bandMultiplier": {
-        "close": 1.3,
-        "mid": 0.9,
-        "long": 0.45
-      },
       "reactionByBand": {
         "close": [
           1,
@@ -118,6 +108,14 @@
         "Chatter",
         "Swarm",
         "Rake"
+      ],
+      "optimalRange": [
+        4,
+        9
+      ],
+      "rangeTolerance": [
+        6,
+        10
       ]
     },
     "sniper": {
@@ -128,10 +126,6 @@
       "fireIntervalTicks": [
         16,
         28
-      ],
-      "rangeMax": [
-        23,
-        29
       ],
       "ammoMax": [
         16,
@@ -144,11 +138,6 @@
       "critConditions": [
         "targetStationary"
       ],
-      "bandMultiplier": {
-        "close": 0.5,
-        "mid": 0.95,
-        "long": 1.35
-      },
       "reactionByBand": {
         "close": [
           7,
@@ -177,6 +166,14 @@
         "Longbore",
         "Vigil",
         "Spire"
+      ],
+      "optimalRange": [
+        17,
+        22
+      ],
+      "rangeTolerance": [
+        6,
+        9
       ]
     },
     "heavy": {
@@ -187,10 +184,6 @@
       "fireIntervalTicks": [
         12,
         22
-      ],
-      "rangeMax": [
-        18,
-        29
       ],
       "ammoMax": [
         24,
@@ -203,11 +196,6 @@
       "critConditions": [
         "targetStationary"
       ],
-      "bandMultiplier": {
-        "close": 1.2,
-        "mid": 1.05,
-        "long": 0.75
-      },
       "reactionByBand": {
         "close": [
           6,
@@ -236,6 +224,14 @@
         "Anvil",
         "Breaker",
         "Cinder"
+      ],
+      "optimalRange": [
+        5,
+        10
+      ],
+      "rangeTolerance": [
+        5,
+        8
       ]
     }
   },
@@ -374,21 +370,23 @@
     "ammoPickupShare": [
       0.8,
       1.0
-    ]
+    ],
+    "rangeToleranceMinCells": 1.5,
+    "toleranceReachExponent": 0.5
   },
   "budget": {
     "target": 100,
     "tolerance": 12,
     "dpsWeight": 2.7,
-    "rangeWeight": 0.35,
     "critWeight": 22,
     "lineWeight": 9,
     "ricochetWeight": 4,
     "reactionDiscount": 1.6,
     "ammoWeight": 0.025,
-    "rangeValueCapCells": 26,
-    "rangeValueTailShare": 0.45,
-    "rangeHeadroomShare": 1.15
+    "rangeHeadroomShare": 1.15,
+    "optimalRangeWeight": 0.35,
+    "rangeToleranceWeight": 0.55,
+    "rangeGateTolerances": 1.5
   },
   "value": {
     "_notes": "How much a weapon is expected to gain from an area, a pierce, damage over time, and a hazard tile, and how often each attack type lands. The DPS profile carries all of these, so the budget does not charge for them twice. TBD",

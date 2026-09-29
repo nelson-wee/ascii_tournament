@@ -88,7 +88,23 @@ export interface Weapon {
   attackType: AttackType;
   damage: number;
   fireIntervalTicks: number;
+  /**
+   * The furthest a bot fires this weapon, in cells. It is the **gate**, and
+   * nothing else: `rangeGateOf` derives it from the range curve, so a weapon can
+   * never fire at a distance its own curve says it cannot hit (Section 7.33).
+   */
   rangeMax: number;
+  /**
+   * The distance the weapon is built for, in cells. Accuracy peaks here and
+   * falls away on **both** sides (Section 7.33).
+   */
+  optimalRange: number;
+  /**
+   * How far from `optimalRange` the weapon stays useful, in cells. At one full
+   * tolerance of deviation it has lost `combat.distanceFalloff` of its accuracy.
+   * A wide tolerance is a versatile weapon, and the budget charges for it.
+   */
+  rangeTolerance: number;
   /** Cells per tick. `null` for an attack type that arrives at once. */
   projectileSpeed: number | null;
   /** 0 = no area damage. */

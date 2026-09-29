@@ -89,8 +89,19 @@ export const TuningSchema = z
         stationaryTicksForCrit: positiveInt,
         /** Ticks of movement before a bot gets its full dodge. TBD */
         dodgeRampTicks: positiveInt,
-        /** How much the hit chance falls across the full range of a weapon. TBD */
+        /**
+         * How much of its accuracy a weapon loses at one full `rangeTolerance`
+         * of deviation from its optimal range (Section 7.33). It used to mean
+         * "across the full range of a weapon", measured from the muzzle, which
+         * said every weapon was at its best at point-blank range. TBD
+         */
         distanceFalloff: unitRange,
+        /**
+         * The least a weapon keeps from range alone, however far off its band.
+         * A shot at a hopeless distance is still a shot, and `minHitChance`
+         * floors the whole chance after the dodge and the evasion. TBD
+         */
+        rangeFloorShare: unitRange,
         /** How much a moving target lowers the hit chance. TBD */
         movingTargetPenalty: unitRange,
         /** The lowest hit chance, whatever the distance. TBD */
@@ -558,11 +569,23 @@ export const WeaponRolesSchema = z
         .object({
           damage: range,
           fireIntervalTicks: range,
-          rangeMax: range,
+          /**
+           * The distance the role is built for, in cells (Section 7.33).
+           * Accuracy peaks here and falls away on both sides, so this is what
+           * makes a sniper miss in your face and a shotgun miss across a hall.
+           * The attack type shifts it by `rangeFactor`. TBD
+           */
+          optimalRange: range,
+          /**
+           * How far from `optimalRange` the role stays useful, in cells. At one
+           * full tolerance of deviation it has lost `combat.distanceFalloff` of
+           * its accuracy. A wide tolerance is a versatile weapon, and the budget
+           * charges for it. TBD
+           */
+          rangeTolerance: range,
           ammoMax: range,
           critChance: range,
           critConditions: z.array(z.string()),
-          bandMultiplier: bandValues,
           reactionByBand: bandRanges,
           attackTypeWeights: z.record(z.enum(ATTACK_TYPE_NAMES), z.number().nonnegative()),
           nameWords: z.array(z.string().min(1)).min(1),
@@ -573,6 +596,12 @@ export const WeaponRolesSchema = z
       z.enum(ATTACK_TYPE_NAMES),
       z
         .object({
+          /**
+           * How the **travel** of this shot fares in each band, not where the
+           * weapon works: a projectile is easier to step out of the way of at
+           * long range. The range curve of Section 7.33 carries where the
+           * weapon works, and the two do not overlap. TBD
+           */
           bandMultiplier: bandValues,
           reactionAdd: z.number().nonnegative(),
           /**
@@ -600,6 +629,24 @@ export const WeaponRolesSchema = z
         aoeRadius: range,
         coneHalfAngleDegrees: range,
         coneRangeFactor: unitRange,
+        /**
+         * The narrowest range tolerance any weapon may have, in cells
+         * (Section 7.33). A cone scales its tolerance down with its reach,
+         * and without a floor a short cone becomes a pinpoint weapon that
+         * misses everything half a cell off its best distance. TBD
+         */
+        rangeToleranceMinCells: positiveNumber,
+        /**
+         * How hard the attack type's `rangeFactor` pulls the range
+         * tolerance down, as an exponent. 1 scales it in full, 0 leaves it
+         * alone, 0.5 is a square root.
+         *
+         * A weapon built for half the distance is not half as fussy about
+         * it. At 1 a cone came out with an optimal range of 1.5 cells and a
+         * tolerance of 1.5, so it sat at its accuracy floor at 4 cells --
+         * inside the close band it is meant to own (Section 7.33.5). TBD
+         */
+        toleranceReachExponent: unitRange,
         ricochetBounces: range,
         hazardTicks: range,
         hazardRadius: range,
@@ -656,34 +703,36 @@ export const WeaponRolesSchema = z
         target: positiveNumber,
         tolerance: positiveNumber,
         dpsWeight: z.number().nonnegative(),
-        rangeWeight: z.number().nonnegative(),
+        /** What a cell of optimal range costs. Far ground is safer ground. TBD */
+        optimalRangeWeight: z.number().nonnegative(),
+        /**
+         * What a cell of range tolerance costs. A wide sweet spot is good in
+         * every fight, so it is the one range number with no downside and it
+         * must be paid for. TBD
+         */
+        rangeToleranceWeight: z.number().nonnegative(),
+        /**
+         * How many tolerances past the optimal range a bot still takes the shot.
+         * It derives `rangeMax`, so a weapon can never fire where its own curve
+         * says it cannot hit (Section 7.33.3). TBD
+         */
+        rangeGateTolerances: z.number().nonnegative(),
         critWeight: z.number().nonnegative(),
         lineWeight: z.number().nonnegative(),
         ricochetWeight: z.number().nonnegative(),
         reactionDiscount: z.number().nonnegative(),
         ammoWeight: z.number().nonnegative(),
         /**
-         * The budget stops paying full price for reach past this distance, in
-         * cells. Keep it at `perception.sightRadiusCells`: a bot cannot fight
-         * at a distance it cannot see, so reach past the sight radius is reach
-         * the budget would charge for nothing (Section 7.30.3). TBD
-         */
-        rangeValueCapCells: positiveNumber,
-        /**
-         * What a cell of reach past the cap is worth, against a cell inside it.
-         * A hard cut gave the sniper role 9 points of budget back and it took
-         * 29 % of the kills, so the tail has a price, not a wall. TBD
-         */
-        rangeValueTailShare: unitRange,
-        /**
-         * How far past `perception.sightRadiusCells` a generated `rangeMax` may
-         * reach, as a share of it. 1.15 gives a little headroom for a shot that
-         * is already in the air when the target steps out of sight.
+         * How far past `perception.sightRadiusCells` an optimal range or a range
+         * gate may reach, as a share of it. 1.15 gives a little headroom for a
+         * shot that is already in the air when the target steps out of sight.
          *
          * Before this, a marksman was generated with a mean `rangeMax` of 47.1
          * cells while a bot saw 26. Twenty one cells of that reach could never
-         * hold a visible target, and the weapon still paid about 9.5 cells of
-         * full-price reach for them (Section 7.30.7). TBD
+         * hold a visible target, and the weapon paid about 9.5 cells of
+         * full-price reach for them (Section 7.30.7). The cap and the tail share
+         * that used to sit here are gone: an optimal range bounded by the sight
+         * radius has no tail to price (Section 7.33.4). TBD
          */
         rangeHeadroomShare: z.number().min(1),
       })
@@ -735,7 +784,12 @@ export const WeaponSchema = z
     attackType: z.enum(ATTACK_TYPE_NAMES),
     damage: positiveNumber,
     fireIntervalTicks: positiveInt,
+    /** The furthest a bot fires this weapon, in cells. Derived (Section 7.33). */
     rangeMax: positiveNumber,
+    /** The distance the weapon is built for. Accuracy peaks here. */
+    optimalRange: positiveNumber,
+    /** How far from `optimalRange` it stays useful, in cells. */
+    rangeTolerance: positiveNumber,
     projectileSpeed: positiveNumber.nullable(),
     aoeRadius: z.number().nonnegative(),
     coneHalfAngle: z.number().nonnegative(),

@@ -18,6 +18,11 @@
 import { canSee, isUnaware } from "../ai/perception.js";
 import { POWERUP_TIER, type RangeBand, type Weapon } from "../weapons/types.js";
 import {
+  rangeAccuracy,
+  type RangeBands,
+  type RangeFalloff,
+} from "../weapons/range.js";
+import {
   applyConeDamage,
   applyLineDamage,
   areaTargetsIfAimedAt,
@@ -113,17 +118,33 @@ export function dodgeOf(state: SimState, target: BotState): number {
   return Math.min(0.9, ramp * config.movingTargetPenalty + target.tactics.evasion * 0.15);
 }
 
+/** The shape of the range curve, from the config (Section 7.33). */
+export function rangeFalloffOf(state: SimState): RangeFalloff {
+  return {
+    distanceFalloff: state.config.distanceFalloff,
+    rangeFloorShare: state.config.rangeFloorShare,
+  };
+}
+
+/** The band boundaries, from the config. */
+export function rangeBandsOf(state: SimState): RangeBands {
+  return { closeMax: state.config.rangeBandCloseMax, midMax: state.config.rangeBandMidMax };
+}
+
 /**
  * The chance that a shot hits.
  *
- * The chance falls with the distance and with the dodge of the target
- * (Section 7.3). Every number is a placeholder. TBD
+ * The range term is the **deviation from the optimal range** of the weapon, not
+ * a share of its maximum reach (Section 7.33). So a shotgun misses across a hall
+ * and a sniper misses in your face, and the simulation finally agrees with the
+ * `dpsProfile` that the budget charged for and the AI chose a band by.
+ *
+ * Every number is a placeholder. TBD
  */
 export function hitChance(state: SimState, shooter: BotState, target: BotState): number {
   const { config } = state;
   const distance = distanceBetween(shooter, target);
-  const reach = Math.min(1, distance / shooter.weapon.rangeMax);
-  let chance = shooter.attributes.accuracy * (1 - reach * config.distanceFalloff);
+  let chance = shooter.attributes.accuracy * rangeAccuracy(shooter.weapon, distance, rangeFalloffOf(state));
   chance *= 1 - dodgeOf(state, target);
   // Section 7.5: evasion lowers the accuracy of the bot that evades.
   chance *= 1 - shooter.tactics.evasion * config.evasionAccuracyPenalty;
@@ -367,11 +388,11 @@ function tryIntercept(state: SimState, bot: BotState): boolean {
     rangeBand: band,
     visual: shotVisual(bot.weapon),
   });
-  // A shot in the air is a small target, and the bot is not one: the hit
-  // chance falls with the distance alone.
+  // A shot in the air is a small target, and the bot is not one: there is no
+  // dodge and no evasion, only the range curve of the weapon (Section 7.33).
   const chance = Math.max(
     state.config.minHitChance,
-    bot.attributes.accuracy * (1 - state.config.distanceFalloff * (distance / bot.weapon.rangeMax)),
+    bot.attributes.accuracy * rangeAccuracy(bot.weapon, distance, rangeFalloffOf(state)),
   );
   if (bot.rng.bool(chance)) damageProjectile(state, shot, bot.weapon.damage);
   spendAmmo(state, bot);

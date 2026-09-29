@@ -8,6 +8,8 @@
   "damage": 120,
   "fireIntervalTicks": 20,
   "rangeMax": 60,
+  "optimalRange": 15,
+  "rangeTolerance": 45,
   "projectileSpeed": 0.85,
   "aoeRadius": 6,
   "coneHalfAngle": 0,
@@ -28,9 +30,9 @@
     "long": 5
   },
   "dpsProfile": {
-    "close": 120,
-    "mid": 120,
-    "long": 120
+    "close": 102.4,
+    "mid": 114.4,
+    "long": 114.0
   },
   "budgetUsed": 0,
   "homingTurnRate": 0.09,

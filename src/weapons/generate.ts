@@ -16,6 +16,13 @@ import { loadBaselineWeapon, loadTuning, loadWeaponRoles } from "../core/data.js
 import type { Rng } from "../core/rng.js";
 import type { WeaponRoles } from "../core/schemas.js";
 import {
+  bandAccuracyOf,
+  bandDistanceOf,
+  rangeGateOf,
+  type RangeBands,
+  type RangeFalloff,
+} from "./range.js";
+import {
   RANGE_BANDS,
   ROLE_TRAITS,
   isProjectileType,
@@ -59,7 +66,7 @@ function rollWeighted<T extends string>(rng: Rng, weights: Readonly<Record<strin
  * the AI takes a weapon that the budget calls weak, or it leaves the value
  * that the budget charged for.
  */
-function expectedTargets(draft: Omit<WeaponDraft, "perDamageDps" | "flatDps">, tables: WeaponRoles): number {
+function expectedTargets(draft: Omit<WeaponDraft, "perDamageDps" | "flatDps" | "bandReach">, tables: WeaponRoles): number {
   const { value } = tables;
   if (draft.attackType === "burst") {
     return 1 + Math.min(value.aoeTargetsMax, draft.aoeRadius * value.aoeTargetsPerRadius);
@@ -76,7 +83,7 @@ function expectedTargets(draft: Omit<WeaponDraft, "perDamageDps" | "flatDps">, t
  * time, and the hazard tiles. It does not change with the damage of a shot.
  */
 function flatDpsOf(
-  draft: Omit<WeaponDraft, "perDamageDps" | "flatDps">,
+  draft: Omit<WeaponDraft, "perDamageDps" | "flatDps" | "bandReach">,
   tables: WeaponRoles,
   ticksPerSecond: number,
 ): number {
@@ -98,7 +105,9 @@ function flatDpsOf(
 /** The DPS at one range band, per point of damage. */
 function dpsPerDamage(
   band: keyof BandValues,
-  roleMultiplier: BandValues,
+  /** What the range curve keeps at this band (Section 7.33). */
+  rangeMultiplier: BandValues,
+  /** How the travel of this shot fares at this band. */
   attackMultiplier: BandValues,
   fireIntervalTicks: number,
   ticksPerSecond: number,
@@ -106,14 +115,17 @@ function dpsPerDamage(
   accuracyFactor: number,
 ): number {
   const shotsPerSecond = ticksPerSecond / fireIntervalTicks;
-  return shotsPerSecond * roleMultiplier[band] * attackMultiplier[band] * targets * accuracyFactor;
+  return shotsPerSecond * rangeMultiplier[band] * attackMultiplier[band] * targets * accuracyFactor;
 }
 
 export interface WeaponDraft {
   role: RoleTrait;
   attackType: AttackType;
   fireIntervalTicks: number;
+  /** Derived from the curve by `rangeGateOf`, never rolled (Section 7.33). */
   rangeMax: number;
+  optimalRange: number;
+  rangeTolerance: number;
   ammoMax: number;
   critChance: number;
   critConditions: string[];
@@ -128,6 +140,11 @@ export interface WeaponDraft {
   hazardDamagePerTick: number;
   ammoPickupShare: number;
   reactionByBand: BandValues;
+  /**
+   * 1 for a band the weapon can fire in, 0 for one it cannot (Section 7.33.6).
+   * It gates every term of the DPS profile, the burn included.
+   */
+  bandReach: BandValues;
   /** The DPS per point of damage, per band. It holds the expected targets. */
   perDamageDps: BandValues;
   /** The DPS that does not come from the damage of a shot. */
@@ -157,11 +174,16 @@ export function fixedCost(draft: WeaponDraft, tables: WeaponRoles): number {
   const { budget } = tables;
   const meanReaction = bandMean(draft.reactionByBand, tables);
   let cost = 0;
-  // Reach past the distance the arena uses is worth less, not nothing: the
-  // long band is 1 % of shots, and a weapon that covers it still covers it.
-  const inside = Math.min(draft.rangeMax, budget.rangeValueCapCells);
-  const tail = Math.max(0, draft.rangeMax - budget.rangeValueCapCells);
-  cost += (inside + tail * budget.rangeValueTailShare) * budget.rangeWeight;
+  // Section 7.33: the budget prices the two numbers that say where the weapon
+  // works. Far ground is safer ground, so a distant optimal range costs; and a
+  // wide tolerance is good in every fight with no downside at all, so it costs
+  // more per cell than the optimal range does.
+  //
+  // The cap and the tail share that used to sit here are gone. They existed to
+  // stop the budget paying for reach past the sight radius, and an optimal range
+  // bounded by the sight radius has no tail to price.
+  cost += draft.optimalRange * budget.optimalRangeWeight;
+  cost += draft.rangeTolerance * budget.rangeToleranceWeight;
   cost += draft.critChance * budget.critWeight;
   // A line and a ricochet reach past a wall or a corner. The DPS profile does
   // not hold that, so the budget charges for it here.
@@ -182,10 +204,12 @@ export function costOf(draft: WeaponDraft, damage: number, tables: WeaponRoles):
 
 /** The full DPS profile of a draft at a damage value. */
 export function dpsProfileOf(draft: WeaponDraft, damage: number): BandValues {
+  // `bandReach` gates the burn as well as the shot: a weapon that cannot fire at
+  // a distance cannot set anything alight there (Section 7.33.6).
   return {
-    close: draft.perDamageDps.close * damage + draft.flatDps,
-    mid: draft.perDamageDps.mid * damage + draft.flatDps,
-    long: draft.perDamageDps.long * damage + draft.flatDps,
+    close: (draft.perDamageDps.close * damage + draft.flatDps) * draft.bandReach.close,
+    mid: (draft.perDamageDps.mid * damage + draft.flatDps) * draft.bandReach.mid,
+    long: (draft.perDamageDps.long * damage + draft.flatDps) * draft.bandReach.long,
   };
 }
 
@@ -207,6 +231,8 @@ function buildDraft(
   tables: WeaponRoles,
   ticksPerSecond: number,
   rangeCapCells: number,
+  bands: RangeBands,
+  falloff: RangeFalloff,
 ): WeaponDraft {
   const roleData = tables.roles[role];
   if (!roleData) throw new Error(`data/weapon-roles.json has no role "${role}"`);
@@ -223,19 +249,26 @@ function buildDraft(
     1,
     Math.round(rollIntRange(rng, roleData.fireIntervalTicks as Range) * attackData.intervalFactor),
   );
-  // A cone takes its own reach factor here, and not at damage time, so that
-  // `rangeMax` is the distance the weapon really covers. The AI reads it to
-  // decide whether it can fire, and the budget prices it.
+  // A cone takes its own reach factor here, and not at damage time, so that the
+  // optimal range is the distance the weapon really works at. The AI reads the
+  // curve to choose a band, and the budget prices it.
   const coneReach = attackType === "cone" ? shape.coneRangeFactor : 1;
-  // The reach is clamped at the distance a bot can see, plus the headroom of
-  // `budget.rangeHeadroomShare` (Section 7.30.7). A marksman used to roll a
-  // mean reach of 47.1 cells against a sight radius of 26, so a third of its
-  // reach could never hold a visible target and the budget charged for it
-  // anyway. The roll still shapes the reach inside that limit; it can no longer
-  // sell the role ground that does not exist.
-  const rangeMax = Math.min(
+  // Where this weapon works (Section 7.33). The attack type moves the optimal
+  // range and the tolerance together, by the same factor: a cone is built for a
+  // short distance AND is unforgiving about it, which is what a cone is.
+  //
+  // The optimal range is clamped at the distance a bot can see. A weapon built
+  // for ground that no bot can stand on and see is the defect of
+  // Section 7.30.7, and it used to reach the roll through `rangeMax`.
+  const reachFactor = attackData.rangeFactor * coneReach;
+  const optimalRange = Math.min(
     rangeCapCells,
-    rollRange(rng, roleData.rangeMax as Range) * attackData.rangeFactor * coneReach,
+    Math.max(1, rollRange(rng, roleData.optimalRange as Range) * reachFactor),
+  );
+  const rangeTolerance = Math.max(
+    shape.rangeToleranceMinCells,
+    rollRange(rng, roleData.rangeTolerance as Range) *
+      reachFactor ** shape.toleranceReachExponent,
   );
   const ammoMax = Math.max(
     1,
@@ -266,11 +299,21 @@ function buildDraft(
   const hazardDamagePerTick =
     attackType === "tile" ? rollRange(rng, shape.hazardDamagePerTick as Range) : 0;
 
+  // `rangeMax` is derived last, because it comes from the curve.
+  const rangeMax = rangeGateOf(
+    { optimalRange, rangeTolerance },
+    tables.budget.rangeGateTolerances,
+    bands,
+    rangeCapCells,
+  );
+
   const partial = {
     role,
     attackType,
     fireIntervalTicks,
     rangeMax,
+    optimalRange,
+    rangeTolerance,
     ammoMax,
     critChance,
     critConditions: [...roleData.critConditions],
@@ -293,13 +336,36 @@ function buildDraft(
   // number that the simulation never pays out.
   const accuracy =
     attackData.accuracyFactor * (attackType === "cone" ? tables.value.coneFadeShare : 1);
+  // The role's own `bandMultiplier` is gone: it WAS the range identity of the
+  // role, said in three discrete numbers that the simulation did not read. The
+  // curve says it once, and `hitChance` reads the same function (Section 7.33).
+  // `attackData.bandMultiplier` stays, because it says something else: how the
+  // TRAVEL of the shot fares by band.
+  const byBand = bandAccuracyOf(partial, bands, falloff);
+  // A band the weapon cannot fire in earns nothing at all. A cone is gated at
+  // about 8 cells and the mid band stands for 11.5, so its mid and long DPS were
+  // a fiction that `bandMean` still charged 59 % of the budget weight for -- the
+  // dead-reach defect of Section 7.30.7 said again, from the other end
+  // (Section 7.33.6).
+  //
+  // `bandReach` gates BOTH terms of the profile. Damage over time and a hazard
+  // tile arrive through `flatDps`, which is the same in every band, and a burn
+  // needs a shot that landed: a weapon that cannot fire at a distance cannot set
+  // anything alight there either.
+  const bandReach: BandValues = { close: 1, mid: 1, long: 1 };
+  for (const band of RANGE_BANDS) {
+    if (bandDistanceOf(band, bands) > partial.rangeMax) {
+      bandReach[band] = 0;
+      byBand[band] = 0;
+    }
+  }
   const perDamageDps: BandValues = {
-    close: dpsPerDamage("close", roleData.bandMultiplier, attackData.bandMultiplier, fireIntervalTicks, ticksPerSecond, targets, accuracy),
-    mid: dpsPerDamage("mid", roleData.bandMultiplier, attackData.bandMultiplier, fireIntervalTicks, ticksPerSecond, targets, accuracy),
-    long: dpsPerDamage("long", roleData.bandMultiplier, attackData.bandMultiplier, fireIntervalTicks, ticksPerSecond, targets, accuracy),
+    close: dpsPerDamage("close", byBand, attackData.bandMultiplier, fireIntervalTicks, ticksPerSecond, targets, accuracy),
+    mid: dpsPerDamage("mid", byBand, attackData.bandMultiplier, fireIntervalTicks, ticksPerSecond, targets, accuracy),
+    long: dpsPerDamage("long", byBand, attackData.bandMultiplier, fireIntervalTicks, ticksPerSecond, targets, accuracy),
   };
 
-  return { ...partial, perDamageDps, flatDps: flatDpsOf(partial, tables, ticksPerSecond) };
+  return { ...partial, bandReach, perDamageDps, flatDps: flatDpsOf(partial, tables, ticksPerSecond) };
 }
 
 export interface WeaponTier {
@@ -321,6 +387,10 @@ export interface GenerateOptions {
    * `perception.sightRadiusCells`.
    */
   sightRadiusCells?: number;
+  /** The band boundaries. It defaults to the `combat` block of the tuning. */
+  bands?: RangeBands;
+  /** The shape of the range curve. It defaults to the `combat` block. */
+  falloff?: RangeFalloff;
 }
 
 /** Take a tier from the weighted list. */
@@ -397,8 +467,17 @@ export function generateWeapon(
   const tables = options.tables ?? loadWeaponRoles();
   const ticksPerSecond = options.ticksPerSecond ?? 20;
   const maxTries = options.maxTries ?? 24;
-  const sightRadiusCells = options.sightRadiusCells ?? loadTuning().perception.sightRadiusCells;
+  const tuning = loadTuning();
+  const sightRadiusCells = options.sightRadiusCells ?? tuning.perception.sightRadiusCells;
   const rangeCapCells = sightRadiusCells * tables.budget.rangeHeadroomShare;
+  const bands: RangeBands = options.bands ?? {
+    closeMax: tuning.combat.rangeBandCloseMax,
+    midMax: tuning.combat.rangeBandMidMax,
+  };
+  const falloff: RangeFalloff = options.falloff ?? {
+    distanceFalloff: tuning.combat.distanceFalloff,
+    rangeFloorShare: tuning.combat.rangeFloorShare,
+  };
   const roleData = tables.roles[role];
   if (!roleData) throw new Error(`data/weapon-roles.json has no role "${role}"`);
   const damageRange = roleData.damage as Range;
@@ -409,7 +488,7 @@ export function generateWeapon(
   const target = tables.budget.target * tier.budgetFactor;
 
   for (let attempt = 0; attempt < maxTries; attempt += 1) {
-    const draft = buildDraft(rng, role, tables, ticksPerSecond, rangeCapCells);
+    const draft = buildDraft(rng, role, tables, ticksPerSecond, rangeCapCells, bands, falloff);
     const meanPerDamage = bandMean(draft.perDamageDps, tables);
     if (meanPerDamage <= 0) continue;
 
@@ -442,6 +521,8 @@ export function generateWeapon(
       damage,
       fireIntervalTicks: draft.fireIntervalTicks,
       rangeMax: Math.round(draft.rangeMax * 10) / 10,
+      optimalRange: Math.round(draft.optimalRange * 10) / 10,
+      rangeTolerance: Math.round(draft.rangeTolerance * 10) / 10,
       projectileSpeed: draft.projectileSpeed,
       aoeRadius: draft.aoeRadius,
       coneHalfAngle: draft.coneHalfAngle,

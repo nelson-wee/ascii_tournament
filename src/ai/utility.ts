@@ -34,7 +34,8 @@ import {
   rangeWeight,
   weaponWeight,
 } from "../sim/state.js";
-import { hasAmmo } from "../sim/combat.js";
+import { hasAmmo, rangeBandsOf } from "../sim/combat.js";
+import { bandDistanceOf } from "../weapons/range.js";
 import { clearLine } from "../sim/attacks.js";
 import { coverAgainst, coverBandOf, coverFromVisible } from "../sim/cover.js";
 import { pickupValue } from "../sim/pickups.js";
@@ -148,10 +149,7 @@ export function healthFraction(state: SimState, bot: BotState): number {
 
 /** The middle distance of a range band, in cells. */
 export function bandDistance(state: SimState, band: RangeBand): number {
-  const { rangeBandCloseMax, rangeBandMidMax } = state.config;
-  if (band === "close") return rangeBandCloseMax / 2;
-  if (band === "mid") return (rangeBandCloseMax + rangeBandMidMax) / 2;
-  return rangeBandMidMax * 1.25;
+  return bandDistanceOf(band, rangeBandsOf(state));
 }
 
 /**

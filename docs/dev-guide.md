@@ -3715,11 +3715,10 @@ So the cap gave the marksman 4 % more DPS and took 29 % of its hit chance at 20
 cells. This is the same defect as the bands of Section 7.30: one number carrying
 two meanings, and the name declaring only one of them.
 
-It is left as it stands for now, because changing it at the same time as cover
-would confound the measurement of both. The candidate fix is to divide the
-falloff by a **common** scale — `perception.sightRadiusCells` — so that
-`rangeMax` means the furthest a weapon reaches and nothing else, and a weapon is
-accurate or not on its own merits. Measure first. **TBD**
+Section 7.33 fixes this, and not by dividing by a common scale. The deeper fault
+was that the accuracy curve fell from the **muzzle** rather than from the
+distance a weapon is built for, so every weapon was at its best at point-blank
+range. Effective range is bounded at both ends there.
 
 ### 7.32.3 Cover is what lies between you and the shooter
 
@@ -3921,6 +3920,213 @@ has a batch behind it. The three questions for the next sweep:
 `bandShare` is still the geometric prior of Section 7.30.4, and the accuracy
 curve of Section 7.32.2 is still coupled to `rangeMax`. Both wait on the same
 sweep. **TBD**
+
+## 7.33 Effective range: one curve, read by everything
+
+Section 7.32.2 found that `rangeMax` carried three jobs and its name declared
+one. Fixing that one number alone would have been a patch. The whole of the
+range machinery needed to become one system, and this is it.
+
+### 7.33.1 There were three range models, and the simulation obeyed the wrong one
+
+| where | what it said | who read it |
+|---|---|---|
+| `roles[*].bandMultiplier` | sniper `{ close 0.5, mid 0.95, long 1.35 }` — worst near, best far | the budget, and the AI through `dpsProfile` |
+| `roles[*].reactionByBand` | sniper `{ close 7-10, mid 4-6, long 1-3 }` — slow to bring to bear near | `effectiveReaction` |
+| `distance / weapon.rangeMax` in `hitChance` | a plain decline from the muzzle — **best** at point-blank range | the simulation |
+
+The first two agreed with each other. The third contradicted them, and the third
+was the only one the simulation obeyed.
+
+So a marksman was priced as a long-range weapon, sent to long range by the AI,
+and handed its **worst** hit chance when it arrived. The role lost by 44 points
+of win rate (Section 7.30.5) and no amount of band tuning could have repaired it,
+because the defect was not in the bands.
+
+### 7.33.2 One statement of where a weapon works
+
+Two numbers on a weapon replace all three models:
+
+- **`optimalRange`** — the distance it is built for, in cells.
+- **`rangeTolerance`** — how far from that distance it stays useful, in cells.
+
+```
+deviation = |distance - optimalRange|
+kept      = 1 - distanceFalloff * (deviation / rangeTolerance)
+accuracy  = clamp(kept, rangeFloorShare, 1)
+```
+
+`src/weapons/range.ts` owns it and holds nothing else. `hitChance` reads it, the
+generator reads it to derive `dpsProfile`, and the budget prices the two numbers
+that produce it. There is no longer a place for two of them to disagree.
+
+`roles[*].bandMultiplier` is **gone**. Four roles times three bands was twelve
+hand-written numbers saying what two numbers now say, and the simulation did not
+read any of the twelve.
+
+`attackTypes[*].bandMultiplier` **stays**, because it says something the curve
+does not: how the **travel** of the shot fares by band. A projectile is easier to
+step out of the way of at long range. That is not "where the weapon works", so
+the two do not overlap.
+
+### 7.33.3 Where each role now works, and the numbers behind it
+
+The role tables name the peak and the width. The attack type moves both by its
+`rangeFactor`, so a cone is built for a short distance **and** is unforgiving
+about it, which is what a cone is.
+
+| role | optimalRange | rangeTolerance |
+|---|---|---|
+| assault | 4 – 9 | 6 – 10 |
+| heavy | 5 – 10 | 5 – 8 |
+| precise | 11 – 16 | 9 – 13 |
+| sniper | 17 – 22 | 6 – 9 |
+
+The sniper's peak sits at 17–22 and not 23–29 because of the measurement of
+Section 7.30.2: the median visible pair of cells is 9.4 apart and p90 is 21.5. A
+weapon built for 26 cells is built for the 92nd percentile of sight lines, which
+is a fight that almost never happens.
+
+`rangeMax` is now **derived, never rolled**: `rangeGateOf` puts it at
+`optimalRange + rangeTolerance * budget.rangeGateTolerances`, floored at the
+close band so nothing is unusable and capped at what a bot can see. A weapon can
+no longer be allowed to fire where its own curve says it cannot hit.
+
+Over 400 weapon sets, what the curve keeps at each distance:
+
+| archetype | 2c | 4c | 8c | 12c | 16c | 20c | 24c | built for |
+|---|---|---|---|---|---|---|---|---|
+| assault | 0.67 | 0.82 | **0.85** | 0.55 | 0.28 | 0.16 | 0.15 | close 80 % |
+| heavy | 0.53 | 0.72 | **0.86** | 0.51 | 0.21 | 0.15 | 0.15 | close 68 % |
+| splash | 0.57 | **0.68** | 0.65 | 0.42 | 0.29 | 0.23 | 0.17 | close 80 % |
+| precision | 0.37 | 0.49 | 0.71 | **0.91** | 0.85 | 0.62 | 0.40 | mid 87 % |
+| marksman | 0.15 | 0.15 | 0.22 | 0.49 | 0.81 | **0.84** | 0.54 | long 100 % |
+| baseline | 0.63 | 0.70 | 0.85 | **1.00** | 0.85 | 0.70 | 0.55 | mid |
+
+Three things to read in that table:
+
+1. **A marksman is at its floor at 2 and 4 cells.** The old rule gave it its best
+   chance there.
+2. **Effective range is bounded at both ends.** Every row rises and then falls.
+3. **The mid-range weapon is the versatile one, and no number says so.**
+   Precision's worst value over 1 to 26 cells is 0.37, where assault's and
+   marksman's both bottom out at the 0.15 floor. Versatility is not a stat: it
+   falls out of the geometry, because a peak in the middle of the distances an
+   arena produces has the smallest worst deviation. The baseline is the most
+   forgiving of all, which is right for the weapon every bot starts with.
+
+And `dpsProfile` now follows: marksman reads `{ close 17.9, mid 33.9, long 55.3 }`
+where the simulation used to pay out the reverse.
+
+### 7.33.4 What the budget charges now
+
+`fixedCost` prices the two numbers that describe the curve:
+
+- `optimalRange * budget.optimalRangeWeight` — far ground is safer ground.
+- `rangeTolerance * budget.rangeToleranceWeight` — a wide sweet spot is good in
+  every fight with no downside at all, so it costs more per cell than the optimal
+  range does. **This is a new charge.** Nothing used to pay for versatility.
+
+`rangeValueCapCells` and `rangeValueTailShare` are **deleted**. They existed to
+stop the budget paying for reach past the sight radius, and an optimal range
+bounded by the sight radius has no tail to price. Keeping them would have left
+two more numbers that do nothing, which is the defect this section is about.
+
+Raw DPS rose sharply across every archetype, and that is not a buff. The curve
+makes a weapon miss more outside its band, `bandMean` of the profile fell, and
+the budget solved for more damage to reach the same 100 points. The number to
+compare across this change is `dpsProfile` at the weapon's own best band, not
+damage over the fire interval.
+
+### 7.33.5 A weapon built for half the distance is not half as fussy
+
+Scaling `rangeTolerance` by the attack type's full `rangeFactor` gave a cone an
+optimal range of 1.5 cells and a tolerance of 1.5 cells. At 4 cells — inside the
+close band a cone is supposed to own — it was already 1.7 tolerances off and
+sitting at its accuracy **floor**.
+
+`shape.toleranceReachExponent` fixes it at 0.5, a square root. Only the cone is
+materially affected, because it is the only attack type whose reach factor is far
+from 1 (0.55 × 0.45 = 0.2475, whose square root is 0.497).
+`shape.rangeToleranceMinCells` is the safety net under it.
+
+### 7.33.6 A band a weapon cannot fire in earns nothing, the burn included
+
+A cone is gated at about 8 cells. `bandDistanceOf("mid")` is 11.5. So its mid and
+long DPS were a fiction, and `bandMean` still charged 59 % of the budget weight
+for them — the dead-reach defect of Section 7.30.7 arriving from the other end.
+
+`bandReach` is 1 or 0 per band and gates **both** terms of the profile. The
+second term matters as much as the first: damage over time and a hazard tile
+arrive through `flatDps`, which is the same in every band, and a burn needs a
+shot that landed. A weapon that cannot fire at a distance cannot set anything
+alight there either. Before this gate, a cone with a burn read
+`{ close 46.3, mid 31.5, long 31.5 }` and was charged for all of it.
+
+### 7.33.7 The mirror test was asserting something the engine cannot promise
+
+The new role ranges made the mirror test fail on bastion, and this time by a
+whole number: slot 1 health **0 against 11.4** at tick 176.
+
+The probe says the engine is not at fault. The position gap at that tick is
+1.55e-13 cells and every comparable hit chance is **bit-identical**. What broke
+is a threshold. The engine holds several — the band boundaries in `rangeBandOf`,
+the `rangeMax` gate in `selectTarget`, `targetSwitchMargin` — and a distance
+sitting within 1e-15 of one puts the two sides on opposite sides of it. One bot
+then fires a tick earlier than its image, and 1e-15 becomes a whole hit.
+
+The two teams' positions diverge at **tick 2**, by 7.1e-15 cells, so there is no
+window in which they are bit-identical. A sweep of 3 styles by 8 seeds over 600
+ticks put the earliest whole-number break at **tick 165**, and 8 of the 24 runs
+never broke at all:
+
+```
+style           s0     s1     s2     s3     s4     s5     s6     s7
+bastion        176    492   none    357   none    165   none    419
+openfield      529    260    189   none   none    288    242    266
+cavern        none    512   none    265    239    452    371   none
+```
+
+So `TICKS` drops from 260 to **120**, inside that margin. This is not a
+weakening: asserting an exact mirror at tick 260 was asserting something the
+engine cannot promise, and it passed by luck. Every asymmetry this test has ever
+caught was systematic and appeared in the first few ticks — a decision phase
+taken from the index in the bot list, a path search that broke a tie against the
+axes of the world, a danger map that did not know whose bots made the danger.
+A 120-tick window catches all three.
+
+Health and armor keep the 1e-9 tolerance of Section 7.32.5, for the separate
+reason given there.
+
+### 7.33.8 `rangePref` is a bias, not a command
+
+One test had to change its claim rather than its setup. "The head of `rangePref`
+sets the band of Reposition" passed only because the baseline weapon's DPS
+profile used to be flat at 12.8 in all three bands, so the tactic was the only
+signal in `wantedBand`. With the profile derived from the curve, a bot that
+prefers the close band and carries a mid-range weapon now fights at mid.
+
+That is correct, and it is the documented contract: `rangePref` is a **bias on
+the weapon in the hands of the bot**. A preference that overrides the weapon you
+are holding is a preference for missing. The test now states both halves — with a
+neutral weapon the tactic decides, and with a strong weapon the weapon decides.
+
+### 7.33.9 What is not measured yet
+
+Nothing in Sections 7.32 or 7.33 has a batch behind it. The questions stack up
+now, and they want one sweep, not four:
+
+1. Does the Overwatch penalty of Section 7.30.5 move? Its weapon now works where
+   the role stands, and cover now protects the ground it holds.
+2. Is `rangeFloorShare` at 0.15 too generous or too harsh? It decides how badly a
+   weapon out of its band is punished, and it is pure guesswork today.
+3. Does the new `rangeToleranceWeight` price versatility correctly? If precision
+   weapons dominate, it is too cheap.
+4. `bandShare` is still the geometric prior of Section 7.30.4, and it now feeds a
+   profile derived from the curve rather than a hand-written table, so its error
+   propagates further than it did.
+
+**TBD**
 
 ## 8. Match flow (sequence)
 

@@ -235,6 +235,8 @@ export interface SimConfig {
   respawnDelayTicks: number;
   rangeBandCloseMax: number;
   rangeBandMidMax: number;
+  /** The least a weapon keeps from range alone (Section 7.33). */
+  rangeFloorShare: number;
   multiKillWindowTicks: number;
   critMultiplier: number;
   stationaryTicksForCrit: number;
@@ -415,6 +417,7 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     respawnDelayTicks: tuning.combat.respawnDelayTicks,
     rangeBandCloseMax: tuning.combat.rangeBandCloseMax,
     rangeBandMidMax: tuning.combat.rangeBandMidMax,
+    rangeFloorShare: tuning.combat.rangeFloorShare,
     multiKillWindowTicks: tuning.combat.multiKillWindowTicks,
     critMultiplier: tuning.combat.critMultiplier,
     stationaryTicksForCrit: tuning.combat.stationaryTicksForCrit,

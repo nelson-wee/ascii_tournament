@@ -417,9 +417,18 @@ describe("a weapon cannot reach past what a bot can see", () => {
     expect(generated).toBeGreaterThan(200);
   });
 
-  it("prices reach up to the sight radius, so the cap is not paying for nothing", () => {
+  it("never builds a weapon for ground a bot cannot stand on and see", () => {
     const tuning = loadTuning();
     const tables = loadWeaponRoles();
-    expect(tables.budget.rangeValueCapCells).toBe(tuning.perception.sightRadiusCells);
+    const cap = tuning.perception.sightRadiusCells * tables.budget.rangeHeadroomShare;
+    for (let seed = 0; seed < 60; seed += 1) {
+      for (const weapon of generateWeaponSet(createRng(seed, "weapons"), 5)) {
+        if (weapon.role === null) continue;
+        // The optimal range is where the weapon is BUILT to fight, so it is the
+        // one that must be reachable (Section 7.33).
+        expect(weapon.optimalRange).toBeLessThanOrEqual(cap + 0.05);
+        expect(weapon.rangeMax).toBeLessThanOrEqual(cap + 0.05);
+      }
+    }
   });
 });

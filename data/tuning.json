@@ -80,6 +80,7 @@
     "multiKillWindowTicks": 60,
     "critMultiplier": 2,
     "distanceFalloff": 0.6,
+    "rangeFloorShare": 0.15,
     "movingTargetPenalty": 0.25,
     "minHitChance": 0.05,
     "evasionAccuracyPenalty": 0.4,

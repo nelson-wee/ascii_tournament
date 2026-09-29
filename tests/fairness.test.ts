@@ -30,7 +30,29 @@ import {
  * and a danger map that did not know whose bots made the danger.
  */
 
-const TICKS = 260;
+/**
+ * How long the strict mirror is asserted for.
+ *
+ * The two teams are mirror images only to floating-point rounding: the probe of
+ * Section 7.33.7 measured their positions diverging at **tick 2**, by 7.1e-15
+ * cells. That is harmless until it reaches a threshold. The engine holds several
+ * — the band boundaries in `rangeBandOf`, the `rangeMax` gate in `selectTarget`,
+ * the `targetSwitchMargin` — and a distance sitting within 1e-15 of one puts the
+ * two sides on opposite sides of it. One bot then fires a tick earlier than its
+ * image, and 1e-15 becomes a whole hit.
+ *
+ * A sweep of 3 styles by 8 seeds over 600 ticks put the earliest such break at
+ * **tick 165**, and 8 of the 24 runs never broke at all. 120 ticks is inside that
+ * margin.
+ *
+ * This is not a weakening. Asserting an exact mirror at tick 260 was asserting
+ * something the engine cannot promise, and it passed by luck. Every asymmetry
+ * this test has caught was systematic and appeared in the first few ticks: a
+ * decision phase taken from the index in the bot list, a path search that broke
+ * a tie against the axes of the world, a danger map that did not know whose bots
+ * made the danger.
+ */
+const TICKS = 120;
 const SEED = 20260924;
 const config = simConfigFromTuning();
 
