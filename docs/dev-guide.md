@@ -4348,7 +4348,90 @@ they test the feature and not the scaffolding.
   field. **TBD**
 - **Nothing is measured.** The next sweep is openfield, where the sight lines are
   longest (p75 is 17.1 cells against 14.3 in cavern) and the long band should pay
-  the most.
+  the most. **Measured in Section 7.36: the long band shrank.** `coverage` counts
+  contested cells seen without caring at what range, so the best ground is in the
+  middle of the fight and `TakePosition` walked Overwatch into it.
+
+## 7.36 The openfield sweep: the zone sent Overwatch the wrong way
+
+1200 rounds over 3 openfield arenas, same config and seed as before.
+
+**A caution about what this compares.** The last openfield sweep ran before both
+the range curve of Section 7.33 and the conflict zone of Section 7.35, so the two
+changes arrive together here and this batch cannot separate them. Cavern measured
+the curve alone (Section 7.34).
+
+### 7.36.1 The numbers
+
+| overwatch in the team | openfield before | openfield after |
+|---|---|---|
+| 0 | 66.4 % | 65.8 % |
+| 1 | 48.1 % | 51.5 % |
+| 2 | 33.9 % | 31.9 % |
+| 3 | 22.7 % | **18.3 %** |
+
+| measure | before | after |
+|---|---|---|
+| kills at long range | 25.5 % | **21.9 %** |
+| mean kill distance | 11.5 cells | **11.0 cells** |
+| mean ticks in a round | 2773 | 2421 |
+| mean kills in a round | 23.8 | 24.4 |
+| hits per shot | 1.07 | 1.15 |
+
+Openfield has the longest sight lines of the three styles, so it was where the
+long band should have paid the most. **The long band shrank.** Rounds got faster,
+closer and bloodier, and 3O fell again.
+
+### 7.36.2 The cause: coverage rewards standing in the fight, not overlooking it
+
+`coverage` counts how many contested cells a cell can see. The cell that sees the
+most contested ground is a cell in the **middle** of it. Measuring the mean
+distance from the best-scoring cells to the contested ground they actually see:
+
+| style | best cell | coverage | contested there | mean distance to the zone it sees |
+|---|---|---|---|---|
+| bastion | (39,10) | 1.00 | 0.33 | **9.8** |
+| openfield | (24,4) | 1.00 | 0.00 | **9.3** |
+| cavern | (29,10) | 1.00 | 0.33 | **8.0** |
+
+The best ground in every arena overlooks the conflict zone from **8 to 10
+cells** — the close and mid bands — and several of those cells sit **inside** the
+zone. So `TakePosition` walked an Overwatch bot into a knife fight and called it
+good ground. Every number in 7.36.1 follows: bots converge on one place, the
+distances shorten, the rounds run faster, and the role built for 18 cells is the
+one that suffers.
+
+Three specific asymmetries were ruled out before looking further, because a side
+bias would have explained the same numbers differently:
+
+- The conflict field is exactly mirror-symmetric on all three styles.
+- `bestGround` is mirror-symmetric: 0 of 386 start cells disagree with their
+  mirror image.
+- The mirror-break sweep is unchanged, earliest break still tick 165.
+
+Team A won 53.2 % ± 1.4 of every round here against 48.5 % ± 1.4 last time, which
+is 2.4 standard errors apart and worth watching, but nothing in the engine
+explains it and the three checks above came back clean.
+
+### 7.36.3 The fix: coverage has to know the range it is measured at
+
+The measure asks "how much of the fight can this cell see". It should ask **"how
+much of the fight can this cell see at a distance my weapon is good at"**.
+
+The curve of Section 7.33 already answers that. Weight each visible contested
+cell by `rangeAccuracy(weapon, distance)` instead of counting it flat, and the
+same ground scores differently for different roles: an Overwatch bot prefers a
+cell that overlooks the zone from 18 cells, a Tank one that overlooks it from 6.
+
+That cannot stay a single number per cell, because it now depends on who is
+asking. The cheap form is **three fields instead of one** — coverage at close, at
+mid and at long, each computed once when the arena is built — and a bot reads the
+one its weapon is built for, or blends the three by its own band profile. The
+cost of building an arena roughly triples and nothing in a round gets slower.
+
+This also gives the Overwatch role a real answer to the question Section 7.34.4
+left open. It had the weapon and it had somewhere to stand; it did not have a
+reason to stand **back**. **TBD**
 
 ## 8. Match flow (sequence)
 
