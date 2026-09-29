@@ -4118,6 +4118,8 @@ now, and they want one sweep, not four:
 
 1. Does the Overwatch penalty of Section 7.30.5 move? Its weapon now works where
    the role stands, and cover now protects the ground it holds.
+   **Measured on cavern: no.** 3O went 20.0 % to 17.5 %, and Section 7.34 says
+   why: the weapon is now a true specialist in a fight that is 16 % of the round.
 2. Is `rangeFloorShare` at 0.15 too generous or too harsh? It decides how badly a
    weapon out of its band is punished, and it is pure guesswork today.
 3. Does the new `rangeToleranceWeight` price versatility correctly? If precision
@@ -4127,6 +4129,120 @@ now, and they want one sweep, not four:
    propagates further than it did.
 
 **TBD**
+
+## 7.34 The cavern sweep: the curve worked, and Overwatch still lost
+
+1200 rounds over 3 cavern arenas, `data/batch-roles.json`, seed 20260928 — the
+same shape as the band sweep of Section 7.30.5, so the two compare directly.
+
+### 7.34.1 The composition table did not move
+
+| overwatch in the team | before the bands | after the bands | after the curve |
+|---|---|---|---|
+| 0 | 65 % | 64.3 % | **65.7 %** |
+| 1 | 50 % | 51.2 % | **50.4 %** |
+| 2 | 34 % | 34.6 % | **34.2 %** |
+| 3 | 24 % | 20.0 % | **17.5 %** |
+
+Three reworks in a row — the bands, the reach cap, the range curve — each of
+which did exactly what it was built to do, and the table is where it started.
+3O is **worse**, at 17.5 % against 20.0 %.
+
+Side bias stayed clean: pooled mirror A 55.4 ± 4.5 (1.2 standard errors from
+even, which is nothing) and 49.8 ± 1.4 over every round.
+
+### 7.34.2 What did move
+
+| measure | before | after |
+|---|---|---|
+| kills at long range | 13.4 % | 16.3 % |
+| mean kill distance | 9.53 cells | 9.89 cells |
+| hits per shot | 1.016 | 1.171 |
+| mean ticks in a round | 2852 | 2624 |
+
+And the archetypes moved a great deal:
+
+| archetype | share of kills before | after | change |
+|---|---|---|---|
+| **splash** | 10.0 % | **19.5 %** | **+9.5** |
+| assault | 15.3 % | 16.8 % | +1.5 |
+| heavy | 12.5 % | 12.4 % | 0.0 |
+| precision | 15.2 % | 15.0 % | −0.2 |
+| baseline | 16.1 % | 13.9 % | −2.2 |
+| denial | 7.2 % | 4.7 % | −2.5 |
+| **marksman** | 20.9 % | **15.0 %** | **−5.9** |
+
+Splash nearly doubled and took the crown from the marksman. Section 7.32.7 gave
+it the one job nothing else can do, and its optimal range sits where the fighting
+is. The marksman lost nearly six points of the kills.
+
+### 7.34.3 The cause: the marksman is built for a fight that rarely happens
+
+The curve read at the distances this arena actually fights at:
+
+| archetype | optimal | at 5.5c | **at 9.9c** | at 11.5c | at 17.5c |
+|---|---|---|---|---|---|
+| baseline | 12.0 | 0.76 | **0.92** | 0.98 | 0.79 |
+| precision | 13.2 | 0.57 | **0.82** | 0.90 | 0.76 |
+| assault | 6.3 | 0.90 | **0.72** | 0.60 | 0.21 |
+| heavy | 7.0 | 0.84 | **0.72** | 0.57 | 0.17 |
+| splash | 7.2 | 0.67 | **0.49** | 0.42 | 0.30 |
+| **marksman** | 18.3 | 0.16 | **0.33** | 0.45 | 0.89 |
+
+9.9 cells is the mean kill distance in cavern. **At that distance the marksman is
+the worst weapon in the game**, and it is the best only at 17.5 cells, where
+16.3 % of the kills happen.
+
+This is not a fault in the curve. The curve did precisely what Section 7.33 built
+it to do: it turned the marksman into a real specialist, bounded at both ends.
+The trouble is what it specialises in. 83.7 % of the kills land inside 15 cells,
+and a specialist for the other 16 % loses.
+
+The peak is not misplaced either. Working back from the band shares and the mean,
+a long-band kill lands around 17.5 to 20 cells, which is where the marksman's
+peak sits. The band is correctly served. It is simply small.
+
+### 7.34.4 The conclusion: the blocker is not the weapon
+
+Three separate weapon-side reworks have now been measured and none moved the
+composition table:
+
+| change | what it fixed | Overwatch, 3O |
+|---|---|---|
+| the bands (7.30) | the long band held 1 % of kills, now 13 % | 24 % → 20 % |
+| the reach cap (7.32.1) | 21 cells of unusable reach, priced and sold | — |
+| the range curve (7.33) | the simulation contradicted the weapon's own profile | 20 % → 17.5 % |
+
+Each one was a real defect and each is now fixed. None of them was the binding
+constraint.
+
+**The binding constraint is Section 7.31.2: a bot has no concept of good ground.**
+Of the seven actions, not one moves a bot to chosen ground. `HoldPosition` scores
+only the cell it already stands on, `Reposition` needs a visible enemy and only
+corrects the band, and every other move goes to a pickup, an enemy or a teammate.
+So an Overwatch bot cannot select a sight line. It cannot create the long-range
+fight its weapon is built for, and the arena will not hand it one: the ground
+offers sight lines past 20 cells (p90 is 20.2 in cavern) and the bots close to
+9.9 before they kill.
+
+Giving a specialist a better weapon does not help when nothing puts it where the
+weapon works. The next change is the one Section 7.31.2 describes — a
+conflict-zone measure on the map, and a `TakePosition` action that scores
+candidate cells rather than the current one — and it should be measured before
+any further weapon tuning. **TBD**
+
+### 7.34.5 Two things to watch, not yet established
+
+- **Splash at 19.5 % of kills may now be too strong.** It is the largest
+  archetype, and it gained from two changes at once: Section 7.32.7 and an
+  optimal range that happens to sit on the modal kill distance. One sweep cannot
+  separate the two.
+- **Overwatch may have found a partner.** Inside the one-overwatch group the mean
+  is unchanged at 50.4 %, but the spread inside it opened up: 2T1O went 54.2 % →
+  **61.7 %** while 1T1O1S went 50.4 % → **42.5 %**. Each difference is about 1.7
+  standard errors on its own, so neither is established, but together they hint
+  that an Overwatch bot works when two Tanks hold the close band in front of it
+  and fails in any other mix. A sweep aimed at that question would settle it.
 
 ## 8. Match flow (sequence)
 
