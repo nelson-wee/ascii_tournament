@@ -252,14 +252,16 @@ function releaseShot(state: SimState, bot: BotState, target: BotState): void {
     default: {
       if (!bot.rng.bool(hitChance(state, bot, target))) return;
       const damage = weapon.damage * (crit ? state.config.critMultiplier : 1);
-      damageBot(state, bot, target, damage, {
+      // Cover can stop the shot (Section 7.32), and a shot that did not land
+      // leaves no burn behind it.
+      const landed = damageBot(state, bot, target, damage, {
         weaponId: weapon.id,
         weaponArchetype: weapon.archetype,
         attackType: weapon.attackType,
         source: "shot",
         crit,
       });
-      applyDot(target, weapon, bot.id);
+      if (landed) applyDot(target, weapon, bot.id);
     }
   }
 }

@@ -3648,7 +3648,202 @@ penalty against a bot in cover, larger at long range than at close range — and
 `positionValue` gains a reason to prefer one cell over another. The arena shape
 then decides where a bot stands, and bastion 11.6 %, cavern 9.8 % and
 openfield 6.8 % cover become three different fights instead of three different
-pictures. **TBD**
+pictures.
+
+Section 7.32 does this. Cover is directional there, not a proximity bonus: only
+a tile between the two bots counts, so a move around an enemy takes its cover
+away.
+
+## 7.32 Cover, and the reach a bot can use
+
+Section 7.31 found two things that were not mechanics: the reach a weapon sold
+past the sight radius, and cover. This makes both of them real.
+
+### 7.32.1 A weapon cannot reach past what a bot can see
+
+A marksman was generated with a mean `rangeMax` of 47.1 cells while a bot saw
+26. Twenty one cells of that reach could never hold a visible target, and the
+budget still charged about 9.5 cells of full-price reach for them
+(Section 7.30.7).
+
+`budget.rangeHeadroomShare` now caps the generated reach at
+`perception.sightRadiusCells` times 1.15. The headroom is for a shot already in
+the air when the target steps out of sight; past it the reach is ground that
+does not exist.
+
+**A cap the roll always hits is not a cap, it is a constant.** The sniper role
+rolled `rangeMax` over [38, 58] and every draw landed above the cap, so every
+sniper came out with the same reach and the roll meant nothing. The four role
+ranges moved into the world the sight radius defines:
+
+| role | was | now |
+|---|---|---|
+| sniper | [38, 58] | [23, 29] |
+| precise | [26, 40] | [17, 26] |
+| heavy | [18, 32] | [18, 29] |
+| assault | [14, 24] | unchanged |
+
+What the two changes together did to 400 weapon sets on the same seeds:
+
+| archetype | rangeMax before | after | DPS before | after |
+|---|---|---|---|---|
+| marksman | 47.1 | **25.3** | 54.3 | **56.6** |
+| precision | 32.8 | 21.3 | 53.1 | 54.9 |
+| heavy | 23.7 | 22.2 | 48.1 | 48.3 |
+| assault | 18.3 | 18.3 | 56.4 | 56.3 |
+| splash | 14.9 | 12.7 | 42.8 | 43.2 |
+| denial | 17.5 | 16.7 | 37.2 | 37.4 |
+
+A marksman now carries the DPS of an assault weapon and 7 more cells of reach,
+where before it carried less DPS and 21 cells of reach it could not use.
+
+### 7.32.2 `rangeMax` also sets the accuracy curve, and that is a problem
+
+`hitChance` charges `1 - (distance / weapon.rangeMax) * distanceFalloff`. The
+divisor is the weapon's own reach, so **a weapon is rewarded for claiming reach
+it cannot use**: the inflated `rangeMax` bought a flat accuracy curve inside the
+range it really fought at.
+
+| distance | old marksman, reach 47.1 | new marksman, reach 25.3 |
+|---|---|---|
+| 10 cells | 0.873 | 0.763 |
+| 15 cells | 0.809 | 0.644 |
+| 20 cells | 0.745 | **0.526** |
+| 25 cells | 0.682 | **0.407** |
+
+So the cap gave the marksman 4 % more DPS and took 29 % of its hit chance at 20
+cells. This is the same defect as the bands of Section 7.30: one number carrying
+two meanings, and the name declaring only one of them.
+
+It is left as it stands for now, because changing it at the same time as cover
+would confound the measurement of both. The candidate fix is to divide the
+falloff by a **common** scale — `perception.sightRadiusCells` — so that
+`rangeMax` means the furthest a weapon reaches and nothing else, and a weapon is
+accurate or not on its own merits. Measure first. **TBD**
+
+### 7.32.3 Cover is what lies between you and the shooter
+
+One rule decides everything:
+
+> **The tile a bot stands on shields it from nothing. Only a cover tile on the
+> line of fire counts.**
+
+`coverAgainst` walks the line of fire out of the target toward the shooter and
+reads the first `cover.depthCells` cells of it. A nearer tile is worth more than
+a further one, by `cover.stepFalloff`. A wall ends the walk, because a wall
+already stopped the shot.
+
+This is what makes a move around an enemy pay for itself: the same tile that
+stops most of the shots from the south stops none from the east. It also keeps
+the rule `blocksSight` already stated — a cover tile a bot stands on is a
+shooting position, not a screen.
+
+`cover.bandFactor` then scales the shield by the range band, because a shooter
+far away has little angle over a low wall and a shooter at arm's length has all
+of it:
+
+| band | what one full screen stops |
+|---|---|
+| close | 15 % |
+| mid | 40 % |
+| long | 70 % |
+
+There is no separate ceiling. `coverAgainst` answers at most 1, so `bandFactor`
+is itself the ceiling, and a second number under it only hid the difference
+between the mid band and the long one.
+
+**The roll lives in `damageBot`, and nowhere else.** Every source of damage
+funnels through that one function, so one roll there covers the hitscan, line,
+cone, projectile and area families alike. A roll in `hitChance` would have
+reached the first two and missed the rest, and a roll in both would have charged
+twice. Three consequences follow from the placement:
+
+- `noteIncomingFire` runs **before** the roll. A shot that hits the wall in
+  front of you still tells you that somebody is shooting at you.
+- A hazard tile and a burn are not shielded. They are already on the bot, so
+  cover has nothing to stand between.
+- `damageBot` answers whether the damage landed, and every caller that adds a
+  side effect of its own now reads that answer. A shot cover stopped leaves no
+  burn behind it.
+
+`isInCover` keeps its one job, the `killerInCover` field of the kill feed, and
+its comment now says that it is a report field and not the mechanic. The `Kill`
+event gained `targetCover`, and a `CoverSave` event records every shot that
+cover stopped, with its band, so a batch can measure whether the mechanic does
+anything at all.
+
+### 7.32.4 What the bots do about it
+
+Cover with no bot playing around it is a tax on both teams and a tactic for
+neither. Two decisions read it:
+
+- **`positionValue` adds the cover a cell has from the enemies in sight**, times
+  `cover.aiWeight`. It takes the **worst** of them and not the mean, because the
+  enemy you are open to is the one that shoots you. With no enemy in sight it is
+  worth nothing, by the same rule `contactFactor` uses: cover against nobody is
+  not cover. This is what lets an Overwatch bot hold a shielded line instead of
+  the cell a pickup run left it on.
+- **`firingCell` chooses a bearing, not just a distance.** What used to be
+  `cellAtRange` returned one cell: the point at the wanted distance along the
+  line the two bots already stood on. It now compares seven bearings — that line
+  and three turns of 30 degrees to each side — and scores each one by what the
+  target keeps (`ai.flankWeight`), what the bot gains (`cover.aiWeight`), and
+  what the walk costs (`ai.flankTurnCost`, per turn, so a bot flanks for a
+  reason and not out of habit). A bearing with no clear shot scores nothing,
+  because a firing position that cannot fire is not one.
+
+The two AI tests both fail with `ai.flankWeight` and `cover.aiWeight` at zero,
+which is the check that they test the feature and not the scaffolding.
+
+**A turn is a rotation of the vector, never an angle added to a bearing.** The
+first version took `Math.atan2` of the line and added the offset, and the mirror
+test of Section 7.20.23 rejected it: `Math.cos(bearing + Math.PI)` is not
+exactly `-Math.cos(bearing)`. A rotation applies `cos` and `sin` as constants, so
+a mirrored input gives an exactly mirrored output — negation, multiplication and
+addition are all sign-symmetric in IEEE 754. A probe over 8 000 mirrored cell
+pairs on the three styles reports `coverAgainst` bit-identical on every one.
+
+### 7.32.5 The mirror test was too strict, and it took a data change to show it
+
+With the new role ranges the mirror test failed on cavern: slot 2 health
+2.478950292254808 against 2.4789502922552913, a gap of 4.8e-13 at tick 244.
+
+It is not an asymmetry. The probe says the position gap at that tick is 2.7e-14
+cells, and the damage that diverged came from `source=area`:
+
+```
+Hit source=area weapon=redeemer damage=97.52104970774519 target=A2
+Hit source=area weapon=redeemer damage=97.52104970774471 target=B2
+```
+
+`applyAreaDamage` charges `1 - (distance / radius) * 0.5`, and that distance
+comes from the positions. A mirrored position is exact only to rounding, so any
+damage that scales with a distance **cannot** be bit-identical, and health
+inherits the error. The assertion passed until now only because no area weapon
+had landed inside the sampled ticks of those seeds.
+
+So the test changed, not the simulation: `health` and `armor` are compared
+within 1e-9, and everything discrete — `alive`, `action.kind`, the weapon count,
+the position within a tenth of a cell — stays as it was. A real asymmetry moves
+health by whole points, and the widest gap rounding produced over 260 ticks was
+4.8e-13, so the instrument keeps its teeth.
+
+### 7.32.6 What is not measured yet
+
+Cover, the reach cap and the role ranges all landed together and none of them
+has a batch behind it. The three questions for the next sweep:
+
+1. Does the Overwatch penalty of Section 7.30.5 move? It should: an Overwatch
+   bot holds still, so it can hold cover, and the Tank and Skirmisher walking at
+   it cross open ground.
+2. Does `CoverSave` fire often enough to matter? `coverDensity` is 11.6 %, 9.8 %
+   and 6.8 % on the three styles, so cover is scattered and not everywhere.
+3. Does a bot flank, or orbit? `ai.flankTurnCost` is the number to watch, and a
+   bot that walks around an enemy without ever firing means it is too low.
+
+`bandShare` is still the geometric prior of Section 7.30.4, and the accuracy
+curve of Section 7.32.2 is still coupled to `rangeMax`. Both wait on the same
+sweep. **TBD**
 
 ## 8. Match flow (sequence)
 

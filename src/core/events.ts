@@ -24,6 +24,8 @@ export const GAME_EVENT_TYPES = [
   "Shot",
   "Hit",
   "Crit",
+  /** A shot that low cover stopped (Section 7.32). */
+  "CoverSave",
   "DotTick",
   "HazardCreated",
   "WeaponEmpty",

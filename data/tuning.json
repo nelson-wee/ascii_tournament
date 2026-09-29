@@ -89,7 +89,20 @@
     "stationaryTicksForCrit": 10,
     "dodgeRampTicks": 8
   },
+  "cover": {
+    "_notes": "What a low cover tile on the line of fire is worth (Section 7.32). Cover is directional: only a tile BETWEEN the target and the shooter counts, so a move around an enemy takes its cover away. Every number is TBD.",
+    "depthCells": 2,
+    "stepFalloff": 0.5,
+    "bandFactor": {
+      "close": 0.15,
+      "mid": 0.4,
+      "long": 0.7
+    },
+    "aiWeight": 0.35
+  },
   "ai": {
+    "flankWeight": 0.6,
+    "flankTurnCost": 0.12,
     "hysteresisMargin": 1.2,
     "hazardAvoidBelowTolerance": 0.5,
     "teamSpacingCells": 12,

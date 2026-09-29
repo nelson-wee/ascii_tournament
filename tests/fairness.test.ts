@@ -68,6 +68,20 @@ function mirrorTable(map: ArenaMap, table: SpawnTable): SpawnTable {
 }
 
 /**
+ * The most that rounding alone can separate two mirrored bots.
+ *
+ * A mirrored position is exact only to rounding: the probe of Section 7.32.4
+ * measured 2.7e-14 cells. Area damage scales with a distance taken from those
+ * positions — `applyAreaDamage` charges `1 - (distance / radius) * 0.5` — so the
+ * health of the two bots inherits that error and cannot be bit-identical.
+ *
+ * Anything a real asymmetry does is far larger. A different decision, a
+ * different target or a shot that one side missed moves health by whole points,
+ * and the widest gap rounding produced over 260 ticks was 4.8e-13.
+ */
+const ROUNDING = 1e-9;
+
+/**
  * How far the two bots are from being mirror images, in cells.
  * Floating point alone gives a number near zero; anything larger is a real
  * difference of state.
@@ -117,8 +131,16 @@ describe("the mirror test", () => {
           const b = state.bots[half + slot] as BotState;
           // A tenth of a cell. Rounding alone gives about 1e-13.
           expect(mirrorError(map, a, b), `tick ${tick}, slot ${slot}`).toBeLessThan(0.1);
-          expect(a.health, `tick ${tick}, slot ${slot} health`).toBe(b.health);
-          expect(a.armor, `tick ${tick}, slot ${slot} armor`).toBe(b.armor);
+          // Health and armor carry the rounding error of the positions, through
+          // the distance that area damage scales with. Everything below is
+          // discrete and stays exact.
+          expect(a.health, `tick ${tick}, slot ${slot} health`).toBeCloseTo(b.health, 9);
+          expect(Math.abs(a.health - b.health), `tick ${tick}, slot ${slot} health`).toBeLessThan(
+            ROUNDING,
+          );
+          expect(Math.abs(a.armor - b.armor), `tick ${tick}, slot ${slot} armor`).toBeLessThan(
+            ROUNDING,
+          );
           expect(a.alive, `tick ${tick}, slot ${slot} alive`).toBe(b.alive);
           expect(a.weapons.length, `tick ${tick}, slot ${slot} weapons`).toBe(b.weapons.length);
           expect(a.action.kind, `tick ${tick}, slot ${slot} action`).toBe(b.action.kind);

@@ -74,8 +74,11 @@ export function applyAreaDamage(
     if (distance > radius) continue;
     if (!clearLine(state, centre, target.pos)) continue;
     const share = 1 - (distance / radius) * 0.5;
-    damageBot(state, shooter, target, damage * share, contextOf(weapon, "area", crit));
-    applyDot(target, weapon, shooter.id);
+    // Cover can stop the blast (Section 7.32), and a blast that did not reach
+    // the bot leaves no burn on it.
+    if (damageBot(state, shooter, target, damage * share, contextOf(weapon, "area", crit))) {
+      applyDot(target, weapon, shooter.id);
+    }
   }
 }
 
@@ -103,8 +106,9 @@ export function applyConeDamage(
     if (!clearLine(state, shooter.pos, target.pos)) continue;
     // A cone hits hardest at the mouth and fades to nothing at its reach.
     const share = 1 - distance / reach;
-    damageBot(state, shooter, target, weapon.damage * share, contextOf(weapon, "area"));
-    applyDot(target, weapon, shooter.id);
+    if (damageBot(state, shooter, target, weapon.damage * share, contextOf(weapon, "area"))) {
+      applyDot(target, weapon, shooter.id);
+    }
   }
 }
 
@@ -136,8 +140,9 @@ export function applyLineDamage(
     // The bot must stand on the line, inside half a cell at its distance.
     if (Math.abs(Math.sin(offset)) * entry.distance > HIT_RADIUS) continue;
     if (!clearLine(state, shooter.pos, entry.target.pos)) continue;
-    damageBot(state, shooter, entry.target, damage, contextOf(weapon, "shot", crit));
-    applyDot(entry.target, weapon, shooter.id);
+    if (damageBot(state, shooter, entry.target, damage, contextOf(weapon, "shot", crit))) {
+      applyDot(entry.target, weapon, shooter.id);
+    }
   }
 }
 
@@ -304,15 +309,13 @@ function onImpact(state: SimState, projectile: Projectile, at: Vec2, hit: BotSta
     return;
   }
   if (weapon.attackType === "tile") {
-    if (hit) {
-      damageBot(state, shooter, hit, damage, contextOf(weapon, "shot", projectile.crit));
+    if (hit && damageBot(state, shooter, hit, damage, contextOf(weapon, "shot", projectile.crit))) {
       applyDot(hit, weapon, shooter.id);
     }
     createHazard(state, shooter, at, weapon);
     return;
   }
-  if (hit) {
-    damageBot(state, shooter, hit, damage, contextOf(weapon, "shot", projectile.crit));
+  if (hit && damageBot(state, shooter, hit, damage, contextOf(weapon, "shot", projectile.crit))) {
     applyDot(hit, weapon, shooter.id);
   }
 }

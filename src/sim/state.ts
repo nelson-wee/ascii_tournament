@@ -27,6 +27,7 @@ import {
   type SpawnTable,
 } from "./pickups.js";
 import type { Cell, Vec2 } from "../core/types.js";
+import type { CoverConfig } from "./cover.js";
 import type { RangeBand, Weapon } from "../weapons/types.js";
 
 /** Team ids of Milestone M3. Generated team names arrive with M11. */
@@ -257,6 +258,12 @@ export interface SimConfig {
     objectiveWeight: number;
     focusFireWeight: number;
   };
+  /** What a low cover tile on the line of fire is worth (Section 7.32). */
+  cover: CoverConfig;
+  /** How much a bot values a bearing that takes the target's cover away. */
+  flankWeight: number;
+  /** What each step around the target costs it. */
+  flankTurnCost: number;
   aggressionReactionDiscount: number;
   aggressionRepositionDiscount: number;
   influenceIntervalTicks: number;
@@ -427,6 +434,14 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
       holdWeight: tuning.team.holdWeight,
       objectiveWeight: tuning.team.objectiveWeight,
       focusFireWeight: tuning.team.focusFireWeight,
+    },
+    flankWeight: tuning.ai.flankWeight,
+    flankTurnCost: tuning.ai.flankTurnCost,
+    cover: {
+      depthCells: tuning.cover.depthCells,
+      stepFalloff: tuning.cover.stepFalloff,
+      bandFactor: { ...tuning.cover.bandFactor },
+      aiWeight: tuning.cover.aiWeight,
     },
     aggressionReactionDiscount: tuning.ai.aggressionReactionDiscount,
     aggressionRepositionDiscount: tuning.ai.aggressionRepositionDiscount,

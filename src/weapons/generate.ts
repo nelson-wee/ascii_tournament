@@ -12,7 +12,7 @@
  * The archetype is a label, not an input. The AI never reads it: it reads the
  * DPS profile (Section 7.8).
  */
-import { loadBaselineWeapon, loadWeaponRoles } from "../core/data.js";
+import { loadBaselineWeapon, loadTuning, loadWeaponRoles } from "../core/data.js";
 import type { Rng } from "../core/rng.js";
 import type { WeaponRoles } from "../core/schemas.js";
 import {
@@ -201,7 +201,13 @@ export function archetypeOf(role: RoleTrait | null, attackType: AttackType): Arc
   return "versatile";
 }
 
-function buildDraft(rng: Rng, role: RoleTrait, tables: WeaponRoles, ticksPerSecond: number): WeaponDraft {
+function buildDraft(
+  rng: Rng,
+  role: RoleTrait,
+  tables: WeaponRoles,
+  ticksPerSecond: number,
+  rangeCapCells: number,
+): WeaponDraft {
   const roleData = tables.roles[role];
   if (!roleData) throw new Error(`data/weapon-roles.json has no role "${role}"`);
   const attackType = rollWeighted<AttackType>(rng, roleData.attackTypeWeights);
@@ -221,7 +227,16 @@ function buildDraft(rng: Rng, role: RoleTrait, tables: WeaponRoles, ticksPerSeco
   // `rangeMax` is the distance the weapon really covers. The AI reads it to
   // decide whether it can fire, and the budget prices it.
   const coneReach = attackType === "cone" ? shape.coneRangeFactor : 1;
-  const rangeMax = rollRange(rng, roleData.rangeMax as Range) * attackData.rangeFactor * coneReach;
+  // The reach is clamped at the distance a bot can see, plus the headroom of
+  // `budget.rangeHeadroomShare` (Section 7.30.7). A marksman used to roll a
+  // mean reach of 47.1 cells against a sight radius of 26, so a third of its
+  // reach could never hold a visible target and the budget charged for it
+  // anyway. The roll still shapes the reach inside that limit; it can no longer
+  // sell the role ground that does not exist.
+  const rangeMax = Math.min(
+    rangeCapCells,
+    rollRange(rng, roleData.rangeMax as Range) * attackData.rangeFactor * coneReach,
+  );
   const ammoMax = Math.max(
     1,
     Math.round(rollIntRange(rng, roleData.ammoMax as Range) * attackData.ammoFactor),
@@ -300,6 +315,12 @@ export interface GenerateOptions {
   maxTries?: number;
   /** Force a tier. The set generator uses it to give a run a clear ranking. */
   tier?: WeaponTier;
+  /**
+   * How far a bot sees, in cells. It caps the generated reach, because a weapon
+   * cannot fight past the sight radius (Section 7.30.7). It defaults to
+   * `perception.sightRadiusCells`.
+   */
+  sightRadiusCells?: number;
 }
 
 /** Take a tier from the weighted list. */
@@ -376,6 +397,8 @@ export function generateWeapon(
   const tables = options.tables ?? loadWeaponRoles();
   const ticksPerSecond = options.ticksPerSecond ?? 20;
   const maxTries = options.maxTries ?? 24;
+  const sightRadiusCells = options.sightRadiusCells ?? loadTuning().perception.sightRadiusCells;
+  const rangeCapCells = sightRadiusCells * tables.budget.rangeHeadroomShare;
   const roleData = tables.roles[role];
   if (!roleData) throw new Error(`data/weapon-roles.json has no role "${role}"`);
   const damageRange = roleData.damage as Range;
@@ -386,7 +409,7 @@ export function generateWeapon(
   const target = tables.budget.target * tier.budgetFactor;
 
   for (let attempt = 0; attempt < maxTries; attempt += 1) {
-    const draft = buildDraft(rng, role, tables, ticksPerSecond);
+    const draft = buildDraft(rng, role, tables, ticksPerSecond, rangeCapCells);
     const meanPerDamage = bandMean(draft.perDamageDps, tables);
     if (meanPerDamage <= 0) continue;
 

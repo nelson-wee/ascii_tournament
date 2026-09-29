@@ -11,8 +11,8 @@
         10
       ],
       "rangeMax": [
-        26,
-        40
+        17,
+        26
       ],
       "ammoMax": [
         40,
@@ -130,8 +130,8 @@
         28
       ],
       "rangeMax": [
-        38,
-        58
+        23,
+        29
       ],
       "ammoMax": [
         16,
@@ -190,7 +190,7 @@
       ],
       "rangeMax": [
         18,
-        32
+        29
       ],
       "ammoMax": [
         24,
@@ -387,7 +387,8 @@
     "reactionDiscount": 1.6,
     "ammoWeight": 0.025,
     "rangeValueCapCells": 26,
-    "rangeValueTailShare": 0.45
+    "rangeValueTailShare": 0.45,
+    "rangeHeadroomShare": 1.15
   },
   "value": {
     "_notes": "How much a weapon is expected to gain from an area, a pierce, damage over time, and a hazard tile, and how often each attack type lands. The DPS profile carries all of these, so the budget does not charge for them twice. TBD",

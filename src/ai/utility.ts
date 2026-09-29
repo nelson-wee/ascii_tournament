@@ -19,6 +19,7 @@
  * - Each tactic has a cost and a benefit.
  * - A bot keeps its action unless a new action scores higher by a margin.
  */
+import { isWalkable, tileAt } from "../arena/types.js";
 import type { Cell } from "../core/types.js";
 import type { Tactics } from "../core/schemas.js";
 import { RANGE_BANDS, type RangeBand, type Weapon } from "../weapons/types.js";
@@ -34,6 +35,8 @@ import {
   weaponWeight,
 } from "../sim/state.js";
 import { hasAmmo } from "../sim/combat.js";
+import { clearLine } from "../sim/attacks.js";
+import { coverAgainst, coverFromVisible } from "../sim/cover.js";
 import { pickupValue } from "../sim/pickups.js";
 import { controlAt, dangerFor } from "./influence.js";
 import { findPath } from "./navigation.js";
@@ -412,9 +415,15 @@ function safety(state: SimState, bot: BotState, cell: Cell): number {
  * How much the cell that a bot stands on is worth holding, from about 0.2 to 1.
  *
  * A cell is worth holding when a pickup point is near it, when the team holds
- * the ground around it, and when it is not itself dangerous. This is the
- * "contested cell" of Section 7.2 step 5, measured on the grid: the arena has
- * no macro graph until M7.
+ * the ground around it, when low cover screens it from the enemies in sight,
+ * and when it is not itself dangerous. This is the "contested cell" of
+ * Section 7.2 step 5, measured on the grid: the arena has no macro graph until
+ * M7.
+ *
+ * The cover term is what makes an Overwatch bot hold a shielded line instead of
+ * the first cell a pickup run left it on (Section 7.32). It is worth nothing
+ * with no enemy in sight, by the same rule `contactFactor` uses: cover against
+ * nobody is not cover.
  */
 export function positionValue(state: SimState, bot: BotState, cell: Cell): number {
   let nearestPickup = 0;
@@ -428,7 +437,10 @@ export function positionValue(state: SimState, bot: BotState, cell: Cell): numbe
   const friendly = bot.teamId === "A" ? control : -control;
   const danger = dangerFor(state, bot, cell);
 
-  const value = 0.2 + nearestPickup + Math.max(0, friendly) * 0.1 - Math.min(0.4, danger * 0.05);
+  const shielded = coverFromVisible(state, bot, cell) * state.config.cover.aiWeight;
+
+  const value =
+    0.2 + nearestPickup + shielded + Math.max(0, friendly) * 0.1 - Math.min(0.4, danger * 0.05);
   return Math.max(0.1, Math.min(1.4, value * contactFactor(state, bot)));
 }
 
@@ -704,19 +716,100 @@ function pathTo(state: SimState, bot: BotState, to: Cell): boolean {
 }
 
 /**
- * The cell that holds the bot at `wanted` distance from `target`.
- * It walks along the line between the two bots.
+ * How far around the target a bot will look for a better bearing.
+ *
+ * Seven candidates: the line it already stands on, and three steps of 30 degrees
+ * to each side. The geometry is fixed and needs no tuning number. What the bot
+ * does with the candidates is tuned, by `ai.flankWeight` and `ai.flankTurnCost`.
+ *
+ * Each entry holds the turn as a **rotation of the vector**, not as an angle to
+ * add to a bearing. The mirror test of Section 7.2.2 is why. A rotation applies
+ * `cos` and `sin` as constants, so a mirrored input gives an exactly mirrored
+ * output: negation, multiplication and addition are all sign-symmetric in IEEE
+ * 754. `Math.cos(bearing + Math.PI)` is not exactly `-Math.cos(bearing)`, and
+ * the last bit of difference reached the positions, then an area damage share,
+ * then the health of a bot. Team A and team B stopped being bit-identical.
  */
-function cellAtRange(state: SimState, bot: BotState, target: BotState, wanted: number): Cell {
+const FLANK_TURNS: readonly { steps: number; cos: number; sin: number }[] = [0, 1, -1, 2, -2, 3, -3]
+  .map((steps) => ({
+    steps: Math.abs(steps),
+    cos: Math.cos((steps * Math.PI) / 6),
+    sin: Math.sin((steps * Math.PI) / 6),
+  }));
+
+/**
+ * The cell at `wanted` distance from `target`, on the bearing `unit` turned by
+ * `turn`.
+ *
+ * `unit` points from the target to the bot, and it must be a unit vector.
+ */
+function cellOnRing(
+  state: SimState,
+  target: BotState,
+  unit: { x: number; y: number },
+  turn: { cos: number; sin: number },
+  wanted: number,
+): Cell {
+  const x = unit.x * turn.cos - unit.y * turn.sin;
+  const y = unit.x * turn.sin + unit.y * turn.cos;
+  return {
+    x: Math.min(state.map.width - 1, Math.max(0, Math.floor(target.pos.x + x * wanted))),
+    y: Math.min(state.map.height - 1, Math.max(0, Math.floor(target.pos.y + y * wanted))),
+  };
+}
+
+/**
+ * Where to stand to fight `target`: at `wanted` distance, on the best bearing.
+ *
+ * Before cover existed this was one cell — the point at `wanted` distance along
+ * the line the two bots already stood on. With cover, the bearing decides the
+ * fight (Section 7.32), so the bot compares the bearings it could take:
+ *
+ * - **Take the cover away.** A bearing where the target's low cover no longer
+ *   lies between them is worth `ai.flankWeight`. This is what makes a move
+ *   around an enemy pay: the same tile that stopped half the shots from the
+ *   south stops none from the east.
+ * - **Keep its own.** A bearing that puts cover between the bot and the target
+ *   is worth `cover.aiWeight`.
+ * - **Do not orbit.** Each step off the line it already holds costs
+ *   `ai.flankTurnCost`, so a bot walks around an enemy for a reason and not out
+ *   of habit.
+ *
+ * A bearing with no clear shot at the target scores nothing, because a firing
+ * position that cannot fire is not one.
+ */
+function firingCell(state: SimState, bot: BotState, target: BotState, wanted: number): Cell {
+  const { config } = state;
   const dx = bot.pos.x - target.pos.x;
   const dy = bot.pos.y - target.pos.y;
-  const distance = Math.hypot(dx, dy) || 1;
-  const x = target.pos.x + (dx / distance) * wanted;
-  const y = target.pos.y + (dy / distance) * wanted;
-  return {
-    x: Math.min(state.map.width - 1, Math.max(0, Math.floor(x))),
-    y: Math.min(state.map.height - 1, Math.max(0, Math.floor(y))),
-  };
+  const span = Math.hypot(dx, dy) || 1;
+  const unit = { x: dx / span, y: dy / span };
+  const from = botCell(target);
+
+  const straight = FLANK_TURNS[0] as { steps: number; cos: number; sin: number };
+  let best = cellOnRing(state, target, unit, straight, wanted);
+  let bestScore = -Infinity;
+
+  for (const turn of FLANK_TURNS) {
+    const cell = cellOnRing(state, target, unit, turn, wanted);
+    if (!isWalkable(tileAt(state.map, cell.x, cell.y))) continue;
+    const centre = { x: cell.x + 0.5, y: cell.y + 0.5 };
+    if (!clearLine(state, centre, target.pos)) continue;
+
+    // What the target keeps from this bearing, and what the bot gains.
+    const theirs = coverAgainst(state.map, config.cover, from, cell);
+    const mine = coverAgainst(state.map, config.cover, cell, from);
+    const score =
+      (1 - theirs) * config.flankWeight +
+      mine * config.cover.aiWeight -
+      turn.steps * config.flankTurnCost;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = cell;
+    }
+  }
+  return best;
 }
 
 /**
@@ -744,7 +837,7 @@ export function applyAction(state: SimState, bot: BotState, action: Action): voi
         bot.path = [];
         return;
       }
-      if (!pathTo(state, bot, cellAtRange(state, bot, target, wanted))) bot.path = [];
+      if (!pathTo(state, bot, firingCell(state, bot, target, wanted))) bot.path = [];
       return;
     }
     case "Chase": {

@@ -118,8 +118,51 @@ export const TuningSchema = z
         targetSwitchMargin: unitRange,
       })
       .strict(),
+    cover: z
+      .object({
+        _notes: z.string().optional(),
+        /**
+         * How far along the line of fire, in cells, a cover tile still shields
+         * the target. The cell the target stands on never counts: cover is what
+         * is BETWEEN the two bots (Section 7.32). TBD
+         */
+        depthCells: positiveNumber,
+        /**
+         * What the second cell of the line is worth against the first, and the
+         * third against the second. Cover at arm's length screens more than
+         * cover halfway to the shooter. TBD
+         */
+        stepFalloff: unitRange,
+        /**
+         * What cover is worth in each band. It rises with the range because a
+         * shooter far away has little angle over a low wall and a shooter at
+         * arm's length has all of it. TBD
+         */
+        bandFactor: z
+          .object({ close: unitRange, mid: unitRange, long: unitRange })
+          .strict(),
+        /**
+         * How much cover moves `positionValue`. It is the only reason a bot
+         * prefers a shielded cell, so at 0 the mechanic exists and no bot
+         * plays around it. TBD
+         */
+        aiWeight: z.number().nonnegative(),
+      })
+      .strict(),
     ai: z
       .object({
+        /**
+         * How much a bot values a bearing where the target has no cover
+         * (Section 7.32). It is what makes a move around an enemy pay for
+         * itself, so at 0 cover exists and no bot flanks it. TBD
+         */
+        flankWeight: z.number().nonnegative(),
+        /**
+         * What each 30-degree step around the target costs, against the bearing
+         * the bot already holds. Without a cost a bot orbits instead of
+         * fighting. TBD
+         */
+        flankTurnCost: z.number().nonnegative(),
         /** A new action must score this much more than the current one. TBD */
         hysteresisMargin: z.number().min(1),
         /** A bot with a lower hazard tolerance walks around a hazard tile. TBD */
@@ -620,10 +663,10 @@ export const WeaponRolesSchema = z
         reactionDiscount: z.number().nonnegative(),
         ammoWeight: z.number().nonnegative(),
         /**
-         * The budget stops paying for reach past this distance, in cells. The
-         * arena fires 1 % of its shots past the mid band, so a weapon that
-         * reaches 46 cells paid 9 points of 100 for nothing (Section 3.2 of
-         * the M8 weapon analysis). Keep it near `combat.rangeBandMidMax`. TBD
+         * The budget stops paying full price for reach past this distance, in
+         * cells. Keep it at `perception.sightRadiusCells`: a bot cannot fight
+         * at a distance it cannot see, so reach past the sight radius is reach
+         * the budget would charge for nothing (Section 7.30.3). TBD
          */
         rangeValueCapCells: positiveNumber,
         /**
@@ -632,6 +675,17 @@ export const WeaponRolesSchema = z
          * 29 % of the kills, so the tail has a price, not a wall. TBD
          */
         rangeValueTailShare: unitRange,
+        /**
+         * How far past `perception.sightRadiusCells` a generated `rangeMax` may
+         * reach, as a share of it. 1.15 gives a little headroom for a shot that
+         * is already in the air when the target steps out of sight.
+         *
+         * Before this, a marksman was generated with a mean `rangeMax` of 47.1
+         * cells while a bot saw 26. Twenty one cells of that reach could never
+         * hold a visible target, and the weapon still paid about 9.5 cells of
+         * full-price reach for them (Section 7.30.7). TBD
+         */
+        rangeHeadroomShare: z.number().min(1),
       })
       .strict(),
     /**
