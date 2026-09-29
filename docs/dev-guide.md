@@ -4652,7 +4652,119 @@ marksman at all, and a `denial` weapon spreads its damage over time into small
 ticks.
 
 Confirm it on a full sweep before acting. Every batch from here carries the three
-columns, so the next one answers it for free. **TBD**
+columns, so the next one answers it for free.
+
+Section 7.40 does, over 3600 rounds, and the answer is not the weapon design: an
+Overwatch bot never picks a weapon up, and fights the round with the starting
+rifle.
+
+## 7.40 Overwatch fights with the starting rifle
+
+1200 rounds on each of the three styles, 3600 in all, with the instrument of
+Section 7.39. The anemic-damage finding carries through on every ground, the
+decomposition of it changes, and the cause turns out to be none of the four
+candidates of Section 7.38.4.
+
+### 7.40.1 The deficit is the same everywhere
+
+| style | damage a seat | kills a seat | damage a kill | K/D |
+|---|---|---|---|---|
+| bastion | **0.64** | 0.60 | 1.06 | 0.48 |
+| cavern | **0.56** | 0.53 | 1.05 | 0.51 |
+| openfield | **0.55** | 0.54 | 1.03 | 0.55 |
+
+All ratios are Overwatch against Tank. Damage and kills track each other on all
+three grounds, and damage a kill is level, so the role wastes nothing it deals
+and is credited with everything it earns. **It simply deals 36 % to 45 % less.**
+
+### 7.40.2 The decomposition, corrected
+
+The 40-round sample of Section 7.39.3 said Overwatch shoots 11 % less. Over 3600
+rounds that is **wrong**:
+
+| style | shots a seat | landed a shot | damage a landed hit | product | measured |
+|---|---|---|---|---|---|
+| bastion | **1.26** | 0.88 | **0.57** | 0.64 | 0.64 |
+| cavern | 0.99 | 0.85 | **0.66** | 0.56 | 0.56 |
+| openfield | **1.22** | 0.78 | **0.58** | 0.55 | 0.55 |
+
+On two of the three grounds an Overwatch bot **fires more shots than a Tank**, not
+fewer. It does not miss much either: against the Skirmisher, whose weapons hit
+one bot at a time as its own do, it lands 0.358 against 0.337 on bastion and
+0.369 against 0.358 on cavern.
+
+Nearly the whole deficit is one term. **An Overwatch bot deals 19 to 21 damage a
+landed hit where a Tank deals 33.** The product of the three factors matches the
+measured ratio to two decimals on every style, so the arithmetic is not a story.
+
+### 7.40.3 The cause: it never arms itself
+
+A weapon that fires often and hits softly is the **baseline rifle**: 14 damage
+every 12 ticks, the fallback every bot starts with.
+
+Kills by archetype, in rounds with no Overwatch seat against rounds with six:
+
+| archetype | bastion | cavern | openfield |
+|---|---|---|---|
+| **baseline** | 10.1 % → **77.7 %** | 7.5 % → **60.8 %** | 8.5 % → **54.8 %** |
+| marksman | 19.1 % → 6.7 % | 15.4 % → 13.8 % | 18.8 % → 8.8 % |
+| splash | 22.5 % → 5.4 % | 24.2 % → 1.5 % | 27.2 % → 6.1 % |
+| heavy | 11.0 % → 0.6 % | 14.6 % → 2.3 % | 10.8 % → 3.5 % |
+
+**An all-Overwatch team takes 55 % to 78 % of its kills with the starting rifle.**
+The role that ranks `marksman` first in its `weaponPref` almost never holds one.
+
+The pickups confirm it directly:
+
+| taken a round | bastion | cavern | openfield |
+|---|---|---|---|
+| weapon points, 0 Overwatch seats → 6 | 15.31 → **5.42** | 17.49 → **7.50** | 15.04 → **9.75** |
+| ammo points, 0 → 6 | 12.19 → **0.33** | 12.68 → **0.33** | 15.89 → **1.67** |
+
+Ammunition falls by about 97 %, which is the same fact said twice: the baseline
+weapon is `bot.weapons[0]`, `hasUnlimitedAmmo` is true for it, so a bot that
+never takes a weapon never needs a round.
+
+The chain is complete and every link is measured:
+
+```
+itemControl 0.4 and seekPickup 0.8, both the lowest of the three roles
+  -> it rarely walks to a weapon point        (5.4 pickups against 15.3)
+  -> it keeps the baseline rifle              (78 % of its kills)
+  -> 14 damage a hit instead of 33            (damage a hit 0.57)
+  -> 45 % less damage a seat                  (0.55 to 0.64)
+  -> half the kills, and it loses             (K/D 0.48 to 0.55)
+```
+
+Section 7.35 made this worse rather than better. `TakePosition` carries a role
+weight of **1.6** for Overwatch against `seekPickup` at **0.8**, so the action
+that competes hardest with fetching a weapon is the one the role wants most. That
+is why 3O went 20.0 % to 18.3 % across the zone work.
+
+### 7.40.4 What this means for the five reworks
+
+The bands, the reach cap, the range curve, the conflict zone and the band split
+were each a real defect and each is fixed. **None of them could have moved this
+number, because an Overwatch bot was not carrying the weapon any of them tuned.**
+
+Five sweeps looked at the weapon and the ground. The bot had neither.
+
+### 7.40.5 The fix, and the better fix
+
+The narrow fix is two numbers in `data/roles.json`: raise the Overwatch
+`itemControl` from 0.4 and its `seekPickup` behaviour from 0.8. That would be
+tuning one role out of a hole the others are not in.
+
+The better fix is in `pickupValue`. **A weapon point is worth what it adds, and
+nothing values it that way today.** A bot still holding the baseline should want
+a weapon far more than a bot already carrying a good one, whatever its role or
+its `itemControl`. Scale the worth of a weapon point by the gap between what lies
+on it and what the bot holds, and the problem disappears for every role at once —
+including any future role that inherits a low `itemControl`.
+
+Measure both. The instrument of Section 7.39 is in every batch now, so the
+baseline share of kills is the number to watch: it should fall from 55–78 % to
+near the 8–10 % that a Tank team already shows. **TBD**
 
 ## 8. Match flow (sequence)
 
