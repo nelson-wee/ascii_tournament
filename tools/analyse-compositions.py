@@ -61,11 +61,19 @@ def tempo(rows):
         "gap": sum(num(r,"killGapSum") for r in rows) / gaps / 20,
     }
 
-styles = sys.argv[1:]
+# A leading --dir names one more output folder to look in, so a new batch does
+# not need a new name here.
+argv = sys.argv[1:]
+extra = []
+while argv and argv[0] == "--dir":
+    extra.append(argv[1])
+    argv = argv[2:]
+styles = argv
 data = {}
 for style in styles:
-    for path in (f"batch-out/roles/rounds-{style}.csv",
-                 f"batch-out/roles-{style}/rounds-{style}.csv"):
+    for path in ([f"{d}/rounds-{style}.csv" for d in extra] +
+                 [f"batch-out/roles/rounds-{style}.csv",
+                  f"batch-out/roles-{style}/rounds-{style}.csv"]):
         try:
             data[style] = load(path)
             break

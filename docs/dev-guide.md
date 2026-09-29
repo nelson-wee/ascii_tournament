@@ -3491,6 +3491,88 @@ long band was 1 % of shots. It now derives the crossover point from
 `bandShare` and `rangePrefBias` at run time, so it tests the mechanism and
 cannot go stale when the numbers move again.
 
+### 7.30.5 The bands moved. The win rate did not.
+
+Two batches of 1200 rounds over 3 arenas, `data/batch-roles.json`, seed 20260928.
+
+**The band moved exactly as the derivation said it would:**
+
+| kills by band | openfield before | openfield after | cavern before | cavern after |
+|---|---|---|---|---|
+| close | 45 % | 36.7 % | 56 % | 47.0 % |
+| mid | 48 % | 37.8 % | 43 % | 39.6 % |
+| long | **7 %** | **25.5 %** | **1 %** | **13.4 %** |
+
+**The Overwatch penalty did not move at all:**
+
+| overwatch in the team | openfield before | openfield after | cavern before | cavern after |
+|---|---|---|---|---|
+| 0 | 64 % | 66.4 % | 65 % | 64.3 % |
+| 1 | 50 % | 48.1 % | 50 % | 51.2 % |
+| 2 | 36 % | 33.9 % | 34 % | 34.6 % |
+| 3 | 22 % | 22.7 % | 24 % | 20.0 % |
+
+The mirror rows say the role changed its behaviour and not its result. A 3O
+team on openfield now takes 82 % of its kills at long range, against 3 % at
+close range, which is the role working as designed. It still makes only 16.6
+kills in 3905 ticks, where 3T makes 37.8 in 3303. And its contact share is
+**higher** than 3T's, 34 % against 29 %. So an Overwatch bot sees the enemy
+more of the time, fights at the range it wants, and kills at 37 % of the rate.
+
+Side bias stayed inside the noise: pooled mirror A 46.7 % openfield and 47.5 %
+cavern, each ±4.6.
+
+### 7.30.6 The cause: the budget took back what the band gave
+
+The power budget is zero-sum at a fixed tier. Both changes of Section 7.30.3
+raised the price of reach, so the generator granted less damage to pay for it.
+400 weapon sets, same seeds, old data files against new:
+
+| archetype | mean rangeMax | DPS before | DPS after | change |
+|---|---|---|---|---|
+| marksman | 47.1 | 63.2 | 54.3 | **−14 %** |
+| precision | 32.8 | 53.3 | 53.1 | 0 % |
+| assault | 18.3 | 48.6 | 56.4 | **+16 %** |
+| splash | 14.9 | 37.0 | 42.8 | **+16 %** |
+| heavy | 23.7 | 44.3 | 48.1 | +9 % |
+| denial | 17.5 | 35.1 | 37.2 | +6 % |
+
+Marksman and precision are the two weapons an Overwatch bot reaches for first.
+Assault and splash are the Skirmisher's and the Tank's. So the change cut 14 %
+from the role's own weapon and gave its rivals 6 % to 16 %. The band gain and
+the budget loss cancelled, which is what the batch measured.
+
+Two mechanisms, both in the same direction:
+
+- `bandShare` long .02 → .25 makes a long DPS profile count as valuable, so
+  `costOf` charges more for it and `generateWeapon` grants less raw damage.
+- `rangeValueCapCells` 20 → 26 charges full price for reach out to 26 cells,
+  where 6 of those cells used to cost `rangeValueTailShare`, 45 % of full.
+
+This does not mean the bands were wrong. It means `bandShare` and the tier
+targets are one system and were re-measured only half way, exactly as
+Section 7.30.4 warned.
+
+### 7.30.7 The reach nobody can use
+
+The same table holds a second finding, larger than the first.
+
+**A marksman has a mean `rangeMax` of 47.1 cells, and a bot sees 26.** Twenty
+one cells of its reach cannot be used on any ground, because no target is ever
+visible there. The tail past the cap is charged at `rangeValueTailShare`, so
+the marksman still pays about 9.5 cells of full-price reach for ground that
+does not exist. Precision, at 32.8, pays about 3.
+
+So the generator sells the role a number that the perception system cannot
+honour. Raising `rangeValueCapCells` did not create this; it made the bill
+larger.
+
+**The fix is to stop generating the dead reach, not to price it.** Clamp the
+generated `rangeMax` at or just above `perception.sightRadiusCells`, and the
+budget that the tail consumed returns as damage — to marksman and precision
+first, which are the two weapons Overwatch ranks highest. That is one change,
+it needs no new system, and it is the next thing to measure. **TBD**
+
 ## 7.31 What the arena tells the bots: nothing
 
 Section 7.30 fixed a number. This records a structural gap found while looking
