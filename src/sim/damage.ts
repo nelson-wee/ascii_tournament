@@ -10,7 +10,7 @@ import { isUnaware, noteIncomingFire } from "../ai/perception.js";
 import type { RangeBand } from "../weapons/types.js";
 import { damageMultiplierOf } from "./pickups.js";
 import { botCell, distanceBetween, type BotState, type SimState } from "./state.js";
-import { coverSave } from "./cover.js";
+import { coverBandOf, coverSave } from "./cover.js";
 
 /** The range band of a distance (Section 6.8). */
 export function rangeBandOf(state: SimState, distance: number): RangeBand {
@@ -138,7 +138,7 @@ export function damageBot(
   // A hazard tile and damage over time are already on or in the target, so
   // cover cannot screen them.
   if (context.source === "shot" || context.source === "area") {
-    const save = coverSave(state, attacker, target);
+    const save = coverSave(state, attacker, target, context.attackType);
     if (save > 0 && attacker.rng.bool(save)) {
       state.bus.emit("CoverSave", tick, roundNumber, {
         shooterId: attacker.id,
@@ -146,6 +146,8 @@ export function damageBot(
         weaponId: context.weaponId,
         source: context.source,
         rangeBand: rangeBandOf(state, distanceBetween(attacker, target)),
+        /** The band the save was priced at. A blast is charged close range. */
+        coverBand: coverBandOf(state, distanceBetween(attacker, target), context.attackType),
         save,
       });
       return false;
@@ -261,7 +263,7 @@ export function damageBot(
     distance,
     killerInCover: isInCover(state, attacker),
     /** What cover the victim had from this angle. 0 means it died in the open. */
-    targetCover: coverSave(state, attacker, target),
+    targetCover: coverSave(state, attacker, target, context.attackType),
     targetAware: !unaware,
     killerHealth: attacker.health,
     multiKillCount: attacker.multiKillCount,

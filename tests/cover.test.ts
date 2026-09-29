@@ -13,6 +13,7 @@ import {
   coverSave,
   coverSaveAt,
   createSimState,
+  splashesPastCover,
   damageBot,
   type BotState,
   type SimState,
@@ -20,7 +21,10 @@ import {
 import { generateWeaponSet } from "../src/weapons/generate.js";
 
 const WIDTH = 46;
-const HEIGHT = 19;
+// Tall enough to walk around an enemy in. `bandDistance("long")` is 18.75 cells,
+// so a 45-degree turn moves the candidate cell 13.3 rows off the line; in a
+// shorter hall every flank candidate lands in the outside wall and is skipped.
+const HEIGHT = 31;
 
 /**
  * A long open hall with low cover exactly where a test asks for it.
@@ -63,7 +67,7 @@ function place(bot: BotState, at: Cell): void {
   bot.pos = { x: at.x + 0.5, y: at.y + 0.5 };
 }
 
-const ROW = 9;
+const ROW = 15;
 
 describe("coverAgainst: cover is what lies between", () => {
   const map = hall([{ x: 27, y: ROW }]);
@@ -223,6 +227,78 @@ describe("damageBot: cover stops a share of the shots", () => {
   });
 });
 
+describe("a blast goes over a low wall (Section 7.32.7)", () => {
+  const state = hallState([{ x: 27, y: ROW }]);
+  const at: Cell = { x: 28, y: ROW };
+
+  it("prices cover at close range for a cone and a burst, however far the shot flew", () => {
+    const { cover } = state.config;
+    for (const attackType of ["cone", "burst"]) {
+      // 20 cells is the long band, and the save still reads the close rate.
+      expect(coverSaveAt(state, at, { x: 8, y: ROW }, 20, attackType)).toBeCloseTo(
+        cover.bandFactor.close,
+        5,
+      );
+    }
+  });
+
+  it("leaves every other attack type on the band of the distance", () => {
+    const { cover } = state.config;
+    for (const attackType of ["hitscan", "line", "projectile", "ricochet", "tile"]) {
+      expect(coverSaveAt(state, at, { x: 8, y: ROW }, 20, attackType)).toBeCloseTo(
+        cover.bandFactor.long,
+        5,
+      );
+    }
+  });
+
+  it("names exactly the splash archetype, and not the denial one", () => {
+    // `archetypeOf` maps cone and burst to `splash`, and tile to `denial`. A
+    // hazard damages through the `hazard` source, which cover never shields.
+    expect(splashesPastCover("cone")).toBe(true);
+    expect(splashesPastCover("burst")).toBe(true);
+    expect(splashesPastCover("tile")).toBe(false);
+    expect(splashesPastCover(undefined)).toBe(false);
+  });
+
+  it("still lets cover matter, at the close rate", () => {
+    const { cover } = state.config;
+    expect(coverSaveAt(state, at, { x: 8, y: ROW }, 20, "cone")).toBeGreaterThan(0);
+    expect(cover.bandFactor.close).toBeLessThan(cover.bandFactor.long);
+  });
+
+  it("lands more blasts than bullets on a bot in cover at long range", () => {
+    const shot = { weaponId: "w", weaponArchetype: "splash", source: "area" as const };
+    const [a, b] = pair(state);
+    place(a, { x: 8, y: ROW });
+    place(b, { x: 28, y: ROW });
+    const landed = (attackType: string): number => {
+      let hits = 0;
+      for (let i = 0; i < 400; i += 1) {
+        b.health = state.config.healthMax;
+        if (damageBot(state, a, b, 1, { ...shot, attackType })) hits += 1;
+      }
+      return hits;
+    };
+    expect(landed("burst")).toBeGreaterThan(landed("hitscan"));
+  });
+
+  it("stops a bot valuing a screen that the weapon aimed at it ignores", () => {
+    const b = state.bots[3] as BotState;
+    const enemy = state.bots[0] as BotState;
+    for (const bot of state.bots) if (bot !== b && bot !== enemy) bot.alive = false;
+    place(b, { x: 28, y: ROW });
+    place(enemy, { x: 8, y: ROW });
+    b.visibleEnemyIds = [enemy.id];
+
+    enemy.weapon = { ...loadBaselineWeapon(), attackType: "hitscan" };
+    const againstBullets = coverFromVisible(state, b, { x: 28, y: ROW });
+    enemy.weapon = { ...loadBaselineWeapon(), attackType: "burst" };
+    const againstBlasts = coverFromVisible(state, b, { x: 28, y: ROW });
+    expect(againstBlasts).toBeLessThan(againstBullets);
+  });
+});
+
 describe("coverFromVisible: the enemy you are open to is the one that matters", () => {
   it("is zero with no enemy in sight, because cover against nobody is not cover", () => {
     const state = hallState([{ x: 27, y: ROW }]);
@@ -264,12 +340,23 @@ describe("the AI plays around cover", () => {
     expect(shielded).toBeGreaterThan(open);
   });
 
+  /** A bot that means to fight in the long band, where cover is worth the most. */
+  function longRangeShooter(bot: BotState): void {
+    bot.weapon = {
+      ...loadBaselineWeapon(),
+      rangeMax: 26,
+      dpsProfile: { close: 10, mid: 20, long: 60 },
+    };
+    bot.tactics = { ...bot.tactics, rangePref: ["long", "mid", "close"] };
+  }
+
   it("walks off the line to take the cover of its target away", () => {
     // The target sits behind cover on the straight line between the two bots.
     // Standing still keeps the shot blocked, so the bot should path to a cell
     // that is off that line.
     const state = hallState([{ x: 39, y: ROW }]);
     const [a, b] = pair(state);
+    longRangeShooter(a);
     place(a, { x: 6, y: ROW });
     place(b, { x: 40, y: ROW });
     a.targetId = b.id;
@@ -285,6 +372,7 @@ describe("the AI plays around cover", () => {
   it("stays on the line when the target has no cover to take", () => {
     const state = hallState();
     const [a, b] = pair(state);
+    longRangeShooter(a);
     place(a, { x: 6, y: ROW });
     place(b, { x: 40, y: ROW });
     a.targetId = b.id;
@@ -292,6 +380,22 @@ describe("the AI plays around cover", () => {
 
     applyAction(state, a, { kind: "Engage", targetId: b.id });
     // With nothing to gain, `flankTurnCost` keeps the bot on the bearing it has.
+    expect(a.pathGoal?.y).toBe(ROW);
+  });
+
+  it("does not bother flanking with a blast, which goes over the wall anyway", () => {
+    const state = hallState([{ x: 39, y: ROW }]);
+    const [a, b] = pair(state);
+    longRangeShooter(a);
+    a.weapon = { ...a.weapon, attackType: "burst" };
+    place(a, { x: 6, y: ROW });
+    place(b, { x: 40, y: ROW });
+    a.targetId = b.id;
+    updatePerception(state);
+
+    applyAction(state, a, { kind: "Engage", targetId: b.id });
+    // Cover costs a blast the close-range rate, and that is cheaper than the
+    // walk around (Section 7.32.7).
     expect(a.pathGoal?.y).toBe(ROW);
   });
 });

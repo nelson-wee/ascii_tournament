@@ -27,8 +27,32 @@
  */
 import { Tile, tileAt, type ArenaMap } from "../arena/types.js";
 import type { Cell } from "../core/types.js";
+import type { RangeBand } from "../weapons/types.js";
 import { rangeBandOf } from "./damage.js";
 import { botCell, distanceBetween, type BotState, type SimState } from "./state.js";
+
+/**
+ * The attack types that a low wall does not stop (Section 7.32.7).
+ *
+ * A blast does not need a clear line to the bot, only to the ground beside it,
+ * so the wall it goes over is not a screen. Cover still counts against it —
+ * a bot pressed against a wall is harder to reach even with a blast — but only
+ * at the close-range rate, whatever the real distance.
+ *
+ * These two attack types are exactly the `splash` archetype: `archetypeOf` maps
+ * cone and burst to it and nothing else to it. The set is keyed on the attack
+ * type and not the archetype because the mechanic is the shape of the shot, not
+ * the name of the weapon.
+ *
+ * `tile` is absent because a hazard damages through the `hazard` source, which
+ * cover never shields at all.
+ */
+const SPLASH_ATTACK_TYPES: ReadonlySet<string> = new Set(["cone", "burst"]);
+
+/** True if a low wall does not stop this shot (Section 7.32.7). */
+export function splashesPastCover(attackType: string | undefined): boolean {
+  return attackType !== undefined && SPLASH_ATTACK_TYPES.has(attackType);
+}
 
 /** The numbers that decide what cover is worth. `SimConfig.cover` holds them. */
 export interface CoverConfig {
@@ -97,20 +121,47 @@ export function coverSaveAt(
   target: Cell,
   from: Cell,
   distance: number,
+  attackType?: string,
 ): number {
   const { cover } = state.config;
   const shield = coverAgainst(state.map, cover, target, from);
   if (shield <= 0) return 0;
-  const band = rangeBandOf(state, distance);
   // `coverAgainst` answers at most 1, so `bandFactor` is itself the ceiling of
   // the save. A second ceiling below it would only hide the difference between
   // the mid band and the long one, which is the whole point of the three.
-  return shield * cover.bandFactor[band];
+  return shield * cover.bandFactor[coverBandOf(state, distance, attackType)];
+}
+
+/**
+ * The band that decides what cover is worth against one shot.
+ *
+ * It is the band of the distance, except for a shot that goes over the wall
+ * rather than through the gap above it. A blast counts as close range however
+ * far it flew, which is what makes a splash weapon the answer to a bot that
+ * holds cover at long range (Section 7.32.7).
+ */
+export function coverBandOf(
+  state: SimState,
+  distance: number,
+  attackType?: string,
+): RangeBand {
+  return splashesPastCover(attackType) ? "close" : rangeBandOf(state, distance);
 }
 
 /** The share of shots that cover stops, for one shot at one bot. */
-export function coverSave(state: SimState, attacker: BotState, target: BotState): number {
-  return coverSaveAt(state, botCell(target), botCell(attacker), distanceBetween(attacker, target));
+export function coverSave(
+  state: SimState,
+  attacker: BotState,
+  target: BotState,
+  attackType?: string,
+): number {
+  return coverSaveAt(
+    state,
+    botCell(target),
+    botCell(attacker),
+    distanceBetween(attacker, target),
+    attackType,
+  );
 }
 
 /**
@@ -119,6 +170,11 @@ export function coverSave(state: SimState, attacker: BotState, target: BotState)
  * "Worst" and not "mean", because the bot that shoots you is the one you are
  * not shielded from. A cell that hides a bot from two enemies and leaves it
  * open to a third is an open cell.
+ *
+ * It reads the weapon each enemy holds, so an enemy with a blast gives the cell
+ * the close-range save and not the long-range one. Without that the bot would
+ * value a screen that the weapon pointed at it ignores, which is the defect of
+ * Section 7.31: a number the AI reads that does not mean what its name says.
  *
  * With no enemy in sight it gives 0: cover against nobody is worth nothing, the
  * same rule `contactFactor` uses for holding a sightline that nothing crosses.
@@ -132,7 +188,7 @@ export function coverFromVisible(state: SimState, bot: BotState, at: Cell): numb
     seen += 1;
     const from = botCell(enemy);
     const distance = Math.hypot(from.x - at.x, from.y - at.y);
-    const save = coverSaveAt(state, at, from, distance);
+    const save = coverSaveAt(state, at, from, distance, enemy.weapon.attackType);
     if (save < worst) worst = save;
   }
   return seen === 0 ? 0 : worst;

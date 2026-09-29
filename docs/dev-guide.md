@@ -3828,6 +3828,79 @@ the position within a tenth of a cell — stays as it was. A real asymmetry move
 health by whole points, and the widest gap rounding produced over 260 ticks was
 4.8e-13, so the instrument keeps its teeth.
 
+### 7.32.7 A blast goes over a low wall
+
+Cover that stops everything equally is not a choice, it is a tax. So the answer
+to a bot holding cover at long range is a **splash weapon**: a cone or a burst
+counts as **close range against cover, whatever the real distance**.
+
+| what the shot is | one full screen stops |
+|---|---|
+| a bullet at long range | 70 % |
+| a bullet at mid range | 40 % |
+| a bullet at close range | 15 % |
+| **a blast, at any range** | **15 %** |
+
+The reason is the shape of the shot. A blast does not need a clear line to the
+bot, only to the ground beside it, so the wall it goes over is not a screen.
+Cover still counts for something — a bot pressed against a wall is harder to
+reach even with a blast — but only at the close-range rate.
+
+`SPLASH_ATTACK_TYPES` holds `cone` and `burst`, which is exactly the `splash`
+archetype: `archetypeOf` maps those two to it and nothing else to it. The set is
+keyed on the **attack type** and not the archetype, because the mechanic is the
+shape of the shot rather than the name of the weapon. `tile` is absent because a
+hazard damages through the `hazard` source, which cover never shields at all.
+
+Two places read the same rule, so that no bot plays against a mechanic that does
+not exist:
+
+- `coverFromVisible` prices each visible enemy by the weapon **that enemy
+  holds**. A bot facing a grenadier does not value a screen the grenade ignores.
+- `firingCell` prices the target's cover by the weapon **the bot holds**, and its
+  own cover by the weapon the target holds. A bot carrying a blast has nothing to
+  flank, so it walks straight in. This is what makes `ai.flankWeight` mean "how
+  much the bot values removing the cover penalty it actually suffers", rather
+  than a penalty somebody else suffers.
+
+The `CoverSave` event carries both bands: `rangeBand` is the real distance and
+`coverBand` is what the save was priced at, so a batch can tell the two apart.
+
+### 7.32.8 A 30-degree turn clears nothing
+
+The first turn set was three steps of 30 degrees to each side. It did not work,
+and the probe says why. Against a target with cover on the straight line, every
+30-degree candidate read the **same shield as the straight line**:
+
+```
+steps  0 cell (21,15)  theirs 0.700  score 0.180
+steps  1 cell (24, 3)  theirs 0.700  score 0.060
+steps -1 cell (24,21)  theirs 0.700  score 0.060
+```
+
+Cover that shields a bot sits within `cover.depthCells` of it, which in practice
+means **the cell next to it**, and a cell next to a bot subtends about 45 degrees
+seen from that bot. A 30-degree turn moves the far end of the line of fire a long
+way and still enters the target through the same neighbour. So it read the same
+cover tile, gained nothing, and paid `ai.flankTurnCost` for the walk — which is
+why the straight line kept winning.
+
+At 45 degrees the line enters through the diagonal neighbour instead:
+
+```
+steps  0 cell (21,15)  theirs 0.700  score 0.180
+steps  1 cell (27, 2)  theirs 0.000  score 0.480
+steps -1 cell (27,28)  theirs 0.000  score 0.480
+```
+
+`FLANK_TURNS` is now 45, 90 and 135 degrees to each side. 135 is a long walk and
+it costs three steps, but it is still worth taking when it is the only bearing
+with a clear shot.
+
+The lesson is the one this section keeps repeating: **the resolution of a choice
+has to match the resolution of the thing it acts on.** A turn finer than the grid
+the cover sits on cannot change what the cover does.
+
 ### 7.32.6 What is not measured yet
 
 Cover, the reach cap and the role ranges all landed together and none of them
@@ -3840,6 +3913,10 @@ has a batch behind it. The three questions for the next sweep:
    and 6.8 % on the three styles, so cover is scattered and not everywhere.
 3. Does a bot flank, or orbit? `ai.flankTurnCost` is the number to watch, and a
    bot that walks around an enemy without ever firing means it is too low.
+4. Does the splash archetype rise? Section 7.29 measured it losing, and
+   Section 7.32.7 gives it the one job nothing else can do. `CoverSave` carries
+   `coverBand` so the sweep can count the saves a blast was charged close range
+   for.
 
 `bandShare` is still the geometric prior of Section 7.30.4, and the accuracy
 curve of Section 7.32.2 is still coupled to `rangeMax`. Both wait on the same

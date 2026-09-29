@@ -36,7 +36,7 @@ import {
 } from "../sim/state.js";
 import { hasAmmo } from "../sim/combat.js";
 import { clearLine } from "../sim/attacks.js";
-import { coverAgainst, coverFromVisible } from "../sim/cover.js";
+import { coverAgainst, coverBandOf, coverFromVisible } from "../sim/cover.js";
 import { pickupValue } from "../sim/pickups.js";
 import { controlAt, dangerFor } from "./influence.js";
 import { findPath } from "./navigation.js";
@@ -718,12 +718,20 @@ function pathTo(state: SimState, bot: BotState, to: Cell): boolean {
 /**
  * How far around the target a bot will look for a better bearing.
  *
- * Seven candidates: the line it already stands on, and three steps of 30 degrees
+ * Seven candidates: the line it already stands on, and three steps of 45 degrees
  * to each side. The geometry is fixed and needs no tuning number. What the bot
  * does with the candidates is tuned, by `ai.flankWeight` and `ai.flankTurnCost`.
  *
+ * **45 degrees and not 30, because 30 clears nothing.** Cover that shields a bot
+ * sits within `cover.depthCells` of it, which in practice means the cell next to
+ * it, and a cell next to a bot subtends about 45 degrees seen from that bot. A
+ * 30-degree turn moves the far end of the line of fire a long way and still
+ * enters the target through the same neighbour, so it reads the same cover tile
+ * and gains nothing for the walk. The probe of Section 7.32.8 measured it: every
+ * 30-degree candidate scored the same shield as the straight line.
+ *
  * Each entry holds the turn as a **rotation of the vector**, not as an angle to
- * add to a bearing. The mirror test of Section 7.2.2 is why. A rotation applies
+ * add to a bearing. The mirror test of Section 7.20.23 is why. A rotation applies
  * `cos` and `sin` as constants, so a mirrored input gives an exactly mirrored
  * output: negation, multiplication and addition are all sign-symmetric in IEEE
  * 754. `Math.cos(bearing + Math.PI)` is not exactly `-Math.cos(bearing)`, and
@@ -733,8 +741,8 @@ function pathTo(state: SimState, bot: BotState, to: Cell): boolean {
 const FLANK_TURNS: readonly { steps: number; cos: number; sin: number }[] = [0, 1, -1, 2, -2, 3, -3]
   .map((steps) => ({
     steps: Math.abs(steps),
-    cos: Math.cos((steps * Math.PI) / 6),
-    sin: Math.sin((steps * Math.PI) / 6),
+    cos: Math.cos((steps * Math.PI) / 4),
+    sin: Math.sin((steps * Math.PI) / 4),
   }));
 
 /**
@@ -786,6 +794,11 @@ function firingCell(state: SimState, bot: BotState, target: BotState, wanted: nu
   const unit = { x: dx / span, y: dy / span };
   const from = botCell(target);
 
+  // What a full screen is worth against each weapon, at the wanted distance.
+  const mineCosts = config.cover.bandFactor[coverBandOf(state, wanted, bot.weapon.attackType)];
+  const theirsCosts =
+    config.cover.bandFactor[coverBandOf(state, wanted, target.weapon.attackType)];
+
   const straight = FLANK_TURNS[0] as { steps: number; cos: number; sin: number };
   let best = cellOnRing(state, target, unit, straight, wanted);
   let bestScore = -Infinity;
@@ -796,9 +809,13 @@ function firingCell(state: SimState, bot: BotState, target: BotState, wanted: nu
     const centre = { x: cell.x + 0.5, y: cell.y + 0.5 };
     if (!clearLine(state, centre, target.pos)) continue;
 
-    // What the target keeps from this bearing, and what the bot gains.
-    const theirs = coverAgainst(state.map, config.cover, from, cell);
-    const mine = coverAgainst(state.map, config.cover, cell, from);
+    // What the target keeps from this bearing, and what the bot gains — each
+    // priced by the weapon that has to get through it, at the distance the bot
+    // means to fight at. A bot holding a blast has nothing to flank, because a
+    // blast goes over a low wall (Section 7.32.7), and a bot facing one gains
+    // little by standing behind one.
+    const theirs = coverAgainst(state.map, config.cover, from, cell) * mineCosts;
+    const mine = coverAgainst(state.map, config.cover, cell, from) * theirsCosts;
     const score =
       (1 - theirs) * config.flankWeight +
       mine * config.cover.aiWeight -
