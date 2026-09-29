@@ -3306,6 +3306,110 @@ only the magnitude needs narrowing; if it loses there too, the role is weak and
 its weapon and range rankings are the thing to change. Tuning now would be
 fitting one map. TBD
 
+## 7.29 Three grounds: the long band does not exist
+
+`cavern` and `openfield` ran the same sweep as Section 7.28: 3000 rounds, 3
+generated arenas, all ten compositions, `useRoleTactics` set. Commit
+`8225b209`, data `1injtqz`.
+
+### 7.29.1 Overwatch loses on every ground, by the same amount
+
+| Overwatch in the team | bastion | cavern | openfield |
+|---|---:|---:|---:|
+| 0 | 65.4 ±1.0 | 64.5 ±1.0 | 63.5 ±1.0 |
+| 1 | 49.7 ±1.2 | 50.2 ±1.2 | 50.4 ±1.2 |
+| 2 | 35.9 ±1.4 | 33.7 ±1.4 | 36.2 ±1.4 |
+| 3 | 17.3 ±1.5 | 24.2 ±1.7 | 22.2 ±1.7 |
+
+Section 7.28 asked whether `overwatch` is weak or merely specialised for ground
+that `bastion` does not have. **`openfield` answers it: the role is weak.** The
+penalty is the same on the open map as on the closed one.
+
+### 7.29.2 Because the long band is 6 %, 1 % and 7 %
+
+| Style | close | mid | **long** |
+|---|---:|---:|---:|
+| bastion | 37 % | 58 % | **6 %** |
+| cavern | 44 % | 55 % | **1 %** |
+| openfield | 34 % | 60 % | **7 %** |
+
+`openfield` was supposed to be the long-range map. It takes **7 %** of its
+kills past 20 cells. There is no ground in this game where the long band is a
+real place to fight.
+
+**Three numbers explain it, and two of them are the same number:**
+
+    perception.sightRadiusCells   20
+    combat.rangeBandMidMax        20     <- the long band starts here
+    budget.rangeValueCapCells     20
+
+**The long band begins exactly where a bot stops being able to see.** A bot
+cannot acquire a target it cannot see, so the band above 20 cells is reachable
+only by a shot already in the air, by area damage, or by a target that walks
+out of a fight. That is the 1 to 7 %.
+
+The weapon budget already knows this. `bandShare` reads `close 0.50, mid 0.48,
+long 0.02`, and `fixedCost` caps the value of reach at the same 20 cells, with
+a comment that says "the long band is 1 % of shots". **The data has known since
+the weapon work that the long band is 2 % of the game.**
+
+`overwatch` was then written to rank that band **first**, and to reach for
+`marksman` weapons, whose base reach is 38 to 58 cells — nearly three times the
+sight radius. The role is not mis-tuned against one map. It is aimed at a band
+that the engine gives 2 % of.
+
+This is the defect of Section 7.20.18 once more: **a number that does not mean
+what its name says.** "Long range" names a band that vision cannot reach.
+
+### 7.29.3 The other two roles do adapt to the ground
+
+| Style | 3T | 3S | 3T − 3S |
+|---|---:|---:|---:|
+| bastion | 65.7 | 61.2 | **+4.5** |
+| cavern | 63.3 | 62.2 | +1.1 |
+| openfield | 58.8 | 68.7 | **−9.9** |
+
+A 14.4-point swing between the closed map and the open one, in the direction
+the names promise: the tank is best in corridors, the skirmisher on open
+ground. **The design works for the two roles that play bands the game actually
+has.** `1T2S` also leads `bastion` and `cavern` while `3S` leads `openfield`,
+so the best answer changes with the ground.
+
+### 7.29.4 The side bias, watched on purpose
+
+| Measure | bastion | cavern | openfield |
+|---|---:|---:|---:|
+| Team A, every round | 47.9 ±0.9 | 50.1 ±0.9 | 50.5 ±0.9 |
+| Team A, mirror matchups only | 48.2 ±2.9 | 47.3 ±2.9 | 47.3 ±2.9 |
+
+The second row is the cleaner instrument: both teams play the **same**
+composition, so nothing but the side can move it. Every composition also played
+exactly 300 rounds as A and 300 as B, so a side bias cancels in the tables
+above whatever it is.
+
+Over three styles the whole-batch figure is 49.5 ±0.5, which is fair. `bastion`
+alone reads 2.3 standard errors low and no other style does; with three styles
+that is weak evidence, and it is **not** enough to act on. Watch it, do not
+chase it.
+
+### 7.29.5 What to change, and what not to
+
+The composition table is not the thing to tune. **The band structure is.**
+Three ways to give the long band a reason to exist, none of them measured yet:
+
+1. **Move the boundary below the sight radius.** `rangeBandMidMax` under 20
+   makes the long band ground a bot can see and shoot.
+2. **Let a bot see further than it shoots comfortably.** A larger
+   `sightRadiusCells` with the boundary where it is.
+3. **Accept that there are two bands, not three**, and rewrite `overwatch`
+   around holding a mid-range sightline instead of a long one.
+
+Whichever, `bandShare`, `rangeValueCapCells` and every weapon tier were tuned
+against a 2 % long band and would all need re-measuring. **TBD**
+
+`tools/analyse-compositions.py` reads the round CSVs and prints every table in
+this section.
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.
