@@ -16,5 +16,7 @@ export function conflictOptions(): ConflictOptions {
     contestedSpanSteps: tuning.conflict.contestedSpanSteps,
     sampleCells: tuning.conflict.sampleCells,
     bestCount: tuning.conflict.bestCount,
+    closeMax: tuning.combat.rangeBandCloseMax,
+    midMax: tuning.combat.rangeBandMidMax,
   };
 }

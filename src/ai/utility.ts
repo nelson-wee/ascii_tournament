@@ -34,8 +34,8 @@ import {
   rangeWeight,
   weaponWeight,
 } from "../sim/state.js";
-import { hasAmmo, rangeBandsOf } from "../sim/combat.js";
-import { bandDistanceOf } from "../weapons/range.js";
+import { hasAmmo, rangeBandsOf, rangeFalloffOf } from "../sim/combat.js";
+import { bandDistanceOf, rangeAccuracy } from "../weapons/range.js";
 import { clearLine } from "../sim/attacks.js";
 import { coverAgainst, coverBandOf, coverFromVisible } from "../sim/cover.js";
 import { coverageAt } from "../arena/conflict.js";
@@ -641,19 +641,36 @@ const SCAN_BEARINGS: readonly { x: number; y: number }[] = Array.from(
 const SCAN_SHARES: readonly number[] = [0.35, 0.7, 1];
 
 /**
- * What a cell is worth to stand on and shoot from (Section 7.35).
+ * What a cell is worth to stand on and shoot from (Sections 7.35 and 7.36.3).
  *
  * Three terms, and the first is the new one:
  *
- * - **What it overlooks.** `coverageAt` is the share of the conflict zone the
- *   cell can see. This is the arena measurement finally reaching a bot, which
- *   Section 7.31.1 found it never did.
+ * - **What it overlooks, at a range this weapon is good at.** The conflict field
+ *   holds the share of the zone a cell sees in each band, and the range curve of
+ *   Section 7.33 says what the weapon keeps at that band's distance. Multiplying
+ *   the two asks the question that matters: not "how much of the fight can I
+ *   see" but "how much of the fight can I see **from somewhere I can hit**".
+ *
+ *   A flat count was the defect of Section 7.36.2. The cell that sees the most
+ *   contested ground is one in the middle of it, 8 to 10 cells from what it
+ *   watches, so a flat count named the knife fight as the best ground in the
+ *   arena. A marksman now scores that cell at about 0.15 of its worth and a
+ *   ridge overlooking the zone at 18 cells at about 0.89 of it; an assault
+ *   weapon reads the same two cells the other way round.
  * - **What shields it.** The cover it has from the enemies in sight
  *   (Section 7.32.4).
  * - **What threatens it.** The danger map.
  */
-function groundValue(state: SimState, bot: BotState, cell: Cell): number {
-  const overlook = coverageAt(state.map, cell.x, cell.y) * state.config.conflictWeight;
+export function groundValue(state: SimState, bot: BotState, cell: Cell): number {
+  const bands = rangeBandsOf(state);
+  const falloff = rangeFalloffOf(state);
+  let overlook = 0;
+  for (const band of RANGE_BANDS) {
+    const share = coverageAt(state.map, cell.x, cell.y, band);
+    if (share <= 0) continue;
+    overlook += share * rangeAccuracy(bot.weapon, bandDistanceOf(band, bands), falloff);
+  }
+  overlook *= state.config.conflictWeight;
   const shielded = coverFromVisible(state, bot, cell) * state.config.cover.aiWeight;
   const danger = Math.min(0.4, dangerFor(state, bot, cell) * 0.05);
   return Math.max(0, overlook + shielded - danger);

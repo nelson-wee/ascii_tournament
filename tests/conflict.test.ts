@@ -1,16 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { measureConflict, contestedAt, coverageAt } from "../src/arena/conflict.js";
+import {
+  measureConflict,
+  contestedAt,
+  coverageAt,
+  coverageTotalAt,
+} from "../src/arena/conflict.js";
 import { conflictOptions } from "../src/arena/conflictOptions.js";
 import { cellSeesCell } from "../src/arena/sight.js";
 import { generateArena } from "../src/arena/generate.js";
 import { parseArenaText } from "../src/arena/textArena.js";
 import { Tile, tileAt, type ArenaMap } from "../src/arena/types.js";
-import { applyAction, bestGround, scoreActions } from "../src/ai/utility.js";
+import { applyAction, bestGround, groundValue, scoreActions } from "../src/ai/utility.js";
 import { updatePerception } from "../src/ai/perception.js";
 import { loadArenaProfiles, loadDefaultTactics } from "../src/core/data.js";
 import { EventBus } from "../src/core/events.js";
 import type { Tactics } from "../src/core/schemas.js";
 import { createSimState, type BotState, type SimState } from "../src/sim/index.js";
+import { loadBaselineWeapon } from "../src/core/data.js";
+import type { Weapon } from "../src/weapons/types.js";
 import { createRng, deriveSeed } from "../src/core/rng.js";
 
 const STYLES = ["bastion", "openfield", "cavern"] as const;
@@ -104,11 +111,11 @@ describe("measureConflict: where the fight happens", () => {
       expect(field, style).toBeDefined();
       expect(field!.best.length).toBeGreaterThan(0);
       const top = field!.best[0]!;
-      expect(coverageAt(map, top.x, top.y), style).toBeCloseTo(1, 5);
+      expect(coverageTotalAt(map, top.x, top.y), style).toBeCloseTo(1, 5);
       // The best ground beats a spawn corner by a wide margin.
       const spawn = map.spawns[0]!;
-      expect(coverageAt(map, top.x, top.y)).toBeGreaterThan(
-        coverageAt(map, spawn.x, spawn.y) + 0.2,
+      expect(coverageTotalAt(map, top.x, top.y)).toBeGreaterThan(
+        coverageTotalAt(map, spawn.x, spawn.y) + 0.2,
       );
     }
   });
@@ -127,10 +134,12 @@ describe("measureConflict: where the fight happens", () => {
             contestedAt(map, mx, my),
             9,
           );
-          expect(coverageAt(map, x, y), `${style} coverage ${x},${y}`).toBeCloseTo(
-            coverageAt(map, mx, my),
-            9,
-          );
+          for (const band of ["close", "mid", "long"] as const) {
+            expect(
+              coverageAt(map, x, y, band),
+              `${style} coverage ${band} ${x},${y}`,
+            ).toBeCloseTo(coverageAt(map, mx, my, band), 9);
+          }
         }
       }
     }
@@ -139,8 +148,10 @@ describe("measureConflict: where the fight happens", () => {
   it("gives the same field for the same arena, every time", () => {
     const map = arenaOf("cavern");
     const again = measureConflict(map, conflictOptions());
-    expect([...again.coverage]).toEqual([...map.conflict!.coverage]);
     expect([...again.contested]).toEqual([...map.conflict!.contested]);
+    for (const band of ["close", "mid", "long"] as const) {
+      expect([...again.coverage[band]]).toEqual([...map.conflict!.coverage[band]]);
+    }
   });
 
   it("scores a wall at nothing, and an unmeasured map at nothing", () => {
@@ -150,14 +161,14 @@ describe("measureConflict: where the fight happens", () => {
       for (let x = 0; x < map.width && walls < 5; x += 1) {
         if (tileAt(map, x, y) !== Tile.Wall) continue;
         walls += 1;
-        expect(coverageAt(map, x, y)).toBe(0);
+        expect(coverageTotalAt(map, x, y)).toBe(0);
       }
     }
     expect(walls).toBe(5);
     // A map nothing measured: every reader treats a missing field as zero.
     const bare: ArenaMap = { ...map };
     delete bare.conflict;
-    expect(coverageAt(bare, 5, 5)).toBe(0);
+    expect(coverageTotalAt(bare, 5, 5)).toBe(0);
     expect(contestedAt(bare, 5, 5)).toBe(0);
   });
 
@@ -210,8 +221,8 @@ describe("TakePosition: the measurement reaches a bot", () => {
   it("prefers open ground that overlooks the middle to a blind alcove", () => {
     const state = hallState();
     const bot = state.bots[0] as BotState;
-    const open = coverageAt(state.map, 12, 2);
-    const alcove = coverageAt(state.map, 2, 6);
+    const open = coverageTotalAt(state.map, 12, 2);
+    const alcove = coverageTotalAt(state.map, 2, 6);
     expect(open).toBeGreaterThan(alcove);
     expect(bot).toBeDefined();
   });
@@ -224,8 +235,8 @@ describe("TakePosition: the measurement reaches a bot", () => {
     updatePerception(state);
     const goal = bestGround(state, bot);
     expect(goal).not.toBeNull();
-    expect(coverageAt(state.map, goal!.x, goal!.y)).toBeGreaterThan(
-      coverageAt(state.map, 2, 6),
+    expect(coverageTotalAt(state.map, goal!.x, goal!.y)).toBeGreaterThan(
+      coverageTotalAt(state.map, 2, 6),
     );
   });
 
@@ -271,6 +282,86 @@ describe("TakePosition: the measurement reaches a bot", () => {
       scoreActions(state, bot).find((c) => c.action.kind === "TakePosition")?.score ?? 0;
     expect(scoreOfTake(overwatch)).toBeGreaterThan(0);
     expect(scoreOfTake(overwatch)).toBeGreaterThan(scoreOfTake(tank));
+  });
+
+  it("splits the coverage of a cell across the three bands", () => {
+    for (const style of STYLES) {
+      const map = arenaOf(style);
+      const top = map.conflict!.best[0]!;
+      const parts = (["close", "mid", "long"] as const).map((b) =>
+        coverageAt(map, top.x, top.y, b),
+      );
+      expect(parts.reduce((s, v) => s + v, 0), style).toBeCloseTo(
+        coverageTotalAt(map, top.x, top.y),
+        5,
+      );
+      // The bands share one normaliser, so no cell's total passes 1.
+      expect(coverageTotalAt(map, top.x, top.y), style).toBeLessThanOrEqual(1 + 1e-6);
+    }
+  });
+
+  it("sends a marksman and a shotgun to different ground", () => {
+    // The point of Section 7.36.3. The same arena, the same bot, two weapons:
+    // the one built for 18 cells must not want the cell that watches the fight
+    // from 8.
+    const state = hallState({ holdPosition: 1 });
+    const bot = state.bots[0] as BotState;
+    for (const other of state.bots) if (other !== bot) other.alive = false;
+    bot.pos = { x: 2.5, y: 6.5 };
+    updatePerception(state);
+
+    const groundFor = (over: Partial<Weapon>): string => {
+      bot.weapon = { ...loadBaselineWeapon(), rangeMax: 26, ...over };
+      bot.positionGoalTick = -Infinity;
+      const goal = bestGround(state, bot);
+      return goal === null ? "stay" : `${goal.x},${goal.y}`;
+    };
+    const sniper = groundFor({ optimalRange: 20, rangeTolerance: 7 });
+    const shotgun = groundFor({ optimalRange: 4, rangeTolerance: 7 });
+    expect(sniper).not.toBe(shotgun);
+  });
+
+  it("weighs a cell by the band its weapon is good at, not by the flat count", () => {
+    // The invariant of Section 7.36.3, stated directly: two weapons, two cells,
+    // and the ordering must flip. A cell whose view of the zone is mostly close
+    // range is the shotgun's cell; one whose view is mostly long range is the
+    // marksman's. A flat count would rank them the same way for both.
+    const state = hallState({ holdPosition: 1 });
+    const bot = state.bots[0] as BotState;
+    for (const other of state.bots) if (other !== bot) other.alive = false;
+    bot.visibleEnemyIds = [];
+
+    const pick = (wants: "close" | "long"): { x: number; y: number } | null => {
+      let found: { x: number; y: number } | null = null;
+      let bestGap = 0;
+      for (let y = 1; y < state.map.height - 1; y += 1) {
+        for (let x = 1; x < state.map.width - 1; x += 1) {
+          const close = coverageAt(state.map, x, y, "close");
+          const long = coverageAt(state.map, x, y, "long");
+          const gap = wants === "close" ? close - long : long - close;
+          if (gap > bestGap) {
+            bestGap = gap;
+            found = { x, y };
+          }
+        }
+      }
+      return found;
+    };
+    const nearCell = pick("close");
+    const farCell = pick("long");
+    expect(nearCell).not.toBeNull();
+    expect(farCell).not.toBeNull();
+
+    const valueOf = (over: Partial<Weapon>, cell: { x: number; y: number }): number => {
+      bot.weapon = { ...loadBaselineWeapon(), rangeMax: 26, ...over };
+      return groundValue(state, bot, cell);
+    };
+    const sniper = { optimalRange: 20, rangeTolerance: 6 };
+    const shotgun = { optimalRange: 4, rangeTolerance: 6 };
+
+    // Each weapon prefers the cell that watches the fight at its own range.
+    expect(valueOf(shotgun, nearCell!)).toBeGreaterThan(valueOf(shotgun, farCell!));
+    expect(valueOf(sniper, farCell!)).toBeGreaterThan(valueOf(sniper, nearCell!));
   });
 
   it("paths to the ground it chose", () => {

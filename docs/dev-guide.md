@@ -4431,7 +4431,74 @@ cost of building an arena roughly triples and nothing in a round gets slower.
 
 This also gives the Overwatch role a real answer to the question Section 7.34.4
 left open. It had the weapon and it had somewhere to stand; it did not have a
-reason to stand **back**. **TBD**
+reason to stand **back**.
+
+Section 7.37 does it.
+
+## 7.37 Coverage, split by the band it is seen at
+
+Section 7.36.3 said the measure had to know the range it was measured at. This
+does that.
+
+### 7.37.1 Three fields, one normaliser
+
+`ConflictField.coverage` is no longer one number a cell. It is three:
+`close`, `mid` and `long`, each holding the share of the conflict zone that cell
+sees **at that band's distance**.
+
+Splitting costs nothing. Every visible pair was already tested once; it now lands
+in one bucket instead of a flat total. The arena build is the same work.
+
+The three share **one** normaliser, the largest total of any cell, so they stay
+comparable and sum to at most 1. Normalising each band to its own maximum would
+have been wrong: an arena with almost no long view of its conflict zone would
+report a perfect `long` somewhere, when the true answer is that a marksman has
+nowhere good to stand there.
+
+### 7.37.2 A bot reads the band its own weapon is good at
+
+```
+overlook = Σ over bands  coverage[band] * rangeAccuracy(weapon, bandDistance(band))
+```
+
+The range curve of Section 7.33 supplies the second factor, so the two systems
+finally meet: the arena says what a cell overlooks and at what range, and the
+weapon says what that range is worth to the bot holding it.
+
+A marksman reads about 0.15 at the close band and 0.89 at the long one. An
+assault weapon reads the same two the other way round. The same arena hands each
+role different ground, and no per-role table says so.
+
+What that does to a real arena:
+
+| style | best **long** cell | long | mid | close | best **total** cell | long | mid | close |
+|---|---|---|---|---|---|---|---|---|
+| bastion | (41,10) | 0.29 | 0.43 | 0.20 | (40,10) | 0.24 | 0.42 | 0.34 |
+| openfield | (45,7) | **0.52** | 0.01 | 0.00 | (25,6) | 0.09 | 0.38 | **0.53** |
+| cavern | (46,10) | **0.33** | 0.00 | 0.00 | (29,10) | 0.17 | 0.20 | **0.63** |
+
+On openfield the flat count sent every role to (25,6), which watches the fight
+from the close band. A marksman now goes to (45,7) instead, which watches it from
+the long band and sees nothing at all up close. That is the whole change, in one
+row.
+
+Bastion stays mixed, with 0.29 as its best long cell against openfield's 0.52.
+That is the ground being honest: a bastion has short sight lines, so it has less
+sniper ground to offer, and the measure says so instead of inventing some.
+
+### 7.37.3 The tests
+
+Two new tests, and both fail if the bands are collapsed back to a flat count:
+
+- **A marksman and a shotgun choose different ground** from the same cell in the
+  same arena.
+- **The ordering flips.** Given the most close-heavy cell and the most long-heavy
+  cell of an arena, a shotgun values the first above the second and a marksman
+  values them the other way round.
+
+`groundValue` is exported for the second one. It is the function the whole of
+Sections 7.35 to 7.37 exists to get right, so it is worth testing directly rather
+than through the action that calls it.
 
 ## 8. Match flow (sequence)
 

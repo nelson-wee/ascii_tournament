@@ -30,6 +30,14 @@ import { cellSeesCell } from "./sight.js";
 import { distanceField } from "./contested.js";
 import { cellIndex, isWalkable, tileAt, type ArenaMap } from "./types.js";
 import type { Cell } from "../core/types.js";
+import type { RangeBand } from "../weapons/types.js";
+
+/** One value per range band. `BandValues` of `weapons/types.ts` in field form. */
+export interface BandFields {
+  close: Float32Array;
+  mid: Float32Array;
+  long: Float32Array;
+}
 
 export interface ConflictField {
   /**
@@ -38,11 +46,22 @@ export interface ConflictField {
    */
   contested: Float32Array;
   /**
-   * How much of the contested ground each cell sees, 0 to 1, with 1 at the best
-   * cell of the arena. A cell no bot can stand on scores 0.
+   * How much of the contested ground each cell sees **at each range band**.
+   *
+   * One flat count was the defect of Section 7.36.2. The cell that sees the most
+   * contested ground is a cell in the middle of it, so a flat count named the
+   * knife fight as the best ground in the arena and `TakePosition` walked an
+   * Overwatch bot into it. Splitting by band lets a bot ask the question its own
+   * weapon cares about: not "how much of the fight can I see" but "how much of
+   * the fight can I see **at a distance I am good at**".
+   *
+   * The three share one normaliser, the largest total of any cell, so they stay
+   * comparable and they sum to at most 1. An arena that offers no long view of
+   * its conflict zone gives a low `long` everywhere, which is the true answer:
+   * there is nowhere good for a marksman to stand.
    */
-  coverage: Float32Array;
-  /** The cells that scored highest, best first. The report reads them. */
+  coverage: BandFields;
+  /** The cells with the highest total, best first. The report reads them. */
   best: Cell[];
 }
 
@@ -65,6 +84,10 @@ export interface ConflictOptions {
   sampleCells: number;
   /** How many cells `best` holds. */
   bestCount: number;
+  /** The highest distance of the close band, in cells. */
+  closeMax: number;
+  /** The highest distance of the mid band, in cells. */
+  midMax: number;
 }
 
 /** Take at most `count` cells, spread evenly, so the answer is repeatable. */
@@ -85,7 +108,11 @@ function spread(cells: readonly Cell[], count: number): Cell[] {
 export function measureConflict(map: ArenaMap, options: ConflictOptions): ConflictField {
   const size = map.width * map.height;
   const contested = new Float32Array(size);
-  const coverage = new Float32Array(size);
+  const coverage: BandFields = {
+    close: new Float32Array(size),
+    mid: new Float32Array(size),
+    long: new Float32Array(size),
+  };
 
   const first = distanceField(map, map.spawns.slice(0, options.teamSize));
   const second = distanceField(map, map.spawns.slice(options.teamSize, options.teamSize * 2));
@@ -110,37 +137,64 @@ export function measureConflict(map: ArenaMap, options: ConflictOptions): Confli
     }
   }
 
-  // How much of the conflict zone each cell of the floor can see. The sample is
-  // an even spread of the contested cells, weighted by how contested each is, so
-  // a cell that overlooks the heart of the zone beats one that clips its edge.
+  // How much of the conflict zone each cell of the floor can see, split by the
+  // band it sees it at. The sample is an even spread of the contested cells,
+  // weighted by how contested each is, so a cell that overlooks the heart of the
+  // zone beats one that clips its edge.
+  //
+  // Splitting by band costs no extra line checks: every visible pair is counted
+  // once, into one bucket instead of a flat total.
   const sample = spread(hot, options.sampleCells);
   const reach = options.sightRadiusCells;
+  const closeMaxSq = options.closeMax * options.closeMax;
+  const midMaxSq = options.midMax * options.midMax;
   let most = 0;
   for (const cell of floor) {
     const index = cellIndex(map, cell.x, cell.y);
-    let seen = 0;
+    let near = 0;
+    let middle = 0;
+    let far = 0;
     for (const target of sample) {
       const dx = target.x - cell.x;
       const dy = target.y - cell.y;
-      if (dx * dx + dy * dy > reach * reach) continue;
+      const square = dx * dx + dy * dy;
+      if (square > reach * reach) continue;
       if (!cellSeesCell(map, cell, target)) continue;
-      seen += contested[cellIndex(map, target.x, target.y)] as number;
+      const worth = contested[cellIndex(map, target.x, target.y)] as number;
+      if (square <= closeMaxSq) near += worth;
+      else if (square <= midMaxSq) middle += worth;
+      else far += worth;
     }
-    coverage[index] = seen;
-    if (seen > most) most = seen;
+    coverage.close[index] = near;
+    coverage.mid[index] = middle;
+    coverage.long[index] = far;
+    const total = near + middle + far;
+    if (total > most) most = total;
   }
 
+  // One normaliser for all three, so the bands stay comparable and an arena with
+  // no long view of its zone says so rather than inflating its best long cell.
   if (most > 0) {
-    for (let i = 0; i < size; i += 1) coverage[i] = (coverage[i] as number) / most;
+    for (const band of ["close", "mid", "long"] as const) {
+      const field = coverage[band];
+      for (let i = 0; i < size; i += 1) field[i] = (field[i] as number) / most;
+    }
   }
 
-  // The best ground of the arena, for the report and the pre-match screen. Ties
-  // break by cell index, so the list never moves with the order of the walk.
+  // The best ground of the arena by total coverage, for the report and the
+  // pre-match screen. Ties break by cell index, so the list never moves with the
+  // order of the walk.
+  const totalAt = (cell: Cell): number => {
+    const i = cellIndex(map, cell.x, cell.y);
+    return (
+      (coverage.close[i] as number) + (coverage.mid[i] as number) + (coverage.long[i] as number)
+    );
+  };
   const best = floor
     .slice()
     .sort((one, two) => {
-      const a = coverage[cellIndex(map, one.x, one.y)] as number;
-      const b = coverage[cellIndex(map, two.x, two.y)] as number;
+      const a = totalAt(one);
+      const b = totalAt(two);
       if (b !== a) return b - a;
       return cellIndex(map, one.x, one.y) - cellIndex(map, two.x, two.y);
     })
@@ -149,12 +203,27 @@ export function measureConflict(map: ArenaMap, options: ConflictOptions): Confli
   return { contested, coverage, best };
 }
 
-/** How much of the conflict zone a cell sees, 0 to 1. 0 when nothing measured it. */
-export function coverageAt(map: ArenaMap, x: number, y: number): number {
+/**
+ * How much of the conflict zone a cell sees at one band, 0 to 1.
+ * 0 when nothing measured the map.
+ */
+export function coverageAt(map: ArenaMap, x: number, y: number, band: RangeBand): number {
   const field = map.conflict;
   if (!field) return 0;
   if (x < 0 || y < 0 || x >= map.width || y >= map.height) return 0;
-  return field.coverage[cellIndex(map, x, y)] ?? 0;
+  return field.coverage[band][cellIndex(map, x, y)] ?? 0;
+}
+
+/**
+ * How much of the conflict zone a cell sees at any band, 0 to 1.
+ *
+ * The report and the pre-match screen read this; a bot does not, because a bot
+ * cares at what range it sees the fight (Section 7.36.3).
+ */
+export function coverageTotalAt(map: ArenaMap, x: number, y: number): number {
+  return (
+    coverageAt(map, x, y, "close") + coverageAt(map, x, y, "mid") + coverageAt(map, x, y, "long")
+  );
 }
 
 /** How contested a cell is, 0 to 1. 0 when nothing measured it. */
