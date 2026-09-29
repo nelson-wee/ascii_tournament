@@ -64,7 +64,7 @@
   },
   "perception": {
     "directionalVision": false,
-    "sightRadiusCells": 20,
+    "sightRadiusCells": 26,
     "memoryTicks": 200,
     "focusHalfAngleDegrees": 45,
     "peripheralHalfAngleBaseDegrees": 70,
@@ -76,7 +76,7 @@
     "healthMax": 100,
     "respawnDelayTicks": 60,
     "rangeBandCloseMax": 8,
-    "rangeBandMidMax": 20,
+    "rangeBandMidMax": 15,
     "multiKillWindowTicks": 60,
     "critMultiplier": 2,
     "distanceFalloff": 0.6,

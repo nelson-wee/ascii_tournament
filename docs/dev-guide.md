@@ -3405,10 +3405,168 @@ Three ways to give the long band a reason to exist, none of them measured yet:
    around holding a mid-range sightline instead of a long one.
 
 Whichever, `bandShare`, `rangeValueCapCells` and every weapon tier were tuned
-against a 2 % long band and would all need re-measuring. **TBD**
+against a 2 % long band and would all need re-measuring.
+
+Section 7.30 does option 1 and option 2 together, from a measurement of the
+ground rather than by hand. Section 7.31 records why option 3 is the wrong
+reading: Overwatch loses for a second reason, which is that no bot can choose
+where to stand.
 
 `tools/analyse-compositions.py` reads the round CSVs and prints every table in
 this section.
+
+## 7.30 The range bands, derived from the ground
+
+Section 7.29.5 listed three ways to give the long band a reason to exist and
+measured none of them. This measures the ground first, and then sets the
+boundaries from what the measurement says.
+
+### 7.30.1 The method
+
+`tools/measure-sightlines.ts` runs no rounds. For each arena style it generates
+a sample of arenas, takes an even spread of floor cells from each, and asks of
+every pair of them: does a straight line between the two cell centres reach,
+with only a wall as a blocker? That is the rule `blocksSight` and `clearLine`
+use, so what the tool counts as visible is what a weapon can shoot along.
+
+It then reports the distribution of those distances. The question the bands
+must answer is "how far apart are two bots that can see each other", and this
+is that number, measured on the real ground instead of assumed.
+
+```
+npx tsx tools/measure-sightlines.ts [arenas-per-style]
+```
+
+### 7.30.2 What the ground says
+
+Six arenas a style, 260 cells an arena, 202 020 pairs a style:
+
+| style | visible pairs | p50 | p75 | p90 | p95 | p99 | max |
+|---|---|---|---|---|---|---|---|
+| bastion | 10.6 % | 7.1 | 11.4 | 17.0 | 21.4 | 31.1 | 56.5 |
+| openfield | 21.5 % | 11.0 | 17.1 | 24.2 | 29.4 | 41.3 | 57.1 |
+| cavern | 19.7 % | 9.2 | 14.3 | 20.2 | 24.1 | 32.9 | 54.1 |
+| **all three** | | **9.4** | **15.0** | **21.5** | **26.0** | **37.1** | **57.1** |
+
+Two numbers decide everything:
+
+- **The upper quartile of real sight lines is 15.0 cells.** One quarter of the
+  pairs that can see each other are further apart than that.
+- **p95 is 26.0 cells.** Beyond that, a pair that can see each other is rare
+  on every ground.
+
+The old `rangeBandMidMax` of 20 sat at about the 88th percentile. It was also
+exactly `sightRadiusCells`, so the long band began at the same cell where
+vision ended. That is the defect of Section 7.29.2, stated in one line.
+
+### 7.30.3 What changed
+
+| number | was | now | why |
+|---|---|---|---|
+| `perception.sightRadiusCells` | 20 | 26 | p95 of visible pairs. A bot sees as far as the ground allows, not less. |
+| `combat.rangeBandMidMax` | 20 | 15 | The upper quartile. The long band now holds the top quarter of sight lines instead of the top eighth. |
+| `budget.rangeValueCapCells` | 20 | 26 | The budget must price reach up to the distance a bot can now see. Below the sight radius it charges nothing for the reach a marksman actually uses. |
+| `value.bandShare` | close .50, mid .48, long .02 | close .41, mid .34, long .25 | Set from the geometry above, as a prior. |
+
+`rangeBandCloseMax` stays at 8. p50 is 9.4, so the close band already holds
+about half of every sight line, which is what it should hold.
+
+The three numbers moved together on purpose. `sightRadiusCells`,
+`rangeBandMidMax` and `rangeValueCapCells` were all 20, and each one meant
+something different by it. They are now three separate facts: how far a bot
+sees, where the long band begins, and how far the budget pays for reach.
+
+### 7.30.4 What is still a prior, not a measurement
+
+`bandShare` was set from **geometry** — the share of visible pairs that fall
+in each band. That is not the same as the share of **kills** in each band,
+because a bot chooses its range. The geometric figure is the right starting
+point and the wrong finishing point. Re-measure `bandShare` from the kill
+bands of a batch once the boundaries settle, and re-run the weapon tier
+measurement of Section 7.14 against it. **TBD**
+
+The test "weighs a band by how often the arena fires in it" in
+`tests/utility.test.ts` used to encode the old world — it asserted that the
+long band was 1 % of shots. It now derives the crossover point from
+`bandShare` and `rangePrefBias` at run time, so it tests the mechanism and
+cannot go stale when the numbers move again.
+
+## 7.31 What the arena tells the bots: nothing
+
+Section 7.30 fixed a number. This records a structural gap found while looking
+for the next one, because the gap explains the Overwatch result of
+Section 7.29.1 better than the bands do.
+
+### 7.31.1 The arena is measured, and the measurement stops at the report
+
+`measureArena` runs one time after generation and produces 13 numbers. They
+have exactly two readers: `validateArena`, the acceptance rule, and the report
+tables. **A grep of `src/ai/` for `metrics` returns nothing.** `chokepoints`,
+`meanSightline` and `coverDensity` never reach a bot.
+
+Two defects in the measurement itself, which matter if it ever does reach one:
+
+- `sightlineThrough` tests the east–west and north–south runs only. A diagonal
+  sight line does not count. The centre room of a bastion arena is the exact
+  place where the diagonal decides the fight.
+- `countChokepoints` counts **cells**, not doorways: it asks whether removing
+  a cell splits the floor, and above 1200 floor cells it samples and
+  extrapolates. A three-cell doorway counts three times. Hence bastion 13,
+  cavern 17, openfield 0. The figure names no place a bot can stand.
+
+### 7.31.2 A bot has no concept of good ground
+
+At run time a bot knows its own FOV, the pickup list, and the two influence
+maps. `positionValue` is the only function that asks whether a cell is worth
+holding:
+
+```
+0.2 + nearestPickup + max(0, friendly) * 0.1 − min(0.4, danger * 0.05)
+```
+
+Good ground means **near a pickup**. No sight line enters it.
+
+Worse, of the seven actions — `Engage`, `Chase`, `SeekPickup`,
+`HoldPosition`, `Reposition`, `Follow`, `Idle` — **not one moves a bot to
+chosen ground.** `HoldPosition` scores a single cell, the one the bot already
+stands on. `Reposition` needs a visible enemy and only corrects the band.
+Every other move goes to a pickup, an enemy or a teammate.
+
+So an Overwatch bot cannot select a sight line. A high `holdPosition` only
+makes it refuse to leave wherever the last pickup run left it. That is the
+static, out-of-position behaviour seen in play, and no change to the bands
+repairs it.
+
+The fix needs two parts, and the second is the work:
+
+1. A **conflict-zone measure** on the map, computed at generation and attached
+   beside `metrics`: for each floor cell, how many contested cells it sees, by
+   the true line-of-sight rule. `pickupEvenness` in `src/arena/contested.ts`
+   already marks which points are contested.
+2. A **`TakePosition` action** that scores candidate cells inside move range,
+   not only the current cell. Overwatch then weights a cell by contested-tile
+   coverage at long range. Tank and Skirmisher weight the **route** by conflict
+   exposure, which routes them to a safer pickup.
+
+Part 1 without part 2 changes no behaviour, because nothing would read it.
+**TBD**
+
+### 7.31.3 Cover is decorative
+
+`isInCover` has one reader in the whole codebase: `killerInCover` in the `Kill`
+event payload. It changes no hit chance, no damage and no movement cost.
+`blocksSight` treats low cover as clear ground, on purpose. `src/ai/` never
+mentions cover.
+
+So low cover is a glyph and one kill-feed field, and `coverDensity` separates
+the three styles in the report while giving the player nothing.
+
+This is the cheaper of the two levers. Give cover a real effect — a hit-chance
+penalty against a bot in cover, larger at long range than at close range — and
+`positionValue` gains a reason to prefer one cell over another. The arena shape
+then decides where a bot stands, and bastion 11.6 %, cavern 9.8 % and
+openfield 6.8 % cover become three different fights instead of three different
+pictures. **TBD**
 
 ## 8. Match flow (sequence)
 

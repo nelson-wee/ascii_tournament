@@ -525,27 +525,43 @@ describe("bestWeaponOverall", () => {
   });
 
   it("weighs a band by how often the arena fires in it", () => {
-    // Section 7.20.15: the AI and the power budget read one number. The long
-    // band is 1 % of shots, so a weapon that only shines there is not the pick.
+    // Section 7.20.15: the AI and the power budget read one number, and
+    // Section 7.30 set that number from the ground. The test works out where
+    // the two weapons should change places and checks both sides of it, so it
+    // does not go stale when `bandShare` moves again.
     const state = roomState();
     const bot = state.bots[0] as BotState;
-    const longOnly = {
-      ...bot.weapon,
-      id: "long-only",
-      rangeMax: 100,
-      dpsProfile: { close: 0, mid: 0, long: 300 },
+    const share = state.config.bandShare;
+    const bias = state.config.rangePrefBias;
+
+    // `rangePref` puts mid at the head and long last, so mid is worth
+    // `1 + bias` and long `1 / (1 + bias)` (Section 7.26).
+    const longDps = 300;
+    const even = (longDps * share.long) / (1 + bias) / (share.mid * (1 + bias));
+
+    const pick = (midDps: number): string => {
+      const longOnly = {
+        ...bot.weapon,
+        id: "long-only",
+        rangeMax: 100,
+        dpsProfile: { close: 0, mid: 0, long: longDps },
+      };
+      const midWeapon = {
+        ...bot.weapon,
+        id: "mid",
+        rangeMax: 100,
+        dpsProfile: { close: 0, mid: midDps, long: 0 },
+      };
+      bot.weapons = [longOnly, midWeapon];
+      bot.ammo.set("long-only", 50);
+      bot.ammo.set("mid", 50);
+      bot.tactics = { ...bot.tactics, rangePref: ["mid", "close", "long"] };
+      return bestWeaponOverall(state, bot).id;
     };
-    const midWeapon = {
-      ...bot.weapon,
-      id: "mid",
-      rangeMax: 100,
-      dpsProfile: { close: 0, mid: 30, long: 0 },
-    };
-    bot.weapons = [longOnly, midWeapon];
-    bot.ammo.set("long-only", 50);
-    bot.ammo.set("mid", 50);
-    bot.tactics = { ...bot.tactics, rangePref: ["mid", "close", "long"] };
-    expect(bestWeaponOverall(state, bot).id).toBe("mid");
+
+    expect(even).toBeGreaterThan(0);
+    expect(pick(even * 1.2)).toBe("mid");
+    expect(pick(even * 0.8)).toBe("long-only");
   });
 
   it("never takes an empty weapon", () => {

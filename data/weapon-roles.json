@@ -386,7 +386,7 @@
     "ricochetWeight": 4,
     "reactionDiscount": 1.6,
     "ammoWeight": 0.025,
-    "rangeValueCapCells": 20,
+    "rangeValueCapCells": 26,
     "rangeValueTailShare": 0.45
   },
   "value": {
@@ -400,9 +400,9 @@
     "hazardOccupancy": 0.06,
     "coneFadeShare": 0.5,
     "bandShare": {
-      "close": 0.5,
-      "mid": 0.48,
-      "long": 0.02
+      "close": 0.41,
+      "mid": 0.34,
+      "long": 0.25
     }
   },
   "tiers": {
