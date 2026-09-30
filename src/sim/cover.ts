@@ -82,9 +82,15 @@ export function coverAgainst(
   const dx = from.x - at.x;
   const dy = from.y - at.y;
   const distance = Math.hypot(dx, dy);
-  if (distance < 1) return 0;
+  // Two bots with no cell between them have no cover between them either.
+  if (distance < 2) return 0;
 
-  const depth = Math.min(cover.depthCells, distance);
+  // The walk stops one cell short of the shooter, so the shooter's OWN tile can
+  // never shield its target (Section 7.45.1). Without the `- 1` the walk reached
+  // the shooter's cell at two cells' range and past it at one, so a bot standing
+  // on cover gave its target a full screen at point-blank and took none itself:
+  // the tile protected the wrong bot.
+  const depth = Math.min(cover.depthCells, distance - 1);
   // Two samples a cell, the same rate `clearLine` walks at, so the cells this
   // reads are the cells the shot passes through.
   const steps = Math.max(1, Math.ceil(depth * 2));

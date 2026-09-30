@@ -5180,6 +5180,87 @@ could have produced.
   branch that never fires is the defect this guide keeps finding, and it wants its
   own look. **TBD**
 
+## 7.45 Is cover working? Four questions and one real bug
+
+### 7.45.1 A shooter's own tile shielded its target
+
+`coverAgainst` walks from the target toward the shooter and reads the first
+`cover.depthCells` cells. It excluded the **target's** own tile, on the rule that
+a cover tile you stand on is a shooting position and not a screen. It did not
+exclude the **shooter's**.
+
+At two cells' range the walk reached the shooter's cell. At one cell it passed it.
+So a bot standing on cover, firing at a bot in the open:
+
+| gap | the target's shield, from the shooter's own cover |
+|---|---|
+| 1 cell | **1.000** |
+| 2 cells | **0.500** |
+| 3 cells and out | 0 |
+
+And the reverse read 0 at every gap, correctly. **The tile protected the wrong
+bot.** Standing on cover at point-blank range was strictly bad: it gave the enemy
+a full screen and the bot holding it nothing.
+
+The walk now stops one cell short of the shooter, and two bots with nothing
+between them get no cover at all:
+
+```
+if (distance < 2) return 0;
+const depth = Math.min(cover.depthCells, distance - 1);
+```
+
+Five tests hold it, and two of them fail against the old walk.
+
+### 7.45.2 Cover is symmetric, and that was never in doubt
+
+`coverAgainst(a, b)` equals `coverAgainst(b, a)` to ten decimal places at every
+range tested, and `coverSave` reads the same from both ends of a tile: 0.075 and
+0.075 at four cells apart, 0.150 and 0.150 at two. Cover is a fact about the
+ground, so it reads the same to both bots. A test holds it.
+
+### 7.45.3 Bots do use cover
+
+`tools/measure-cover-use.ts` asks a real round rather than the arithmetic. While a
+bot is in contact, how much cover does it hold against the enemy it sees, against
+how much the cells around it were offering?
+
+| style | cover held | on offer nearby | difference |
+|---|---|---|---|
+| bastion | 0.1045 | 0.0797 | **+31 %** |
+| cavern | 0.0959 | 0.0681 | **+41 %** |
+| openfield | 0.0605 | 0.0486 | **+24 %** |
+
+A bot in a fight holds a quarter to two fifths more cover than the ground around
+it offers on average. `cover.aiWeight` at 0.35 is doing real work.
+
+### 7.45.4 Flanking works where there is somewhere to flank to
+
+When a bot dies, how much cover did it have from the bearing it was shot from,
+against its mean over every bearing an attacker could really have fired from?
+Lower means the attacker came round the cover.
+
+| style | cover at the kill | mean over shootable bearings | reading |
+|---|---|---|---|
+| openfield | 0.0264 | 0.0503 | **−47 %, flanked** |
+| bastion | 0.0556 | 0.0581 | −4 %, neutral |
+| cavern | 0.0545 | 0.0396 | **+38 %, the reverse** |
+
+So flanking shows clearly on open ground and not on the two walled styles.
+
+**The bearing filter is what makes this measurable at all.** A first attempt
+counted all sixteen bearings, including those facing a wall, which score no cover
+and drag the mean down — and it invented a flanking result on exactly the styles
+with the most walls. Restricted to bearings that are walkable with a clear line,
+a victim exposes only **3.9 to 5.3 of 16**.
+
+That is the likely reason, and it is only part of one: openfield offers the most
+shootable bearings and flanks best, which fits, but cavern offers more than
+bastion and flanks worse, which does not. `FLANK_TURNS` offers seven bearings and
+skips any that is unwalkable or has no clear shot, so in a walled arena the search
+is starved — but starvation does not explain a **reversal**. Cavern wants its own
+look. **TBD**
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

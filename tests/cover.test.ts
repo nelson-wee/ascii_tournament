@@ -114,6 +114,56 @@ describe("coverAgainst: cover is what lies between", () => {
   });
 });
 
+describe("cover shields what is BETWEEN the two bots (Section 7.45.1)", () => {
+  const map = hall([{ x: 27, y: ROW }]);
+  const { cover } = loadTuning();
+
+  it("never lets a shooter's own tile shield its target", () => {
+    // The defect: the walk from the target reached the shooter's cell at two
+    // cells' range and passed it at one, so a bot standing ON cover gave its
+    // target a full screen at point-blank and took none itself. The tile
+    // protected the wrong bot.
+    const shooter = { x: 27, y: ROW }; // standing on the cover tile
+    for (const gap of [1, 2, 3, 4, 6]) {
+      const target = { x: 27 + gap, y: ROW };
+      expect(coverAgainst(map, cover, target, shooter), `gap ${gap}`).toBe(0);
+    }
+  });
+
+  it("gives the shooter nothing from the tile it stands on either", () => {
+    const shooter = { x: 27, y: ROW };
+    for (const gap of [1, 2, 3, 4, 6]) {
+      expect(coverAgainst(map, cover, shooter, { x: 27 + gap, y: ROW }), `gap ${gap}`).toBe(0);
+    }
+  });
+
+  it("gives two bots either side of a tile the same shield", () => {
+    // Cover is a fact about the ground, so it reads the same from both ends.
+    for (const [ax, bx] of [
+      [26, 28],
+      [25, 29],
+      [24, 31],
+    ] as const) {
+      const a = { x: ax, y: ROW };
+      const b = { x: bx, y: ROW };
+      expect(coverAgainst(map, cover, a, b), `${ax} vs ${bx}`).toBeCloseTo(
+        coverAgainst(map, cover, b, a),
+        10,
+      );
+    }
+  });
+
+  it("gives adjacent bots no cover at all, because nothing is between them", () => {
+    const stacked = hall([{ x: 27, y: ROW }, { x: 28, y: ROW }]);
+    expect(coverAgainst(stacked, cover, { x: 27, y: ROW }, { x: 28, y: ROW })).toBe(0);
+  });
+
+  it("still shields a bot from a tile that really is in the way", () => {
+    // The fix must not empty the mechanic out.
+    expect(coverAgainst(map, cover, { x: 28, y: ROW }, { x: 21, y: ROW })).toBeCloseTo(1, 5);
+  });
+});
+
 describe("coverSaveAt: cover is worth more the further away the shooter is", () => {
   const state = hallState([{ x: 27, y: ROW }]);
   const at: Cell = { x: 28, y: ROW };
