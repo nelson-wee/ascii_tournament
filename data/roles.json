@@ -28,7 +28,8 @@
         "follow": 0.7,
         "reposition": 1.2,
         "chase": 0.7,
-        "takePosition": 1.6
+        "takePosition": 1.6,
+        "support": 0.55
       }
     },
     "tank": {
@@ -58,7 +59,8 @@
         "follow": 0.9,
         "reposition": 0.9,
         "chase": 1.15,
-        "takePosition": 0.6
+        "takePosition": 0.6,
+        "support": 1.2
       }
     },
     "skirmisher": {
@@ -88,7 +90,8 @@
         "follow": 1.4,
         "reposition": 1.15,
         "chase": 1.1,
-        "takePosition": 0.9
+        "takePosition": 0.9,
+        "support": 1.35
       }
     }
   },

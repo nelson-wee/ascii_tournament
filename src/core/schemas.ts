@@ -214,6 +214,23 @@ export const TuningSchema = z
         takePositionMargin: z.number().min(1),
         /** How far a bot will look for better ground, in cells. TBD */
         takePositionRadiusCells: positiveNumber,
+        /**
+         * How much of a teammate's urgency is the health it has lost, against
+         * the number of enemies it faces (Section 7.44). A bot cannot see its
+         * teammate's enemies, so these two are what it can read from the
+         * teammate itself. TBD
+         */
+        supportHurtShare: unitRange,
+        /**
+         * How much a fight a teammate is already in suppresses a walk to a FAR
+         * pickup point (Section 7.44.3). The same shape as
+         * `holdSuppressesPickup`: an item at the feet of the bot is still taken,
+         * and a run across the arena is not.
+         *
+         * It never applies to a bot still on the starting rifle, so it cannot
+         * undo Section 7.41. TBD
+         */
+        fightSuppressesPickup: unitRange,
         /** A new action must score this much more than the current one. TBD */
         hysteresisMargin: z.number().min(1),
         /** A bot with a lower hazard tolerance walks around a hazard tile. TBD */
@@ -294,6 +311,8 @@ export const TuningSchema = z
             follow: positiveNumber,
             /** Move to ground that overlooks the conflict zone (Section 7.35). */
             takePosition: positiveNumber,
+            /** Go to a fight a teammate is already in (Section 7.44). */
+            support: positiveNumber,
           })
           .strict(),
       })

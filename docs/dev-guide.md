@@ -5045,6 +5045,112 @@ So there are two jobs left and they are separable:
 
 **TBD**
 
+## 7.44 Support: joining a fight a teammate is already in
+
+Observed in live play: bots walk between pickup points while an engagement is
+happening somewhere else. The action set had nothing for it. Of the eight actions,
+`Engage` and `Chase` both need a target of the bot's own, and `Follow` keys on the
+**distance** to the nearest teammate rather than on whether that teammate is
+fighting — and it answers to `1 - holdPosition`, so the role that holds ground
+followed the least.
+
+### 7.44.1 The action
+
+`Support` is offered only when the bot has no visible enemy **and** a living
+teammate does. It picks the teammate in the hardest fight, by two things a bot can
+read about a teammate without any shared knowledge of the enemy:
+
+```
+urgency = min(1, enemies it sees / teamSize) * (1 - supportHurtShare)
+        + (health it has lost)              * supportHurtShare
+value   = actionBase.support * urgency * nearness(bot -> teammate)
+weight  = 0.5 + aggression
+```
+
+`aggression` is the tactic, not `holdPosition`: this is the action that means "go
+where the fighting is". A tie between two teammates goes to the lower slot, which
+is the same slot for both teams, so the choice stays a mirror image.
+
+**It stops short rather than piling in.** `approachCell` walks the line toward the
+teammate and halts at the bot's own preferred engagement distance, from
+`bandDistance(wantedBand(bot))`. And it is not offered at all when the bot is
+already inside that distance, because then there is no ground to cover and
+`HoldPosition` and `TakePosition` should decide.
+
+That distance follows **the weapon in hand**, not the role, which is the rule of
+Section 7.33.8 and worth stating because it is easy to assume otherwise:
+
+| weapon held | approach halts |
+|---|---|
+| assault, denial | 4.0 cells short |
+| baseline, precision | 11.5 cells short |
+| marksman | 18.8 cells short |
+
+The role enters through the score, not the distance. The request asked that a bot
+weighted toward covering a zone not displace to a distant fight, and it does not:
+at 37 cells from a teammate facing two enemies at 40 health, Support scores
+
+| role | score | what the bot does instead |
+|---|---|---|
+| tank | 0.296 | **Support wins** |
+| skirmisher | 0.281 | Follow, 0.50 |
+| overwatch | 0.094 | TakePosition, 1.23 |
+
+`behavior.support` is 1.2 for Tank, 1.35 for Skirmisher and 0.55 for Overwatch.
+
+### 7.44.2 What the measurement said about the observation
+
+The action mix, over 3 rounds a style, as a share of living bot-ticks:
+
+| style | Engage | SeekPickup | Support | TakePosition | Follow |
+|---|---|---|---|---|---|
+| bastion | 22.9 % | **55.7 %** | 3.2 % | 6.5 % | 6.2 % |
+| cavern | 20.5 % | **63.4 %** | 2.5 % | 6.2 % | 4.1 % |
+| openfield | 23.5 % | **48.7 %** | 3.0 % | 8.0 % | 8.5 % |
+
+**A bot spends half to two thirds of every round walking to a pickup point, and a
+fifth of it fighting.** That is the observation, quantified.
+
+Two things this rules out. It is **not** a consequence of Section 7.41: at the old
+`weaponGainMax` of 1.6 the same measurement read 58.9 %, 64.9 % and 48.3 %, so
+pickup-chasing predates that change and was not caused by it. And `Support` alone
+does **not** fix it: at first it reached 1.6 % to 2.3 % of ticks and what it
+displaced was `Follow` and `HoldPosition`, not `SeekPickup`, because it has to
+outbid a weapon point that Section 7.41 now values up to 4.0.
+
+### 7.44.3 So a fight suppresses a far pickup run
+
+`SeekPickup` already carries a suppression term for `holdPosition`: a run across
+the arena is discouraged, an item at the bot's feet is not. A fight now enters the
+same term:
+
+```
+suppression *= 1 - fightSuppressesPickup * urgency * (1 - nearness(pickup))
+```
+
+**It never applies to a bot still holding only the starting rifle.** An unarmed
+bot joining a fight is a gift to the other team, and arming itself is the whole
+finding of Section 7.40. The `isArmed` gate means this change cannot undo that
+one, and a test holds it.
+
+With the suppression in, Support runs at 2.5 % to 3.2 % of ticks and `SeekPickup`
+falls by one to four points. That is a real change and a modest one. Both numbers
+are data — `actionBase.support`, the three `behavior.support` weights, and
+`fightSuppressesPickup` — so the size of the effect is a dial, not a rewrite.
+
+### 7.44.4 What is not settled
+
+- **Whether 50 % to 63 % on pickups is wrong at all.** An arena shooter is partly
+  a game of item control, and 20 % of ticks in contact against 25 kills a round is
+  about 6 seconds of engagement per kill, which is not obviously broken. The
+  measurement says what the bots do; it does not say what they should do. Raising
+  `fightSuppressesPickup` further is easy and its cost would be the balance of
+  Section 7.43, which took five reworks to reach.
+- **`Reposition` reads 0.0 % on every style.** It is offered only with a visible
+  enemy and a band mismatch, and `Engage` appears to cover that case already. A
+  branch that never fires is the defect this guide keeps finding, and it wants its
+  own look. **TBD**
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

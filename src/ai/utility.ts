@@ -51,6 +51,7 @@ export type Action =
   | { kind: "TakePosition"; cell: Cell }
   | { kind: "Reposition"; band: RangeBand }
   | { kind: "Follow"; teammateId: string }
+  | { kind: "Support"; teammateId: string }
   | { kind: "Idle" };
 
 export type ActionKind = Action["kind"];
@@ -267,6 +268,80 @@ function nearestTeammate(state: SimState, bot: BotState): BotState | null {
     bestDistance = distance;
   }
   return best;
+}
+
+/**
+ * The teammate in the hardest fight, and how much it needs help
+ * (dev-guide Section 7.44).
+ *
+ * It answers `null` when the bot has an enemy of its own, because then `Engage`
+ * and `Chase` are the actions for it, and `null` when no teammate can see an
+ * enemy, because then there is no fight to join.
+ *
+ * Urgency is two things a bot can see about a teammate without any shared
+ * knowledge of the enemy: how many enemies that teammate is looking at, and how
+ * much health it has lost. One bot against two is urgent, and a bot at half
+ * health is urgent whoever it faces.
+ *
+ * A tie goes to the teammate in the lower slot, which is the same slot for both
+ * teams, so the choice stays a mirror image (Section 7.32.8).
+ */
+function teammateInFight(
+  state: SimState,
+  bot: BotState,
+): { mate: BotState; urgency: number } | null {
+  if (bot.visibleEnemyIds.length > 0) return null;
+  const { config } = state;
+  let best: BotState | null = null;
+  let bestUrgency = 0;
+  for (const mate of state.bots) {
+    if (mate === bot || !mate.alive || mate.teamId !== bot.teamId) continue;
+    let enemies = 0;
+    for (const id of mate.visibleEnemyIds) {
+      if (findBot(state, id)?.alive === true) enemies += 1;
+    }
+    if (enemies === 0) continue;
+    const pressed = Math.min(1, enemies / Math.max(1, config.teamSize));
+    const hurt = 1 - Math.max(0, mate.health) / Math.max(1, config.healthMax);
+    const urgency =
+      pressed * (1 - config.supportHurtShare) + hurt * config.supportHurtShare;
+    if (urgency > bestUrgency) {
+      bestUrgency = urgency;
+      best = mate;
+    }
+  }
+  return best === null ? null : { mate: best, urgency: bestUrgency };
+}
+
+/**
+ * True when the bot carries something better than the weapon it started with.
+ *
+ * `bot.weapons[0]` is the baseline rifle, the fallback of Section 7.3. A bot
+ * holding only that has not armed itself yet, and Section 7.40 measured what
+ * that costs: 14 damage a hit against 33, and half the kills.
+ */
+function isArmed(bot: BotState): boolean {
+  return bot.weapons.length > 1;
+}
+
+/**
+ * The cell to join a fight from: on the line toward the teammate, stopping the
+ * bot's own preferred engagement distance short of it (Section 7.44).
+ *
+ * This is what keeps the action from turning every fight into one scrum. A Tank
+ * wants about 4 cells and closes to 4 cells of its teammate; an Overwatch bot
+ * wants about 19 and halts 19 short, which is inside its own band and outside
+ * the brawl. The band machinery of Section 7.33 already knows both numbers.
+ */
+function approachCell(state: SimState, bot: BotState, mate: BotState, wanted: number): Cell {
+  const dx = mate.pos.x - bot.pos.x;
+  const dy = mate.pos.y - bot.pos.y;
+  const span = Math.hypot(dx, dy) || 1;
+  const walk = Math.max(0, span - wanted);
+  return {
+    x: Math.min(state.map.width - 1, Math.max(0, Math.floor(bot.pos.x + (dx / span) * walk))),
+    y: Math.min(state.map.height - 1, Math.max(0, Math.floor(bot.pos.y + (dy / span) * walk))),
+  };
 }
 
 /** How near a cell is, from 1 (here) to 0 (across the arena). */
@@ -563,8 +638,25 @@ export function scoreActions(state: SimState, bot: BotState): ScoredAction[] {
     // which is what a player does with the armor in an arena shooter. Without
     // this the anchor preset held ground that it could not arm itself from, and
     // it won 34.6 % (Section 7.20.16).
-    const suppression =
+    let suppression =
       1 - tactics.holdPosition * state.config.holdSuppressesPickup * (1 - target.nearness);
+
+    // A fight already happening suppresses a walk to a far point the same way
+    // holding ground does (Section 7.44.3). The measurement is what asked for
+    // this: SeekPickup took 48 % to 66 % of every living bot-tick against 20 %
+    // to 27 % for Engage, so a bot crossing the arena while its team is shot at
+    // was the normal state of a round, and `Support` alone reached 2 % of ticks
+    // because it had to outbid that.
+    //
+    // **It never suppresses a bot still on the starting rifle.** An unarmed bot
+    // joining a fight is a gift to the other team, and Section 7.41 is the whole
+    // reason a bot fetches a weapon at all. The gate is `armed`, so the fix of
+    // Section 7.41 cannot be undone by this one.
+    const helping = teammateInFight(state, bot);
+    if (helping && isArmed(bot)) {
+      suppression *=
+        1 - state.config.fightSuppressesPickup * helping.urgency * (1 - target.nearness);
+    }
     push(
       { kind: "SeekPickup", slotId: target.slotId },
       (base["seekPickup"] ?? 1) * target.value,
@@ -606,6 +698,34 @@ export function scoreActions(state: SimState, bot: BotState): ScoredAction[] {
       (base["takePosition"] ?? 1) * groundValue(state, bot, ground),
       tactics.holdPosition * 2,
     );
+  }
+
+  // Support: a teammate is in a fight and this bot is not (Section 7.44).
+  //
+  // Benefit: the fight that is already happening is where the round is decided,
+  // and a bot walking between pickup points while its team is shot at is worth
+  // nothing to it. Cost: the ground it leaves, and the item it does not fetch.
+  //
+  // `Follow` was the nearest thing to this and it is not the same action. It
+  // keys on the DISTANCE to the nearest teammate, not on whether that teammate
+  // is fighting, and it answers to `1 - holdPosition`, so the role that holds
+  // ground the most followed the least. This answers to `aggression`, which is
+  // the tactic that means "go where the fighting is".
+  //
+  // It is scored only when there is ground to cover. A bot already inside its
+  // own band of the fight needs no walk, and `HoldPosition` and `TakePosition`
+  // should decide what it does there.
+  const fight = teammateInFight(state, bot);
+  if (fight) {
+    const wanted = bandDistance(state, wantedBand(state, bot));
+    const gap = distanceBetween(bot, fight.mate) - wanted;
+    if (gap > 1) {
+      push(
+        { kind: "Support", teammateId: fight.mate.id },
+        (base["support"] ?? 1) * fight.urgency * nearness(state, from, botCell(fight.mate)),
+        0.5 + tactics.aggression,
+      );
+    }
   }
 
   // Follow: a teammate is far away (cohesion).
@@ -983,6 +1103,18 @@ export function applyAction(state: SimState, bot: BotState, action: Action): voi
     case "Follow": {
       const mate = findBot(state, action.teammateId);
       if (!mate?.alive || !pathTo(state, bot, botCell(mate))) bot.path = [];
+      return;
+    }
+    case "Support": {
+      const mate = findBot(state, action.teammateId);
+      if (!mate?.alive) {
+        bot.path = [];
+        return;
+      }
+      // Stop at the bot's own band, not on top of the teammate
+      // (Section 7.44).
+      const wanted = bandDistance(state, wantedBand(state, bot));
+      if (!pathTo(state, bot, approachCell(state, bot, mate, wanted))) bot.path = [];
       return;
     }
     case "TakePosition": {

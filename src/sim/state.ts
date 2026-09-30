@@ -278,6 +278,10 @@ export interface SimConfig {
   takePositionIntervalTicks: number;
   takePositionMargin: number;
   takePositionRadiusCells: number;
+  /** How much of a teammate's urgency is its lost health (Section 7.44). */
+  supportHurtShare: number;
+  /** How much a teammate's fight suppresses a far pickup run (Section 7.44.3). */
+  fightSuppressesPickup: number;
   aggressionReactionDiscount: number;
   aggressionRepositionDiscount: number;
   influenceIntervalTicks: number;
@@ -456,6 +460,8 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     takePositionIntervalTicks: tuning.ai.takePositionIntervalTicks,
     takePositionMargin: tuning.ai.takePositionMargin,
     takePositionRadiusCells: tuning.ai.takePositionRadiusCells,
+    supportHurtShare: tuning.ai.supportHurtShare,
+    fightSuppressesPickup: tuning.ai.fightSuppressesPickup,
     cover: {
       depthCells: tuning.cover.depthCells,
       stepFalloff: tuning.cover.stepFalloff,
