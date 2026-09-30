@@ -4931,7 +4931,119 @@ sweep, because it measured what the bot **did** rather than what it was given.
 - **Confirm on bastion and cavern.** This is one style, chosen because its long
   sight lines favour the role under test, so it is the friendliest ground for the
   change and the result should be read as an upper bound until the other two
-  agree. **TBD**
+  agree.
+
+Section 7.43 does, and openfield was indeed an upper bound: the gain there is
+three times bastion's.
+
+## 7.43 Bastion and cavern: the fix holds, and the ground sets the size
+
+1200 rounds on 3 arenas of each style, against the instrumented sweep of
+Section 7.40. Openfield was measured first in Section 7.42 and is repeated here so
+the three read together.
+
+### 7.43.1 The mechanism holds on every ground
+
+Baseline share of kills, by the Overwatch seats in the round:
+
+| style | 0 seats | 3 seats | 6 seats |
+|---|---|---|---|
+| bastion | 10.1 → **4.7 %** | 20.9 → **9.7 %** | 77.7 → **35.7 %** |
+| cavern | 7.5 → **3.8 %** | 15.9 → **6.7 %** | 60.8 → **14.3 %** |
+| openfield | 8.5 → **5.0 %** | 20.0 → **8.7 %** | 54.8 → **31.6 %** |
+
+Weapon points taken a round:
+
+| style | 0 seats | 3 seats | 6 seats |
+|---|---|---|---|
+| bastion | 15.31 → **20.51** | 11.69 → **18.65** | 5.42 → **17.42** |
+| cavern | 17.49 → **21.97** | 13.00 → **20.11** | 7.50 → **16.83** |
+| openfield | 15.04 → **21.62** | 11.73 → **18.78** | 9.75 → **14.67** |
+
+An all-Overwatch team on bastion went from 5.42 weapon points a round to 17.42, a
+**3.2-fold rise**, and cavern's baseline share fell from 60.8 % to 14.3 % — within
+sight of the 3.8 % that a team with no Overwatch shows. The change was aimed at
+every role and it landed on every role.
+
+### 7.43.2 The deficit closed everywhere, by the same term
+
+Overwatch against Tank, damage a landed hit — the whole of the deficit in
+Section 7.40.2:
+
+| style | before | after |
+|---|---|---|
+| bastion | 18.96 (0.57) | **29.22 (0.86)** |
+| cavern | 21.47 (0.66) | **32.12 (0.94)** |
+| openfield | 19.64 (0.58) | **31.76 (0.89)** |
+
+And K/D:
+
+| style | before | after |
+|---|---|---|
+| bastion | 0.613 | **0.867** |
+| cavern | 0.612 | **0.804** |
+| openfield | 0.647 | **0.946** |
+
+One change, one term, three grounds. The diagnosis of Section 7.40 was right and
+the fix addressed it.
+
+Tank K/D fell in step — 1.274 to 1.113 on bastion, 1.200 to 1.105 on cavern —
+because the kills did not appear from nowhere. The table is flattening, not
+inflating.
+
+### 7.43.3 The composition table, and why openfield flattered it
+
+| 3O win rate | before | after | gain |
+|---|---|---|---|
+| bastion | 18.8 % | **26.7 %** | +7.9 |
+| cavern | 15.4 % | **29.0 %** | +13.6 |
+| openfield | 18.3 % | **38.8 %** | +20.5 |
+
+The cost of an Overwatch seat, in points of win rate:
+
+| style | before | after |
+|---|---|---|
+| bastion | 14.3 | **11.1** |
+| cavern | 16.0 | **10.6** |
+| openfield | 15.5 | **5.9** |
+
+**Openfield was an upper bound, as Section 7.42.5 warned.** Its long sight lines
+are the role's best ground, and the gain there is three times bastion's. The
+honest figure for the change is the middle of these: the cost of an Overwatch seat
+fell from about 15 points to about 9.
+
+Side bias: every-round A rates are 49.7 ± 1.4 on bastion and 50.9 ± 1.4 on
+cavern, which is even. The same-composition mirror subset reads 39.2 ± 4.5 on
+bastion, 2.4 standard errors low, against 46.7 before. That subset is a tenth of
+the rounds and the full set disagrees with it, so it reads as noise rather than a
+finding — but it is the one number here worth watching on the next sweep.
+
+### 7.43.4 The remaining gap sits where the remaining baseline does
+
+Ranking the three styles by what is left tells its own story:
+
+| style | baseline share at 6 seats | cost a seat |
+|---|---|---|
+| cavern | 14.3 % | 10.6 |
+| openfield | 31.6 % | 5.9 |
+| bastion | 35.7 % | 11.1 |
+
+Cavern has nearly cleared the baseline problem and still charges 10.6 points a
+seat, so something other than the weapon is holding Overwatch back there. Bastion
+has both the most baseline left and the highest cost. Openfield has middling
+baseline and the lowest cost, which says the ground matters as much as the weapon.
+
+So there are two jobs left and they are separable:
+
+1. **Finish the weapon.** Bastion at 35.7 % baseline has the most to give from the
+   same lever — the `weaponGainMax` ceiling at 4.0, `itemControl` at 0.4, and
+   `TakePosition` at role weight 1.6 against `seekPickup` at 0.8.
+2. **Find what cavern is missing.** It is armed and still losing, so its remainder
+   is not the rifle. The per-role instrument now reports shots, hits and damage a
+   seat, and cavern's Overwatch shots a seat is **37.5 against the Tank's 38.5** —
+   the only style where it does not out-shoot a Tank. That is the thread to pull.
+
+**TBD**
 
 ## 8. Match flow (sequence)
 
