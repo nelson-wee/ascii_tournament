@@ -39,7 +39,7 @@ import { bandDistanceOf, rangeAccuracy } from "../weapons/range.js";
 import { clearLine } from "../sim/attacks.js";
 import { coverAgainst, coverBandOf, coverFromVisible } from "../sim/cover.js";
 import { coverageAt } from "../arena/conflict.js";
-import { pickupValue } from "../sim/pickups.js";
+import { pickupValue, weaponWorth } from "../sim/pickups.js";
 import { controlAt, dangerFor } from "./influence.js";
 import { findPath } from "./navigation.js";
 
@@ -223,22 +223,15 @@ export function bestWeaponAt(state: SimState, bot: BotState, distance: number): 
  * its damage over every band it reaches, and `rangePref` ranks those bands.
  */
 export function bestWeaponOverall(state: SimState, bot: BotState): Weapon {
-  const bias = state.config.rangePrefBias;
-  const share = state.config.bandShare;
   let best = bot.weapons[0] ?? bot.weapon;
   let bestValue = -Infinity;
   for (const weapon of bot.weapons) {
     if (!hasAmmo(bot, weapon)) continue;
-    let value = 0;
-    for (const band of RANGE_BANDS) {
-      if (bandDistance(state, band) > weapon.rangeMax) continue;
-      // The band counts for how often the arena fires in it, which is the same
-      // weight that the power budget uses (Section 7.20.15). The AI and the
-      // budget must read one number, or the AI takes a weapon that the budget
-      // called strong and the arena calls weak.
-      value += weapon.dpsProfile[band] * share[band] * rangeWeight(bot.tactics, band, bias);
-    }
-    value *= weaponWeight(bot.tactics, weapon.archetype, state.config.weaponPrefBonus);
+    // `weaponWorth` is the one ranking of weapons in the project, and
+    // `readyValue` prices a weapon point with the same function
+    // (Section 7.41). Two rankings meant a bot walked to one weapon and then
+    // equipped another.
+    const value = weaponWorth(state, bot, weapon);
     if (value > bestValue) {
       best = weapon;
       bestValue = value;

@@ -4764,7 +4764,85 @@ including any future role that inherits a low `itemControl`.
 
 Measure both. The instrument of Section 7.39 is in every batch now, so the
 baseline share of kills is the number to watch: it should fall from 55–78 % to
-near the 8–10 % that a Tank team already shows. **TBD**
+near the 8–10 % that a Tank team already shows.
+
+Section 7.41 does the better one.
+
+## 7.41 One ranking of weapons
+
+Section 7.40 found that an Overwatch bot fights the round with the starting rifle
+and named two fixes. This is the better one.
+
+### 7.41.1 The walk and the choice were priced differently
+
+Two functions ranked weapons, and they disagreed.
+
+`bestWeaponOverall` decided **what to hold**:
+
+```
+Σ over bands  dpsProfile[band] * bandShare[band] * rangeWeight(tactics, band)
+              * weaponWeight(tactics, archetype)
+```
+
+`readyValue` decided **what is worth walking to**, through `meanDps`:
+
+```
+Σ over bands  dpsProfile[band] * bandShare[band]
+```
+
+The second is the first with the role taken out. So a bot crossed the map for the
+weapon **the arena** liked and then equipped the weapon **its role** liked, and
+the role whose ideal weapon was furthest from the arena's average — Overwatch,
+which wants a marksman where the arena fights 41 % of the time inside 8 cells —
+was the role whose pickup score said so least.
+
+`weaponWorth` in `src/sim/pickups.ts` is now the one ranking. `bestWeaponOverall`
+calls it and `readyValue` calls it. They cannot drift apart again, because there
+is only one of them.
+
+What it answers, for the five weapons of one run, to three roles:
+
+| weapon | Overwatch | Tank | Skirmisher |
+|---|---|---|---|
+| baseline | 10.2 | 10.8 | 10.9 |
+| assault | 42.4 | **64.9** | **72.2** |
+| splash | 29.4 | 57.6 | 45.5 |
+| precision | 37.2 | 25.6 | 35.8 |
+| **marksman** | **49.7** | 27.3 | 32.9 |
+
+The marksman tops the Overwatch column and the assault tops the other two, from
+the same five weapons and the same arena. That is the sentence the old pricing
+could not say.
+
+### 7.41.2 The ceiling erased the case that mattered
+
+`readyValue` capped a weapon point at **1.6**, and the formula reached it easily:
+a bot holding only the baseline scored a gain of 3.2 against a marksman and 1.9
+against a merely good weapon, and **both came out at 1.6**. The one bot that
+needed the loudest signal — the one with nothing but the starting rifle — was the
+one the cap silenced.
+
+The three numbers are now in `data/pickups.json` where the guide says tunable
+numbers belong, and the ceiling is `weaponGainMax` at 4.0. For an Overwatch bot
+24 cells from a weapon point the SeekPickup score goes from 0.24 to 0.59.
+
+`bestHeldWorth` also now skips a weapon with an empty magazine, which `meanDps`
+did not: a bot whose good weapon is dry was valuing the ground by a weapon it
+could not fire. And a bot holding nothing firable at all takes the ceiling
+directly, because a ratio against zero says nothing.
+
+### 7.41.3 A note on what carries the role
+
+Writing the tests turned up a number worth recording. **`rangePref` alone does
+not overcome raw DPS.** `rangePrefBias` is 0.25, so the head of the ranking is
+worth 1.25 and the tail 0.8, against a `bandShare` that already puts 0.41 on the
+close band. A shotgun with six times the close-band DPS of a sniper still wins
+for a long-preferring bot on range preference alone: 34.3 against 31.1.
+
+It is `weaponPref` that carries the role's identity, at `weaponPrefBonus` 0.6.
+Both rankings together give the table of Section 7.41.1; either alone does not.
+A test holds this so it cannot rot quietly, and whether `rangePrefBias` should be
+larger is a separate question that wants its own measurement. **TBD**
 
 ## 8. Match flow (sequence)
 

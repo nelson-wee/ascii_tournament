@@ -21,8 +21,16 @@ import { loadPickups, loadRedeemerWeapon } from "../core/data.js";
 import type { Pickups } from "../core/schemas.js";
 import type { Rng } from "../core/rng.js";
 import type { ArenaMap, PickupPoint } from "../arena/types.js";
-import type { Weapon } from "../weapons/types.js";
-import { botCell, botsInTickOrder, type BotState, type SimState } from "./state.js";
+import { RANGE_BANDS, type Weapon } from "../weapons/types.js";
+import { bandDistanceOf } from "../weapons/range.js";
+import {
+  botCell,
+  botsInTickOrder,
+  rangeWeight,
+  weaponWeight,
+  type BotState,
+  type SimState,
+} from "./state.js";
 
 /**
  * The fixed weapon that a power-up hands over, by its id.
@@ -242,10 +250,63 @@ export function meanDps(state: SimState, weapon: Weapon): number {
 }
 
 /** The best weapon that a bot holds, by the same measure. */
-function bestHeldDps(state: SimState, bot: BotState): number {
+/**
+ * What a weapon is worth to **this** bot (dev-guide Section 7.41).
+ *
+ * This is the one ranking of weapons in the project. `bestWeaponOverall` reads it
+ * to decide what to hold, and `readyValue` reads it to decide what is worth
+ * walking to. Before this they disagreed: the walk was priced by `meanDps`, which
+ * weights the bands by how often **the arena** fires in each, and the choice was
+ * priced by the same profile weighted again by the **role's** range preference
+ * and its weapon preference. So a bot crossed the map for one weapon and then
+ * equipped another, and the role that valued a distant marksman most was the one
+ * whose pickup score never said so (Section 7.41.1).
+ *
+ * Three factors, and each is a fact about a different thing:
+ *
+ * - `dpsProfile[band]` — what the weapon does at that range.
+ * - `bandShare[band]` — how often the arena fights at that range. The power
+ *   budget charges by the same weights (Section 7.20.15).
+ * - `rangeWeight` and `weaponWeight` — what the role wants. A ranking of the
+ *   three bands and a ranking of the archetypes (Section 7.26).
+ *
+ * It does not read the magazine. A weapon on the ground arrives full, so the
+ * caller checks ammunition for a weapon the bot already carries.
+ */
+export function weaponWorth(state: SimState, bot: BotState, weapon: Weapon): number {
+  const bias = state.config.rangePrefBias;
+  const share = state.config.bandShare;
+  const bands = {
+    closeMax: state.config.rangeBandCloseMax,
+    midMax: state.config.rangeBandMidMax,
+  };
+  let value = 0;
+  for (const band of RANGE_BANDS) {
+    // A band the weapon cannot reach is worth nothing, the same rule the
+    // generator applies to the DPS profile itself (Section 7.33.6).
+    if (bandDistanceOf(band, bands) > weapon.rangeMax) continue;
+    value += weapon.dpsProfile[band] * share[band] * rangeWeight(bot.tactics, band, bias);
+  }
+  return value * weaponWeight(bot.tactics, weapon.archetype, state.config.weaponPrefBonus);
+}
+
+/** The worth of the best weapon the bot can actually fire. */
+function bestHeldWorth(state: SimState, bot: BotState): number {
   let best = 0;
-  for (const weapon of bot.weapons) best = Math.max(best, meanDps(state, weapon));
+  for (const weapon of bot.weapons) {
+    if (!hasAmmoFor(bot, weapon)) continue;
+    best = Math.max(best, weaponWorth(state, bot, weapon));
+  }
   return best;
+}
+
+/**
+ * Rounds left for a weapon. `combat.ts` owns the same rule, and importing it
+ * here would close a cycle, so the two lines live in both places.
+ */
+function hasAmmoFor(bot: BotState, weapon: Weapon): boolean {
+  if (weapon.id === (bot.weapons[0]?.id ?? "")) return true;
+  return (bot.ammo.get(weapon.id) ?? weapon.ammoMax) > 0;
 }
 
 /** What a pickup point is worth to a bot when it is ready. */
@@ -287,11 +348,24 @@ function readyValue(state: SimState, bot: BotState, pickup: PickupState): number
       const held = bot.weapons.some((candidate) => candidate.id === weapon.id);
       if (!held) {
         // A weapon the bot does not hold is worth what it adds over the best
-        // weapon it does hold. A flat guess here sent bots to a point that
-        // gave them nothing better (Section 3.1 of the M8 weapon analysis).
-        const best = bestHeldDps(state, bot);
-        const gain = meanDps(state, weapon) / Math.max(1, best);
-        return Math.max(0, Math.min(1.6, (gain - 1) * 1.6 + 0.3));
+        // weapon it can fire, measured by what this bot's role wants
+        // (Section 7.41). A flat guess here sent bots to a point that gave them
+        // nothing better (Section 3.1 of the M8 weapon analysis); `meanDps` then
+        // sent them to the point the ARENA liked rather than the one the role
+        // did, which is the defect of Section 7.41.1.
+        const best = bestHeldWorth(state, bot);
+        const worth = weaponWorth(state, bot, weapon);
+        // A bot holding nothing it can fire wants any weapon at all, so the
+        // ratio has no meaning and the value goes to the ceiling.
+        if (best <= 0) return tables.weaponGainMax;
+        const gain = worth / best;
+        return Math.max(
+          0,
+          Math.min(
+            tables.weaponGainMax,
+            (gain - 1) * tables.weaponGainWeight + tables.weaponGainBase,
+          ),
+        );
       }
       const left = bot.ammo.get(weapon.id) ?? weapon.ammoMax;
       return (1 - left / weapon.ammoMax) * 1.0;

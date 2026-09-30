@@ -52,6 +52,7 @@ export {
   createPickupStates,
   damageMultiplierOf,
   pickupValue,
+  weaponWorth,
   readyPickupCells,
   rollSpawnTable,
   takePickup,

@@ -521,6 +521,24 @@ export const PickupsSchema = z
     /** The share of damage that armor takes while the bot has any. TBD */
     armorAbsorb: unitRange,
     shieldMax: positiveNumber,
+    /**
+     * What a weapon point is worth to a bot that already holds an equal weapon
+     * (Section 7.41). It is the floor of the value: walking to a point is worth
+     * a little even when it adds nothing, because a spare weapon carries a spare
+     * magazine. TBD
+     */
+    weaponGainBase: z.number().nonnegative(),
+    /** What each whole multiple of improvement over the held weapon adds. TBD */
+    weaponGainWeight: z.number().nonnegative(),
+    /**
+     * The ceiling of a weapon point's worth.
+     *
+     * It was 1.6, which a bot holding only the baseline rifle hit every time: a
+     * marksman scored a gain of 3.2 and a merely-good weapon scored 1.9, and
+     * both came out at the cap. The role that walks least was the one whose
+     * signal the cap erased (Section 7.41.2). TBD
+     */
+    weaponGainMax: positiveNumber,
     kinds: z.record(
       z.enum(["weapon", "armor", "health", "powerup", "ammo"]),
       z

@@ -3,6 +3,9 @@
   "armorMax": 75,
   "armorAbsorb": 0.35,
   "shieldMax": 75,
+  "weaponGainBase": 0.3,
+  "weaponGainWeight": 1.6,
+  "weaponGainMax": 4.0,
   "kinds": {
     "health": {
       "respawnTicks": 300,

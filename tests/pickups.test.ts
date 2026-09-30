@@ -9,7 +9,10 @@ import {
   parseArenaText,
   pickupEvenness,
 } from "../src/arena/index.js";
-import { loadPickups } from "../src/core/data.js";
+import { loadBaselineWeapon, loadDefaultTactics, loadPickups, loadRoles } from "../src/core/data.js";
+import type { Tactics } from "../src/core/schemas.js";
+import { bestWeaponOverall } from "../src/ai/utility.js";
+import type { Weapon } from "../src/weapons/types.js";
 import { EventBus } from "../src/core/events.js";
 import { createRng } from "../src/core/rng.js";
 import { generateWeaponSet } from "../src/weapons/generate.js";
@@ -19,6 +22,7 @@ import {
   createSimState,
   damageMultiplierOf,
   pickupValue,
+  weaponWorth,
   readyPickupCells,
   rollSpawnTable,
   respawn,
@@ -516,5 +520,169 @@ describe("the spawn table is symmetric", () => {
       expect(partner, `the point ${point.slotId} has no partner`).toBeDefined();
       expect(table.slots[partner!.slotId]).toBe(table.slots[point.slotId]);
     }
+  });
+});
+
+describe("weaponWorth: one ranking of weapons (Section 7.41)", () => {
+  const ROOM = [
+    "####################",
+    "#SSS...W........SSS#",
+    "#..................#",
+    "####################",
+  ].join("\n");
+
+  function room(): SimState {
+    return createSimState({
+      map: parseArenaText(ROOM, { source: "worth" }),
+      seed: 11,
+      bus: new EventBus(),
+      weapons: generateWeaponSet(createRng(3, "weapons"), 5),
+      tacticsOverride: loadDefaultTactics(),
+    });
+  }
+
+  function withRange(pref: readonly ["close" | "mid" | "long", ...("close" | "mid" | "long")[]]) {
+    return { ...loadDefaultTactics(), rangePref: [...pref] } as Tactics;
+  }
+
+  const sniper = (over: Partial<Weapon> = {}): Weapon => ({
+    ...loadBaselineWeapon(),
+    id: "test-sniper",
+    archetype: "marksman",
+    rangeMax: 26,
+    dpsProfile: { close: 10, mid: 36, long: 50 },
+    ...over,
+  });
+  const shotgun = (over: Partial<Weapon> = {}): Weapon => ({
+    ...loadBaselineWeapon(),
+    id: "test-shotgun",
+    archetype: "assault",
+    rangeMax: 18,
+    dpsProfile: { close: 60, mid: 43, long: 11 },
+    ...over,
+  });
+
+  it("ranks the same two weapons differently for two real roles", () => {
+    // The roles of `data/roles.json`, not a hand-made tactic, because a role
+    // carries BOTH rankings and it takes both to overcome raw DPS. `rangePref`
+    // alone is a weak signal: `rangePrefBias` is 0.25 against a `bandShare` that
+    // already puts 0.41 on the close band, so a shotgun with six times the
+    // close-band DPS still wins on range preference alone (Section 7.41.3).
+    const state = room();
+    const bot = state.bots[0] as BotState;
+    const roles = loadRoles();
+
+    bot.tactics = roles.roles["overwatch"]!.tactics as Tactics;
+    expect(weaponWorth(state, bot, sniper())).toBeGreaterThan(weaponWorth(state, bot, shotgun()));
+
+    bot.tactics = roles.roles["tank"]!.tactics as Tactics;
+    expect(weaponWorth(state, bot, shotgun())).toBeGreaterThan(weaponWorth(state, bot, sniper()));
+  });
+
+  it("needs the weapon preference to do it, not the range preference alone", () => {
+    // The finding the test above rests on, stated so it cannot rot silently.
+    const state = room();
+    const bot = state.bots[0] as BotState;
+    bot.tactics = withRange(["long", "mid", "close"]);
+    expect(weaponWorth(state, bot, sniper())).toBeLessThan(weaponWorth(state, bot, shotgun()));
+  });
+
+  it("reads the weapon preference as well as the range preference", () => {
+    const state = room();
+    const bot = state.bots[0] as BotState;
+    const base = loadDefaultTactics();
+    // The same weapon, the same bands, two rankings of the archetypes.
+    bot.tactics = { ...base, weaponPref: ["marksman"] } as Tactics;
+    const wanted = weaponWorth(state, bot, sniper());
+    bot.tactics = { ...base, weaponPref: ["assault", "splash", "heavy", "denial", "marksman"] } as Tactics;
+    const spurned = weaponWorth(state, bot, sniper());
+    expect(wanted).toBeGreaterThan(spurned);
+  });
+
+  it("gives nothing for a band the weapon cannot reach", () => {
+    const state = room();
+    const bot = state.bots[0] as BotState;
+    bot.tactics = withRange(["long", "mid", "close"]);
+    const short = sniper({ rangeMax: 6 });
+    const long = sniper({ rangeMax: 26 });
+    expect(weaponWorth(state, bot, short)).toBeLessThan(weaponWorth(state, bot, long));
+  });
+
+  it("agrees with bestWeaponOverall, which is the point of it", () => {
+    // Two rankings meant a bot walked to one weapon and equipped another.
+    const state = room();
+    const bot = state.bots[0] as BotState;
+    bot.tactics = withRange(["long", "mid", "close"]);
+    bot.weapons = [loadBaselineWeapon(), shotgun(), sniper()];
+    const best = bestWeaponOverall(state, bot);
+    let top = bot.weapons[0] as Weapon;
+    for (const weapon of bot.weapons) {
+      if (weaponWorth(state, bot, weapon) > weaponWorth(state, bot, top)) top = weapon;
+    }
+    expect(best.id).toBe(top.id);
+  });
+});
+
+describe("a weapon point is worth what it adds (Section 7.41)", () => {
+  const ROOM = [
+    "####################",
+    "#SSS...W........SSS#",
+    "#..................#",
+    "####################",
+  ].join("\n");
+
+  function roomWith(weapons: readonly Weapon[]): [SimState, PickupState] {
+    const state = createSimState({
+      map: parseArenaText(ROOM, { source: "gain" }),
+      seed: 11,
+      bus: new EventBus(),
+      weapons: [...weapons],
+      tacticsOverride: loadDefaultTactics(),
+    });
+    const point = state.pickups.find((candidate) => candidate.point.kind === "weapon");
+    expect(point).toBeDefined();
+    return [state, point!];
+  }
+
+  const strong = (id: string): Weapon => ({
+    ...loadBaselineWeapon(),
+    id,
+    archetype: "marksman",
+    rangeMax: 26,
+    dpsProfile: { close: 30, mid: 60, long: 70 },
+  });
+
+  it("is worth far more to a bot holding only the baseline", () => {
+    const set = [loadBaselineWeapon(), strong("on-the-ground")];
+    const [state, point] = roomWith(set);
+    const bot = state.bots[0] as BotState;
+    point.itemId = "on-the-ground";
+    point.ready = true;
+
+    const onBaseline = pickupValue(state, bot, point);
+    // Now give the bot something good of its own and ask again.
+    bot.weapons = [loadBaselineWeapon(), strong("already-held")];
+    const armed = pickupValue(state, bot, point);
+    expect(onBaseline).toBeGreaterThan(armed);
+  });
+
+  it("never passes the ceiling and never goes below zero", () => {
+    const [state, point] = roomWith([loadBaselineWeapon(), strong("on-the-ground")]);
+    const bot = state.bots[0] as BotState;
+    point.itemId = "on-the-ground";
+    point.ready = true;
+    const value = pickupValue(state, bot, point);
+    expect(value).toBeGreaterThanOrEqual(0);
+    expect(value).toBeLessThanOrEqual(state.pickupTables.weaponGainMax);
+  });
+
+  it("wants any weapon at all when it holds nothing it can fire", () => {
+    const [state, point] = roomWith([loadBaselineWeapon(), strong("on-the-ground")]);
+    const bot = state.bots[0] as BotState;
+    point.itemId = "on-the-ground";
+    point.ready = true;
+    // No weapon at all is the one case where the ratio has no meaning.
+    bot.weapons = [];
+    expect(pickupValue(state, bot, point)).toBe(state.pickupTables.weaponGainMax);
   });
 });
