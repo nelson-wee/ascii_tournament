@@ -4844,6 +4844,95 @@ Both rankings together give the table of Section 7.41.1; either alone does not.
 A test holds this so it cannot rot quietly, and whether `rangePrefBias` should be
 larger is a separate question that wants its own measurement. **TBD**
 
+## 7.42 The pickup sweep: the biggest move of the whole search
+
+1200 rounds on 3 openfield arenas, same config and seed. The "before" column is
+the three-style sweep of Section 7.40, which is the first run to carry the
+per-role instrument.
+
+### 7.42.1 The mechanism did what it was built to do
+
+| openfield, by Overwatch seats in the round | baseline share of kills before | after |
+|---|---|---|
+| 0 seats | 8.5 % | **5.0 %** |
+| 3 seats | 20.0 % | **8.7 %** |
+| 6 seats | **54.8 %** | **31.6 %** |
+
+| weapon points taken a round | before | after |
+|---|---|---|
+| 0 Overwatch seats | 15.04 | **21.62** |
+| 3 seats | 11.73 | **18.78** |
+| 6 seats | 9.75 | **14.67** |
+
+An all-Overwatch team now takes half again as many weapons and fights with the
+starting rifle for 31.6 % of its kills instead of 54.8 %. Every seat count
+improved, which is what a fix to `pickupValue` should do rather than a fix to one
+role's numbers.
+
+### 7.42.2 And the deficit it was aimed at closed
+
+| openfield, Overwatch against Tank | before | after |
+|---|---|---|
+| shots a seat | 1.22 | 1.10 |
+| landed a shot | 0.78 | 0.72 |
+| **damage a landed hit** | **0.58** | **0.89** |
+| damage a seat | 0.55 | **0.70** |
+| kills a seat | 0.54 | **0.72** |
+| **K/D** | **0.55** | **0.94** |
+
+Damage a landed hit was the whole of the deficit in Section 7.40.2, and it moved
+from 0.58 to 0.89 — 19.6 damage a hit to 31.8, against the Tank's 35.5. In raw
+terms an Overwatch bot's K/D is **0.946** where a Tank's is 1.001 and a
+Skirmisher's is 1.045. The role is at parity for the first time.
+
+Its shots a seat **fell**, 55.2 to 42.3, which is the same fact from the other
+side: it has stopped spamming a rifle that fires every 12 ticks and started
+carrying weapons that hit.
+
+### 7.42.3 The composition table, finally flat
+
+| Overwatch in the team | before | after |
+|---|---|---|
+| 0 | 64.7 % | **56.4 %** |
+| 1 | 49.7 % | **49.3 %** |
+| 2 | 36.9 % | **44.0 %** |
+| 3 | **18.3 %** | **38.8 %** |
+
+**3O went from 18.3 % to 38.8 %**, and the cost of an Overwatch seat fell from
+about 15 points of win rate to about 6. The spread from the best composition to
+the worst narrowed from 50 points (18.3 to 68.8) to 20 (38.8 to 59.2).
+
+Side bias stayed clean: pooled mirror A 47.5 ± 4.6. The `1O2S` cell reads
+12.5 ± 9.5, which is 24 rounds and noise; the pooled figure is the one to read.
+
+### 7.42.4 What this says about the five reworks before it
+
+One change to how a weapon point is priced moved the composition table further
+than the bands, the reach cap, the range curve, the conflict zone and the band
+split put together. Those five were each a real defect, and each is still worth
+having. But none of them was the binding constraint, and this was.
+
+The pattern is worth naming, because it repeated five times: **every one of those
+reworks tuned a number the bot was not using.** The bands priced a weapon the bot
+never picked up. The curve set the accuracy of a weapon the bot never held. The
+conflict zone sent the bot to good ground with the starting rifle in its hands.
+The instrument of Section 7.39 is what broke the run, and it broke it in one
+sweep, because it measured what the bot **did** rather than what it was given.
+
+### 7.42.5 What is left
+
+- **Overwatch still costs about 6 points a seat**, and 0 Overwatch still wins
+  56.4 %. Flat is not level.
+- **31.6 % of an all-Overwatch team's kills are still the baseline rifle**,
+  against 5.0 % for a team with none. There is more in the same place: the
+  ceiling at 4.0, `itemControl` 0.4, and `TakePosition` at role weight 1.6
+  against `seekPickup` at 0.8 all still pull a holding role away from the ground
+  it needs to visit.
+- **Confirm on bastion and cavern.** This is one style, chosen because its long
+  sight lines favour the role under test, so it is the friendliest ground for the
+  change and the result should be read as an upper bound until the other two
+  agree. **TBD**
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.
