@@ -137,8 +137,27 @@ describe("cover shields what is BETWEEN the two bots (Section 7.45.1)", () => {
     }
   });
 
-  it("gives two bots either side of a tile the same shield", () => {
-    // Cover is a fact about the ground, so it reads the same from both ends.
+  it("gives the tile to the bot that is using it, and not to its enemy", () => {
+    // Cover is NOT reciprocal in general. It reaches `depthCells` from the bot
+    // it shields, so a tile beside one bot and far from the other belongs to the
+    // near one. A bot firing from behind a wall does not hand that wall to the
+    // bot it is firing at.
+    for (const [near, far] of [
+      [26, 32], // the tile is 1 cell from `near`, 5 from `far`
+      [26, 37],
+      [25, 35], // 2 cells from `near`
+      [28, 22], // and it works from the other side of the tile too
+    ] as const) {
+      const a = { x: near, y: ROW };
+      const b = { x: far, y: ROW };
+      expect(coverAgainst(map, cover, a, b), `near ${near}`).toBeGreaterThan(0);
+      expect(coverAgainst(map, cover, b, a), `far ${far}`).toBe(0);
+    }
+  });
+
+  it("is reciprocal only when the tile is in reach of both, which is a special case", () => {
+    // Equidistant, so the two readings agree. This is a consequence of the
+    // geometry being symmetric, not a law about cover.
     for (const [ax, bx] of [
       [26, 28],
       [25, 29],
@@ -151,6 +170,18 @@ describe("cover shields what is BETWEEN the two bots (Section 7.45.1)", () => {
         10,
       );
     }
+    // And the one in the middle of that list is reciprocal at a real value, not
+    // reciprocal at zero, which would prove nothing.
+    expect(coverAgainst(map, cover, { x: 25, y: ROW }, { x: 29, y: ROW })).toBeGreaterThan(0);
+  });
+
+  it("reads the same for a pair however the two are named", () => {
+    // What IS a law: the shield of a given bot against a given shooter does not
+    // depend on which of the two the caller asks about first.
+    const a = { x: 26, y: ROW };
+    const b = { x: 32, y: ROW };
+    expect(coverAgainst(map, cover, a, b)).toBe(coverAgainst(map, cover, a, b));
+    expect(coverAgainst(map, cover, b, a)).toBe(coverAgainst(map, cover, b, a));
   });
 
   it("gives adjacent bots no cover at all, because nothing is between them", () => {

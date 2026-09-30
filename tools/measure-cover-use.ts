@@ -1,6 +1,6 @@
 /**
  * Do bots use cover, and do they flank a target that has it?
- * (dev-guide Section 7.45.2)
+ * (dev-guide Sections 7.45.3 and 7.45.4)
  *
  * The mechanic of Section 7.32 can be correct and still be ignored, so this asks
  * two questions of a real round rather than of the arithmetic:

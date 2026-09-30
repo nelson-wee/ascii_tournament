@@ -5212,12 +5212,40 @@ const depth = Math.min(cover.depthCells, distance - 1);
 
 Five tests hold it, and two of them fail against the old walk.
 
-### 7.45.2 Cover is symmetric, and that was never in doubt
+### 7.45.2 Cover is not symmetric, and my first test proved a tautology
 
-`coverAgainst(a, b)` equals `coverAgainst(b, a)` to ten decimal places at every
-range tested, and `coverSave` reads the same from both ends of a tile: 0.075 and
-0.075 at four cells apart, 0.150 and 0.150 at two. Cover is a fact about the
-ground, so it reads the same to both bots. A test holds it.
+I wrote at first that cover is a fact about the ground, so it reads the same to
+both bots. That is wrong, and the user caught it. `coverAgainst(a, b)` walks the
+line from `a` toward `b` and reads only the first `cover.depthCells` cells of it.
+The tile must be **near the bot it shields**. A tile two cells in front of A, and
+eight cells in front of B, is A's screen alone.
+
+My test read equal numbers from both ends because every pair in it sat
+**equidistant** from the tile. With that one geometry the walk cannot do anything
+else, so the test held whatever the code did.
+
+A cover tile at x=20 on one row, with `depthCells` at 2, reads:
+
+| A | B | tile to A | tile to B | A's shield | B's shield | who holds it |
+|---|---|---|---|---|---|---|
+| 19 | 25 | 1 | 5 | **1.000** | 0.000 | A alone |
+| 18 | 28 | 2 | 8 | **0.500** | 0.000 | A alone |
+| 19 | 21 | 1 | 1 | 1.000 | 1.000 | both |
+| 25 | 15 | 5 | 5 | 0.000 | 0.000 | neither |
+
+So a bot behind a tile holds it against a bot in the open, and hands that bot
+nothing. Both bots read the same number only where the tile is within
+`depthCells` of both of them, which needs them almost shoulder to shoulder, or
+where it is out of reach of both and the number is zero. That is the special
+case, not the rule, and it is what makes a flank pay.
+
+What *is* symmetric is the naming: `coverAgainst(a, b)` does not care which bot
+was called the shooter when the two stand the same distance out. Three tests now
+hold all of this, in place of the one that proved nothing:
+
+- `gives the tile to the bot that is using it, and not to its enemy`
+- `is reciprocal only when the tile is in reach of both, which is a special case`
+- `reads the same for a pair however the two are named`
 
 ### 7.45.3 Bots do use cover
 
