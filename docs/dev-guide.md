@@ -5138,7 +5138,36 @@ falls by one to four points. That is a real change and a modest one. Both number
 are data — `actionBase.support`, the three `behavior.support` weights, and
 `fightSuppressesPickup` — so the size of the effect is a dial, not a rewrite.
 
-### 7.44.4 What is not settled
+### 7.44.4 The regression sweep
+
+1200 rounds on 3 openfield arenas, against the same style in Section 7.42.
+
+| Overwatch in the team | before Support | after |
+|---|---|---|
+| 0 | 56.4 % | 56.1 % |
+| 1 | 49.3 % | 48.9 % |
+| 2 | 44.0 % | 42.5 % |
+| 3 | **38.8 %** | **43.8 %** |
+
+Nothing regressed, and 3O rose 5.0 points. That is about 1.1 standard errors on
+its own, so it is **suggestive and not established** — but it sits beside three
+other things that agree with it. The spread from best composition to worst
+narrowed again, 17.6 points to 13.6. The cost of an Overwatch seat fell from 5.9
+points to 4.1. And 3O at 43.8 now reads slightly **above** two Overwatch at 42.5,
+which breaks the monotonic "more Overwatch is worse" order for the first time in
+the whole search, though the two overlap inside their error.
+
+Side bias held: 51.0 ± 1.4 over every round, pooled mirror A 44.6 ± 4.5.
+
+**The gain is coordination, not production.** Per-role numbers barely moved —
+Overwatch K/D 0.946 to 0.944, damage a seat 440 to 443, kills a seat 3.37 to
+3.42 — and the round is the same shape, 2654 ticks to 2676 and 25.0 kills to
+24.7 with the band shares unchanged. Three Overwatch bots that converge on a
+fight win more rounds without any of them killing more, which is what a
+reinforcement action should do and is the one thing none of the earlier reworks
+could have produced.
+
+### 7.44.5 What is not settled
 
 - **Whether 50 % to 63 % on pickups is wrong at all.** An arena shooter is partly
   a game of item control, and 20 % of ticks in contact against 25 kills a round is
