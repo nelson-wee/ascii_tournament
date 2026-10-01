@@ -653,6 +653,18 @@ export const WeaponRolesSchema = z
           rangeFactor: positiveNumber,
           ammoFactor: positiveNumber,
           intervalFactor: positiveNumber,
+          /**
+           * What this attack type does to the damage range of its role
+           * (Section 7.48.5).
+           *
+           * `intervalFactor` already moves the cadence of a type, and the
+           * damage needs the same freedom. A role's `damage` range is blind to
+           * the attack type, and the damage one point of budget buys differs by
+           * two to three times between types: a cone needed 46 damage to fill an
+           * 85-point budget against an `assault` cap of 30, so **no cone could
+           * ever be built**. 1.0 leaves the role's range alone.
+           */
+          damageFactor: positiveNumber.default(1),
           word: z.string().min(1),
         })
         .strict(),
@@ -759,10 +771,18 @@ export const WeaponRolesSchema = z
       .strict(),
     budget: z
       .object({
+        _notes: z.string().optional(),
         target: positiveNumber,
         tolerance: positiveNumber,
         dpsWeight: z.number().nonnegative(),
-        /** What a cell of optimal range costs. Far ground is safer ground. TBD */
+        /**
+         * What a cell of optimal range costs.
+         *
+         * It prices **only** the safety of far ground now (Section 7.48.6). It
+         * used to price the range identity of the weapon as well, which the
+         * per-archetype band share of Section 7.46.4 took over, so the two
+         * charged one advantage twice.
+         */
         optimalRangeWeight: z.number().nonnegative(),
         /**
          * What a cell of range tolerance costs. A wide sweet spot is good in
@@ -776,6 +796,17 @@ export const WeaponRolesSchema = z
          * says it cannot hit (Section 7.33.3). TBD
          */
         rangeGateTolerances: z.number().nonnegative(),
+        /**
+         * The least far a generated weapon will fire, in cells (Section 7.48.2).
+         *
+         * It used to be `combat.rangeBandCloseMax`, which is the far edge of the
+         * close band. A clamped weapon then reached exactly to the boundary and
+         * earned nothing at all in the mid band, so every cone was close-band
+         * only and could not be priced: the damage needed to fill a tier budget
+         * swung from -41 to 303 against a role range of 4 to 30. The two numbers
+         * mean different things and this one is now its own.
+         */
+        rangeGateFloorCells: positiveNumber,
         critWeight: z.number().nonnegative(),
         lineWeight: z.number().nonnegative(),
         ricochetWeight: z.number().nonnegative(),

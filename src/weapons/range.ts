@@ -37,6 +37,16 @@ import type { BandValues, RangeBand, Weapon } from "./types.js";
 export interface RangeBands {
   closeMax: number;
   midMax: number;
+  /**
+   * The far edge of the long band, in cells (Section 7.48).
+   *
+   * The long band used to have no far edge, and `bandDistanceOf` stood one
+   * number in its place. A band needs both edges to be averaged over, and the
+   * honest edge is the distance a bot can see: it cannot shoot at what it cannot
+   * find. A caller that leaves it out takes `midMax * 1.75`, which is the old
+   * `midMax * 1.25` representative distance carried out to an edge.
+   */
+  longMax?: number;
 }
 
 /** What the range curve needs to answer. `Weapon` satisfies it. */
@@ -69,6 +79,59 @@ export function bandDistanceOf(band: RangeBand, bands: RangeBands): number {
   if (band === "close") return bands.closeMax / 2;
   if (band === "mid") return (bands.closeMax + bands.midMax) / 2;
   return bands.midMax * 1.25;
+}
+
+/**
+ * The two edges of a band, in cells (Section 7.48).
+ *
+ * `bandDistanceOf` gives one distance for a band that is 7 to 11 cells wide, and
+ * one distance cannot say what a weapon does across a span that wide. Averaging
+ * the curve over the span can, and it needs both edges.
+ */
+export function bandSpanOf(band: RangeBand, bands: RangeBands): [number, number] {
+  if (band === "close") return [0, bands.closeMax];
+  if (band === "mid") return [bands.closeMax, bands.midMax];
+  return [bands.midMax, bands.longMax ?? bands.midMax * 1.75];
+}
+
+/** How many points the band average takes. Enough that the answer stops moving. */
+const BAND_SAMPLES = 24;
+
+/**
+ * What a weapon does across a whole band: how much of the band it can reach, and
+ * the accuracy it holds over the part it can (Section 7.48).
+ *
+ * This replaces two things that each said something false.
+ *
+ * - **One sample a band.** `bandAccuracyOf` read the curve at the middle of the
+ *   band. A cone that fires to 8 cells was asked about 11.5 and answered with
+ *   the floor, although it works at the bottom of the mid band.
+ * - **A binary reach gate.** `bandReach` was 1 or 0, set by comparing `rangeMax`
+ *   with that same middle distance. So a weapon whose reach ended inside a band
+ *   lost the whole band, and a close-range weapon read a **hard zero** at long
+ *   range while a marksman read a soft fade at close range. The curve is
+ *   symmetric and the bands made it asymmetric.
+ *
+ * `reach` is the share of the band the weapon can fire into, so it is the chance
+ * that an enemy at a distance in this band is in range at all. `accuracy` is the
+ * mean of the curve over that reachable part, and it is 0 when nothing is
+ * reachable. The two multiply into the expected damage of a shot in the band.
+ */
+export function bandReachOf(
+  weapon: RangeShape,
+  band: RangeBand,
+  bands: RangeBands,
+  falloff: RangeFalloff,
+  rangeMax: number,
+): { reach: number; accuracy: number } {
+  const [lo, hi] = bandSpanOf(band, bands);
+  const top = Math.min(hi, rangeMax);
+  if (hi <= lo || top <= lo) return { reach: 0, accuracy: 0 };
+  let sum = 0;
+  for (let i = 0; i < BAND_SAMPLES; i += 1) {
+    sum += rangeAccuracy(weapon, lo + ((i + 0.5) / BAND_SAMPLES) * (top - lo), falloff);
+  }
+  return { reach: (top - lo) / (hi - lo), accuracy: sum / BAND_SAMPLES };
 }
 
 /**
@@ -115,6 +178,29 @@ export function bandAccuracyOf(
 }
 
 /**
+ * The accuracy a weapon holds across each band, averaged over the band and over
+ * the part of it the weapon can reach (Section 7.48).
+ *
+ * It is what `bandAccuracyOf` tried to be. That one samples the middle of a
+ * band, which is still what `bestBandOf` and `rangeGateOf` want, because they
+ * ask "which band is this weapon FOR" and a single distance answers that.
+ */
+export function bandCurveOf(
+  weapon: RangeShape,
+  bands: RangeBands,
+  falloff: RangeFalloff,
+  rangeMax: number,
+): { accuracy: BandValues; reach: BandValues } {
+  const close = bandReachOf(weapon, "close", bands, falloff, rangeMax);
+  const mid = bandReachOf(weapon, "mid", bands, falloff, rangeMax);
+  const long = bandReachOf(weapon, "long", bands, falloff, rangeMax);
+  return {
+    accuracy: { close: close.accuracy, mid: mid.accuracy, long: long.accuracy },
+    reach: { close: close.reach, mid: mid.reach, long: long.reach },
+  };
+}
+
+/**
  * The band a weapon is built for: the one its curve scores highest at.
  *
  * A tie goes to the nearer band, so the answer never moves with the order of a
@@ -137,17 +223,28 @@ export function bestBandOf(weapon: RangeShape, bands: RangeBands, falloff: Range
  * still takes the shot; past that the curve is at its floor and the shot is a
  * waste of ammunition.
  *
- * It is never shorter than the close band, so no weapon is unusable, and never
+ * It is never shorter than `floorCells`, so no weapon is unusable, and never
  * longer than a bot can see.
+ *
+ * **`floorCells` is not `closeMax`** (Section 7.48.2). It used to be, and
+ * `closeMax` is the far edge of the close band, so a clamped weapon reached to
+ * exactly the boundary and got a mid-band reach of exactly zero. A cone's
+ * natural reach is about 6.8 cells, so every cone was clamped, every cone was
+ * close-band only, and a profile in one band cannot be priced: its expected DPS
+ * per point of damage is so small that the damage needed to fill a tier budget
+ * swings from -41 to 303 against a role range of 4 to 30.
+ *
+ * One number was doing two jobs, which is the defect of Section 7.30.3 again:
+ * where the close band ends, and the least far a weapon may shoot.
  */
 export function rangeGateOf(
   weapon: RangeShape,
   gateTolerances: number,
-  bands: RangeBands,
   sightCapCells: number,
+  floorCells: number,
 ): number {
   const reach = weapon.optimalRange + weapon.rangeTolerance * gateTolerances;
-  return Math.min(sightCapCells, Math.max(bands.closeMax, reach));
+  return Math.min(sightCapCells, Math.max(floorCells, reach));
 }
 
 /** Read the range shape of a full weapon. */

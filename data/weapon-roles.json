@@ -273,7 +273,8 @@
       "accuracyFactor": 1.0,
       "rangeFactor": 0.55,
       "ammoFactor": 0.65,
-      "intervalFactor": 1.15
+      "intervalFactor": 1.15,
+      "damageFactor": 2.0
     },
     "burst": {
       "bandMultiplier": {
@@ -375,7 +376,7 @@
     "toleranceReachExponent": 0.5
   },
   "budget": {
-    "target": 100,
+    "target": 120,
     "tolerance": 12,
     "dpsWeight": 2.7,
     "critWeight": 22,
@@ -384,9 +385,11 @@
     "reactionDiscount": 1.6,
     "ammoWeight": 0.025,
     "rangeHeadroomShare": 1.15,
-    "optimalRangeWeight": 0.35,
+    "optimalRangeWeight": 0.15,
     "rangeToleranceWeight": 0.55,
-    "rangeGateTolerances": 1.5
+    "rangeGateTolerances": 1.5,
+    "rangeGateFloorCells": 10,
+    "_notes": " Section 7.48.6: `target` is 120 and not 100 because the per-archetype band share of Section 7.46.4 cut every generated weapon by 4 to 33 % against a baseline whose damage is fixed in data and never re-solved. 120 puts the mean peak DPS back where it was (-0 %) and the ratio to the baseline back to 4.24x from 4.25x. The share fixed the RELATIVE price of the archetypes; the absolute level is a separate free parameter and this is it. `optimalRangeWeight` is 0.15 and not 0.35 because the band share now prices WHERE a weapon fights, which is what the optimal range was a proxy for. Charging both priced one advantage twice: removing the term entirely lifts marksman from 31.7 to 34.3 DPS per 100 points and narrows the spread across archetypes from 25 % to 20 %. 0.15 is what is left, and it prices the one thing the band share does not -- far ground is safer ground."
   },
   "value": {
     "_notes": "How much a weapon is expected to gain from an area, a pierce, damage over time, and a hazard tile, and how often each attack type lands. The DPS profile carries all of these, so the budget does not charge for them twice. TBD `bandShare` and `bandShareByArchetype` are MEASURED, not assumed (Section 7.46): the share of SHOTS each kind of weapon fires in each band, pooled over 3600 rounds and three arena styles. One global share matched no archetype at all -- the long share runs from 0.5 % for a denial weapon to 72.6 % for a marksman, and each archetype holds its figure across all three styles (marksman 66-76 %, assault 7-9 %), because a bot fights at the range its weapon wants. `bandShare` is the fallback for an archetype with no row, and it is the same measurement pooled over every archetype.",

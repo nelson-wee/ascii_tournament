@@ -85,13 +85,36 @@ describe("the power budget", () => {
     }
   });
 
-  it("keeps the damage inside the range of its role", () => {
-    const { roles } = loadWeaponRoles();
+  it("keeps the damage inside its role's range, scaled by the attack type", () => {
+    // Section 7.48.5: the range is the role's, times the `damageFactor` of the
+    // attack type. A role's range is blind to the attack type, and one point of
+    // budget buys two to three times more damage in one type than in another. A
+    // cone needed 46 damage to fill an 85-point budget against an `assault` cap
+    // of 30, so **no cone could ever be built**: 0 of 10 rolls were accepted.
+    const { roles, attackTypes } = loadWeaponRoles();
     for (const weapon of manyWeapons()) {
       const role = roles[weapon.role as RoleTrait];
       expect(role, `no role data for ${weapon.role}`).toBeDefined();
-      expect(weapon.damage).toBeGreaterThanOrEqual(role!.damage[0] - 0.06);
-      expect(weapon.damage).toBeLessThanOrEqual(role!.damage[1] + 0.06);
+      const factor = attackTypes[weapon.attackType]?.damageFactor ?? 1;
+      expect(weapon.damage, weapon.id).toBeGreaterThanOrEqual(role!.damage[0] * factor - 0.06);
+      expect(weapon.damage, weapon.id).toBeLessThanOrEqual(role!.damage[1] * factor + 0.06);
+    }
+  });
+
+  it("builds every attack type the data asks for (Section 7.48.5)", () => {
+    // The declared `attackTypeWeights` are what the designer wants. They were
+    // not what the generator made: the realised mix was whatever survived
+    // pricing, and the cone survived none of it.
+    const made = new Set<string>(manyWeapons().map((weapon) => weapon.attackType));
+    const { roles } = loadWeaponRoles();
+    const asked = new Set<string>();
+    for (const role of Object.values(roles)) {
+      for (const [type, weight] of Object.entries(role.attackTypeWeights)) {
+        if (weight > 0) asked.add(type);
+      }
+    }
+    for (const type of asked) {
+      expect(made.has(type), `the data asks for ${type} and the generator makes none`).toBe(true);
     }
   });
 
