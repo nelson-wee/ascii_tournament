@@ -1,5 +1,5 @@
 {
-  "_notes": "Roles (dev-guide Sections 7.11 and 7.26). A role owns the tactics of a bot: there is no team-wide slider over them any more, so what a role says is what a bot does. `rangePref` names all three bands, best first, and `weaponPref` names archetypes, best first. A player builds a team by choosing a role for each of the three bots, which makes the composition one categorical choice that a batch can sweep. Every number is a placeholder. TBD Section 7.48.7: the Overwatch `weaponPref` holds the two archetypes that perform at range and nothing else: marksman fires 72.6 % of its shots long and precision 51.8 %. Every other archetype is under 17 %, so listing one would hand it a bonus over the rest for no measured reason -- splash is the highest peak DPS in the game at 63.7 and fires half its shots CLOSE, so a third place for it sends an Overwatch bot to fetch a close-range weapon. `denial` used to sit third at weight 1.36, nearly matching precision, and it fires 0.5 % of its shots long -- it is a close-range weapon. `versatile` sat fourth and `archetypeOf` can never return it, so that slot was dead and it diluted the two archetypes that do the work. `tank` and `skirmisher` still carry the dead `versatile` entry and their own tails are not ordered by measurement. TBD",
+  "_notes": "Roles (dev-guide Sections 7.11 and 7.26). A role owns the tactics of a bot: there is no team-wide slider over them any more, so what a role says is what a bot does. `rangePref` names all three bands, best first, and `weaponPref` names archetypes, best first. A player builds a team by choosing a role for each of the three bots, which makes the composition one categorical choice that a batch can sweep. Every number is a placeholder. TBD Section 7.48.7: the Overwatch `weaponPref` holds the two archetypes that perform at range and nothing else: marksman fires 72.6 % of its shots long and precision 51.8 %. Every other archetype is under 17 %, so listing one would hand it a bonus over the rest for no measured reason -- splash is the highest peak DPS in the game at 63.7 and fires half its shots CLOSE, so a third place for it sends an Overwatch bot to fetch a close-range weapon. `denial` used to sit third at weight 1.36, nearly matching precision, and it fires 0.5 % of its shots long -- it is a close-range weapon. `versatile` sat fourth and `archetypeOf` can never return it, so that slot was dead and it diluted the two archetypes that do the work. Section 7.49: `tank` and `skirmisher` are measured the same way. Membership is the share of its shots an archetype fires in the role's preferred band, which breaks cleanly: long holds marksman 72.6 % and precision 51.8 % and then drops to 16.3 %; close holds denial 52.4, splash 50.3, heavy 49.2 and assault 48.5 and then drops to 20.0; mid holds denial 47.1, heavy 45.5, assault 43.5 and precision 39.7 and then drops to 33.8. Order inside a list is `weaponWorth` for that role, read with the preference emptied so the ranking cannot feed itself. `denial` is reserved to the tank: `hazardAvoidBelowTolerance` is 0.5, so a tank at 0.7 is the only role that will path through a hazard, and a denial weapon lays them. The dead `versatile` entry is gone from all three.",
   "roles": {
     "overwatch": {
       "tactics": {
@@ -38,11 +38,10 @@
           "long"
         ],
         "weaponPref": [
-          "heavy",
           "splash",
-          "assault",
-          "versatile",
-          "denial"
+          "denial",
+          "heavy",
+          "assault"
         ],
         "itemControl": 0.8,
         "holdPosition": 0.3,
@@ -69,11 +68,9 @@
           "long"
         ],
         "weaponPref": [
+          "heavy",
           "assault",
-          "versatile",
-          "precision",
-          "splash",
-          "marksman"
+          "precision"
         ],
         "itemControl": 0.6,
         "holdPosition": 0.1,
