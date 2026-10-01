@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { loadDefaultTactics, loadRoles } from "../src/core/data.js";
 import { TacticsSchema, type Tactics } from "../src/core/schemas.js";
 import { parseArenaText } from "../src/arena/index.js";
+import { archetypeOf } from "../src/weapons/generate.js";
+import { ATTACK_TYPES, ROLE_TRAITS } from "../src/weapons/types.js";
 import { EventBus } from "../src/core/events.js";
 import {
   createSimState,
@@ -86,10 +88,31 @@ describe("the role rankings that the design asks for", () => {
   it("gives every role a weapon ranking, not one favourite", () => {
     // A run offers five weapons, so one favourite archetype was silent about
     // four of them.
+    //
+    // Two is the floor and not three (Section 7.48.7). `weaponWeight` gives an
+    // unlisted archetype 1.00, which is the BOTTOM of its scale, so listing an
+    // archetype can only ever reward it. A role cannot say "I rank these four
+    // and all of them are bad" -- naming them raises them. Overwatch has two
+    // archetypes above 17 % of its shots at long range and the other four are
+    // under it, so its list is those two.
     for (const name of ROLES) {
       const list = roles[name]?.tactics.weaponPref ?? [];
-      expect(list.length).toBeGreaterThanOrEqual(3);
-      expect(new Set(list).size).toBe(list.length);
+      expect(list.length, name).toBeGreaterThanOrEqual(2);
+      expect(new Set(list).size, name).toBe(list.length);
+    }
+  });
+
+  it("never lists an archetype the generator cannot make (Section 7.48.7)", () => {
+    // `versatile` sat in all three lists and `archetypeOf` can never return it,
+    // because every role trait matches an earlier rule. A dead entry is not
+    // harmless: it takes a rank, so it dilutes every archetype above it.
+    const real = new Set<string>();
+    for (const role of ROLE_TRAITS) {
+      for (const type of ATTACK_TYPES) real.add(archetypeOf(role, type));
+    }
+    const overwatch = roles["overwatch"]?.tactics.weaponPref ?? [];
+    for (const archetype of overwatch) {
+      expect(real.has(archetype), `overwatch wants ${archetype} and nothing makes it`).toBe(true);
     }
   });
 
