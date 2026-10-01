@@ -1,0 +1,39 @@
+{
+  "_notes": "Section 7.48.8: a HEAD-TO-HEAD, which is the instrument the composition search needed and never had. Spread over ten compositions, each one gets a tenth of the rounds and reads +-3.2, so a difference between two cells carries +-4.5 -- and every move the search has chased since Section 7.28 is smaller than that. Two compositions over 1600 rounds put 800 on each side: +-1.8 a side, +-2.5 on the difference, for the same running time. Change the two compositions to ask a different question. Every number here is measured, not a placeholder.",
+  "rounds": 1600,
+  "seed": 20260928,
+  "arenas": [
+    "gen:openfield:101",
+    "gen:openfield:202",
+    "gen:openfield:303"
+  ],
+  "presets": {
+    "roles": {
+      "aggression": 0.5,
+      "rangePref": [
+        "mid",
+        "close",
+        "long"
+      ],
+      "weaponPref": [],
+      "itemControl": 0.5,
+      "holdPosition": 0.3,
+      "evasion": 0.3,
+      "hazardTolerance": 0.3
+    }
+  },
+  "compositions": {
+    "3O": [
+      "overwatch",
+      "overwatch",
+      "overwatch"
+    ],
+    "2T1S": [
+      "tank",
+      "tank",
+      "skirmisher"
+    ]
+  },
+  "useRoleTactics": true,
+  "outDir": "batch-out/h2h"
+}
