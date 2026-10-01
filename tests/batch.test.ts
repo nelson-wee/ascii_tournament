@@ -13,6 +13,8 @@ import {
 } from "../src/report/batchRunner.js";
 import { simConfigFromTuning } from "../src/sim/index.js";
 import {
+  archetypeBandShareOf,
+  archetypesOf,
   bandShareOf,
   standardError,
   summarize,
@@ -66,6 +68,15 @@ function record(over: Partial<RoundRecord> = {}): RoundRecord {
     shotsByBand: { close: 50, mid: 35, long: 15 },
     hitsByBand: { close: 25, mid: 12, long: 3 },
     damageByBand: { close: 500, mid: 240, long: 60 },
+    shotsByArchetypeBand: {
+      "marksman|close": 5,
+      "marksman|mid": 15,
+      "marksman|long": 30,
+      "splash|close": 45,
+      "splash|mid": 20,
+      "splash|long": 5,
+    },
+    damageByArchetype: { marksman: 300, splash: 500 },
     killDistanceSum: 200,
     killsByRole: { tank: 8, overwatch: 9, skirmisher: 8 },
     deathsByRole: { tank: 8, overwatch: 9, skirmisher: 8 },
@@ -316,6 +327,94 @@ describe("shots, hits and damage by band (Section 7.46)", () => {
     const shots = Object.values(result.shotsByBand).reduce((sum, n) => sum + n, 0);
     const kills = Object.values(result.killsByBand).reduce((sum, n) => sum + n, 0);
     expect(shots).toBeGreaterThan(kills);
+  });
+});
+
+describe("bands and damage by archetype (Section 7.46.4)", () => {
+  const compositions = { mixed: ["overwatch", "tank", "tank"] } as const;
+
+  function oneRound(): ReturnType<typeof runPlannedRound> {
+    const [round] = planRounds({
+      arenas: arenas(),
+      presets: presets(),
+      compositions,
+      rounds: 1,
+      seed: 4,
+    });
+    return runPlannedRound(round!, presets(), simConfigFromTuning(), compositions);
+  }
+
+  it("splits every shot by archetype as well as band", () => {
+    // The two counts are the same shots read two ways, so they must agree. If
+    // they part, one of them is dropping a shot silently.
+    const result = oneRound();
+    const flat = Object.values(result.shotsByBand).reduce((sum, n) => sum + n, 0);
+    const split = Object.values(result.shotsByArchetypeBand).reduce((sum, n) => sum + n, 0);
+    expect(split).toBe(flat);
+    expect(split).toBeGreaterThan(0);
+  });
+
+  it("keys the split `archetype|band`, with a real band every time", () => {
+    const result = oneRound();
+    for (const key of Object.keys(result.shotsByArchetypeBand)) {
+      const [archetype, band] = key.split("|");
+      expect(archetype).toBeTruthy();
+      expect(["close", "mid", "long"]).toContain(band);
+    }
+  });
+
+  it("gives damage by archetype, which only `Kill` could answer before", () => {
+    const result = oneRound();
+    const total = Object.values(result.damageByArchetype).reduce((sum, n) => sum + n, 0);
+    expect(total).toBeGreaterThan(0);
+    // Every source counts, so this is the role total read by weapon instead.
+    const byRole = Object.values(result.damageByRole).reduce((sum, n) => sum + n, 0);
+    expect(total).toBeCloseTo(byRole, 6);
+  });
+
+  it("deals damage only with an archetype that fired, or a hazard tile", () => {
+    // A hazard tile keeps burning after its owner swapped the weapon, and the
+    // baseline is in every hand at the spawn, so damage can name an archetype
+    // that fired no shot THIS round. Nothing else may appear.
+    const result = oneRound();
+    const fired = new Set(
+      Object.keys(result.shotsByArchetypeBand).map((key) => key.split("|")[0] ?? ""),
+    );
+    for (const archetype of Object.keys(result.damageByArchetype)) {
+      expect(fired.has(archetype) || archetype === "denial" || archetype === "baseline").toBe(true);
+    }
+    expect(fired.size).toBeGreaterThan(1);
+  });
+});
+
+describe("archetypeBandShareOf", () => {
+  it("reads one archetype out of the table, normalised", () => {
+    const summary = summarize([record()]);
+    const marksman = archetypeBandShareOf(summary.shotsByArchetypeBand, "marksman");
+    expect(marksman.shots).toBe(50);
+    expect(marksman.close).toBeCloseTo(0.1, 10);
+    expect(marksman.long).toBeCloseTo(0.6, 10);
+  });
+
+  it("shows the specialist gap that one global share cannot hold", () => {
+    // This is the whole finding of Section 7.46.4 in one assertion: two
+    // archetypes in the same round fire in different bands, so a single
+    // `value.bandShare` must misprice at least one of them.
+    const summary = summarize([record()]);
+    const marksman = archetypeBandShareOf(summary.shotsByArchetypeBand, "marksman");
+    const splash = archetypeBandShareOf(summary.shotsByArchetypeBand, "splash");
+    expect(splash.close).toBeGreaterThan(marksman.close * 3);
+    expect(marksman.long).toBeGreaterThan(splash.long * 3);
+  });
+
+  it("reads zero shots for an archetype that never fired", () => {
+    const summary = summarize([record()]);
+    expect(archetypeBandShareOf(summary.shotsByArchetypeBand, "denial").shots).toBe(0);
+  });
+
+  it("lists every archetype in the table and nothing else", () => {
+    const summary = summarize([record()]);
+    expect(archetypesOf(summary.shotsByArchetypeBand)).toEqual(["marksman", "splash"]);
   });
 });
 

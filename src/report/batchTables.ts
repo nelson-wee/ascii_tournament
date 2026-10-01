@@ -4,7 +4,13 @@
  */
 import { tempoView, type TempoRecord } from "./tempo.js";
 import type { RoundRecord, BatchSummary, WinRecord } from "./batchStats.js";
-import { bandShareOf, standardError, winRate } from "./batchStats.js";
+import {
+  archetypeBandShareOf,
+  archetypesOf,
+  bandShareOf,
+  standardError,
+  winRate,
+} from "./batchStats.js";
 
 /** The three range bands, in the order every table prints them. */
 const BANDS = ["close", "mid", "long"] as const;
@@ -184,6 +190,33 @@ export function formatReport(summary: BatchSummary): string {
         [false, true, true, true, true],
       ),
   );
+
+  // Section 7.46.4: the share each archetype fires in each band, which is the
+  // number the power budget needs and `value.bandShare` does not hold. A global
+  // share under-prices a specialist: a cone fires 76 % of its shots close, and
+  // the arena as a whole fires 23 % of its shots there.
+  const bandArchetypes = archetypesOf(summary.shotsByArchetypeBand);
+  if (bandArchetypes.length > 0) {
+    parts.push(
+      "RANGE BANDS BY ARCHETYPE: where each weapon kind chooses to fire\n" +
+        table(
+          ["archetype", ...BANDS, "shots", "damage"],
+          bandArchetypes.map((archetype) => {
+            const share = archetypeBandShareOf(summary.shotsByArchetypeBand, archetype);
+            const damage = summary.damageByArchetype.get(archetype) ?? 0;
+            return [
+              archetype,
+              percent(share.close),
+              percent(share.mid),
+              percent(share.long),
+              String(share.shots),
+              damage.toFixed(0),
+            ];
+          }),
+          [false, true, true, true, true, true],
+        ),
+    );
+  }
 
   const weapons = [...summary.shotsByWeapon.entries()].sort((a, b) => b[1] - a[1]);
   const totalShots = weapons.reduce((sum, [, count]) => sum + count, 0);
