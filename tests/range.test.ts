@@ -11,14 +11,21 @@ import { createSimState, hitChance, type BotState, type SimState } from "../src/
 import { generateWeaponSet } from "../src/weapons/generate.js";
 import {
   bandAccuracyOf,
+  bandCurveOf,
   bandDistanceOf,
+  bandSpanOf,
   bestBandOf,
   rangeAccuracy,
   rangeGateOf,
   type RangeBands,
   type RangeFalloff,
 } from "../src/weapons/range.js";
-import { RANGE_BANDS, type Weapon } from "../src/weapons/types.js";
+import {
+  RANGE_BANDS,
+  bandOfDistance,
+  type RangeBand,
+  type Weapon,
+} from "../src/weapons/types.js";
 
 const tuning = loadTuning();
 const bands: RangeBands = {
@@ -136,19 +143,29 @@ describe("bandDistanceOf and bestBandOf", () => {
 });
 
 describe("rangeGateOf: the gate comes from the curve", () => {
+  const FLOOR = 10;
+
   it("never reaches past what a bot can see", () => {
-    expect(rangeGateOf({ optimalRange: 26, rangeTolerance: 20 }, 1.5, bands, 29.9)).toBe(29.9);
+    expect(rangeGateOf({ optimalRange: 26, rangeTolerance: 20 }, 1.5, 29.9, FLOOR)).toBe(29.9);
   });
 
-  it("never leaves a weapon unable to reach the close band", () => {
-    expect(rangeGateOf({ optimalRange: 1, rangeTolerance: 1 }, 1.5, bands, 29.9)).toBe(
-      bands.closeMax,
-    );
+  it("never leaves a weapon short of the floor", () => {
+    expect(rangeGateOf({ optimalRange: 1, rangeTolerance: 1 }, 1.5, 29.9, FLOOR)).toBe(FLOOR);
   });
 
   it("puts the gate past the optimal range, not on it", () => {
-    const gate = rangeGateOf(sniper, 1.5, bands, 100);
-    expect(gate).toBeGreaterThan(sniper.optimalRange);
+    expect(rangeGateOf(sniper, 1.5, 100, FLOOR)).toBeGreaterThan(sniper.optimalRange);
+  });
+
+  it("keeps the floor clear of the close band boundary (Section 7.48.2)", () => {
+    // The floor used to BE `closeMax`, so a clamped weapon reached exactly to
+    // the close/mid boundary and earned nothing in the mid band at all. A cone's
+    // natural reach is about 6.8 cells, so every cone was clamped and no cone
+    // could be priced. The floor must leave a clamped weapon some mid band.
+    const gate = rangeGateOf({ optimalRange: 2, rangeTolerance: 3 }, 1.5, 29.9, FLOOR);
+    expect(gate).toBeGreaterThan(bands.closeMax);
+    const span = bandSpanOf("mid", bands);
+    expect(gate).toBeGreaterThan(span[0]);
   });
 });
 
@@ -198,16 +215,68 @@ describe("a generated weapon means what its name says", () => {
     }
   });
 
-  it("earns nothing at all in a band it cannot fire in, the burn included", () => {
+  it("earns nothing in a band it cannot reach at all, the burn included", () => {
+    // Section 7.48: the rule is the band's NEAR edge, not its middle. A weapon
+    // whose reach ends inside a band earns a share of it, so the old test --
+    // "the middle of the band is past `rangeMax`, so the whole band is zero" --
+    // asserted the defect it was written to catch.
     let gated = 0;
     for (const weapon of many) {
       for (const band of RANGE_BANDS) {
-        if (bandDistanceOf(band, bands) <= weapon.rangeMax) continue;
+        const [near] = bandSpanOf(band, bands);
+        if (near < weapon.rangeMax) continue;
         gated += 1;
-        expect(weapon.dpsProfile[band]).toBe(0);
+        expect(weapon.dpsProfile[band], `${weapon.id} ${band}`).toBe(0);
       }
     }
     expect(gated).toBeGreaterThan(0);
+  });
+
+  it("earns a share of a band it reaches part way into (Section 7.48)", () => {
+    // The point of averaging over the band. At least one weapon must stop
+    // inside a band and still earn something there, or the reach is still a
+    // binary gate wearing a fraction's name.
+    const partial = many.filter((weapon) =>
+      RANGE_BANDS.some((band) => {
+        const [near, far] = bandSpanOf(band, bands);
+        return weapon.rangeMax > near && weapon.rangeMax < far && weapon.dpsProfile[band] > 0;
+      }),
+    );
+    expect(partial.length).toBeGreaterThan(0);
+  });
+
+  it("never stops dead in a band it can partly reach (Section 7.48)", () => {
+    // **This is the asymmetry the bands used to add.** A close-range weapon read
+    // a HARD zero at long range while a marksman read a soft fade at close
+    // range: `rangeMax` gated one and the curve faded the other, although the
+    // curve itself is symmetric. Reach and DPS must now agree everywhere.
+    for (const weapon of many) {
+      const curve = bandCurveOf(weapon, bands, falloff, weapon.rangeMax);
+      for (const band of RANGE_BANDS) {
+        if (curve.reach[band] <= 0) continue;
+        expect(weapon.dpsProfile[band], `${weapon.id} ${band} reaches but earns 0`)
+          .toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("peaks in the band holding its optimal range, or next to it", () => {
+    // Not exactly in it. A weapon whose optimal range sits ON a boundary is
+    // equally good either side, and the neighbour band can hold more of its
+    // envelope: one optimal at 8.0 covers 8 to 11 of the mid band well, while
+    // its own close band runs from 0, where it is poor. 24 of 240 weapons are
+    // boundary cases like that, and all of them are within a fifth of the peak.
+    // What must never happen is a peak TWO bands from the optimal range.
+    const order: RangeBand[] = ["close", "mid", "long"];
+    for (const weapon of many) {
+      const own = bandOfDistance(weapon.optimalRange, bands.closeMax, bands.midMax);
+      let peak: RangeBand = "close";
+      for (const band of RANGE_BANDS) {
+        if (weapon.dpsProfile[band] > weapon.dpsProfile[peak]) peak = band;
+      }
+      const gap = Math.abs(order.indexOf(peak) - order.indexOf(own));
+      expect(gap, `${weapon.id} is built for ${own} and peaks at ${peak}`).toBeLessThanOrEqual(1);
+    }
   });
 });
 
