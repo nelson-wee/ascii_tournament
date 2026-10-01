@@ -5977,7 +5977,7 @@ answer already chosen: marksman 100 %, precision 91 %, then a drop to 85 %.
 skirmisher at 0.4 and an overwatch at 0.2 path around one. A denial weapon lays
 hazards, so its owner has to be willing to fight among them.
 
-### 7.49.2 Truncating the list made the roles worse
+### 7.49.2 Truncating the list made the roles worse, for a reason I got wrong
 
 The first form of this change cut each list to its measured members: tank four,
 skirmisher three, overwatch two. The shot mix moved as asked — assault fell 1.7
@@ -6006,6 +6006,35 @@ run.
 role can use is listed, and the order alone carries the identity: splash is 1.60
 to a tank and 1.24 to an overwatch; marksman is 1.60 to an overwatch and 1.10 to
 a tank. `denial` stays the tank's by the hazard rule above.
+
+#### The win rate agrees and the baseline share does not
+
+Three forms of the same lists, 1600 rounds a style, 3O against 2T1S at ±1.2:
+
+| | 3O, bastion | cavern | openfield | pooled |
+|---|---|---|---|---|
+| original (the guessed lists) | 36.3 % | 41.8 % | 43.6 % | 40.6 % |
+| truncated to the measured members | 36.8 % | 43.3 % | 44.6 % | 41.6 % |
+| **full, ordered** | **36.1 %** | **40.3 %** | **41.6 %** | **39.3 %** |
+
+The full ordered lists are the strongest form for tank and skirmisher — 3O falls
+on all three styles against the truncated form, 2.2 points pooled at 1.5 sigma,
+and 1.2 points below the original lists at 0.9 sigma. So the win rate agrees with
+the table above.
+
+**The baseline share does not, and the table above does not generalise.** Varying
+only the skirmisher's list, two entries to four cut the baseline share by a point.
+Changing all three roles to the full form **raised** it: 39.6 to 43.0 on bastion,
+43.1 to 45.8 on cavern, 38.8 to 40.0 on openfield. The round keeps its shape —
+2133 ticks to 2122, 23.7 kills to 23.6 — so it is not that bots die more often and
+respawn on the rifle.
+
+So the mechanism offered above holds for one role's list and **not** for all three
+at once, and this section first stated it as though it were general. The remaining
+candidate is ammunition: the full lists give an overwatch 1.36 for heavy and 1.24
+for splash where it had 1.00, so it now wields slow, small-magazine close-range
+weapons it used to ignore, and a bot that runs a weapon dry falls back to the
+rifle, which never does. **That is a guess and it is not measured.** **TBD**
 
 This is the second time the same property of `weaponWeight` has decided a
 question — Section 7.48.7 found that listing an archetype can only ever reward
