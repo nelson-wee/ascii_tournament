@@ -5825,6 +5825,118 @@ the conclusions it was given. Section 7.46.7 is corrected on exactly that.
 data/batch-h2h.json` runs it, and changing the two compositions asks a different
 question at the same precision.
 
+## 7.49 Tank and skirmisher, and a rule that turned out to be a filter
+
+Section 7.48.7 measured the Overwatch preference. These are the other two, by the
+same method — and running it found that one half of the method was wrong.
+
+### 7.49.1 One criterion for membership, one for order
+
+**Membership** is the share of its shots an archetype fires in the role's
+preferred band. It breaks cleanly in every band:
+
+| band | in | then |
+|---|---|---|
+| long | marksman 72.6 %, precision 51.8 % | splash 16.3 % |
+| close | denial 52.4, splash 50.3, heavy 49.2, assault 48.5 | redeemer 20.0 |
+| mid | denial 47.1, heavy 45.5, assault 43.5, precision 39.7 | redeemer 33.8 |
+
+**Order** is `weaponWorth` for that role, read with `weaponPref` **emptied** so
+the ranking cannot feed itself. That is the project's own valuation rather than a
+judgement, and the check that it is sound is that it reproduces the Overwatch
+answer already chosen: marksman 100 %, precision 91 %, then a drop to 85 %.
+
+| role | ordered by its own worth |
+|---|---|
+| tank | splash 53.4, denial 52.3, heavy 50.6, assault 45.5, precision 36.2, marksman 33.1 |
+| skirmisher | denial 49.6, heavy 49.4, splash 47.5, assault 43.8, precision 40.4, marksman 34.5 |
+| overwatch | marksman 46.9, precision 42.9, denial 39.7, heavy 39.5, splash 38.6, assault 35.2 |
+
+**`denial` is the tank's alone, and that is a threshold and not a taste.**
+`hazardAvoidBelowTolerance` is 0.5. A tank at 0.7 paths **through** a hazard; a
+skirmisher at 0.4 and an overwatch at 0.2 path around one. A denial weapon lays
+hazards, so its owner has to be willing to fight among them.
+
+### 7.49.2 Truncating the list made the roles worse
+
+The first form of this change cut each list to its measured members: tank four,
+skirmisher three, overwatch two. The shot mix moved as asked — assault fell 1.7
+points and heavy, denial and splash rose — and **the baseline share rose 1.0
+point with it**, which is the wrong direction.
+
+`weaponWeight` gives an unlisted archetype **1.00, the floor of its scale**. So a
+short list cannot say "I do not want these"; it says "I am indifferent". That
+lowers what an unknown weapon point is worth, the bot walks to one less often,
+and it spends longer on the starting rifle. Measured on openfield, varying only
+the length of the skirmisher's list:
+
+| list length | baseline share of every shot | the role's win rate |
+|---|---|---|
+| 2 | **40.5 %** | 53.0 |
+| 3 | 39.8 % | 53.5 |
+| 4 | **39.5 %** | 54.3 |
+| 5 | 39.7 % | **55.0** |
+
+The baseline share is a high-N number — hundreds of thousands of shots — and it
+falls a full point from two entries to four. The win rate rises monotonically
+across all four, though each step on its own is inside the noise of a 400-round
+run.
+
+**So the band share decides the order and is not a filter.** Every archetype a
+role can use is listed, and the order alone carries the identity: splash is 1.60
+to a tank and 1.24 to an overwatch; marksman is 1.60 to an overwatch and 1.10 to
+a tank. `denial` stays the tank's by the hazard rule above.
+
+This is the second time the same property of `weaponWeight` has decided a
+question — Section 7.48.7 found that listing an archetype can only ever reward
+it. A scale that runs from 1.00 upward can express a preference and never an
+aversion. **TBD**
+
+### 7.49.3 A hypothesis measured and dropped
+
+I expected reaction time to separate the two roles: a skirmisher that never stops
+moving cannot afford a weapon that is slow to bring to bear, and `heavy` at 8.88
+ticks is the slowest in the game against `precision` at 2.49.
+
+Measured over 18 rounds on three styles, the share of its living ticks each role
+spends moving:
+
+| role | moving |
+|---|---|
+| skirmisher | 96.3 % |
+| tank | 95.3 % |
+| overwatch | 70.6 % |
+
+**A skirmisher and a tank move at the same rate.** Only the overwatch is
+different, which fits its `holdPosition` of 0.75. So movement does not separate
+the two roles and the argument is dropped rather than kept as a story.
+
+It did leave a finding: **`weaponWorth` reads neither `reactionByBand` nor
+whether a weapon lays a hazard.** Those are two of the three things that
+distinguish these roles, and the third — the range preference — is a ±25 % tilt.
+That is why the valuation ranks tank and skirmisher so nearly alike, and why the
+hazard rule had to be applied over the top of it by hand. **TBD**
+
+### 7.49.4 What the test used to assert
+
+Two tests were replaced, and both had encoded a guess as a rule.
+
+The first named three archetypes: tank wants heavy, overwatch wants marksman,
+skirmisher wants assault. Two of the three disagree with the measurement. Naming
+three new ones would only re-encode a newer guess, so it now holds the rule the
+old test was protecting — **every archetype that fires at least 30 % of its shots
+in the role's band outranks every archetype that does not** — read from the
+measured shares so it cannot go stale. It still rejects what matters: a marksman
+above a splash weapon on the tank's list, or a heavy above a precision weapon on
+the overwatch's.
+
+The second was my own, written an hour earlier in the same session. It asserted
+that **every** listed archetype fires 30 % in the role's band, which is the
+truncation rule of Section 7.49.2 — the one the measurement then refuted. A test
+written in the same breath as the change it checks will agree with it. The
+partition rule above replaces it, and a separate test holds the hazard rule from
+both ends.
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.

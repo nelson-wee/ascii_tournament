@@ -116,7 +116,37 @@ describe("the role rankings that the design asks for", () => {
     }
   });
 
-  it("only wants archetypes that fire in the band the role fights in", () => {
+  it("ranks every archetype that fires in its band above every one that does not", () => {
+    // Section 7.49.2: the band share decides the ORDER, and it is not a filter.
+    // Truncating each list to its measured members made the roles worse --
+    // `weaponWeight` gives an unlisted archetype 1.00, the floor, so a short
+    // list says "I am indifferent" rather than "I do not want these", which
+    // lowers what an unknown weapon point is worth and keeps the bot on the
+    // starting rifle.
+    //
+    // So the rule is a partition and not a membership test. It still rejects
+    // what matters: a marksman above a splash weapon on the tank's list, or a
+    // heavy above a precision weapon on the overwatch's.
+    const share = loadWeaponRoles().value.bandShareByArchetype;
+    for (const name of ROLES) {
+      const tactics = roles[name]?.tactics;
+      const band = tactics?.rangePref[0];
+      expect(band, name).toBeDefined();
+      const pref = tactics?.weaponPref ?? [];
+      const fits = (archetype: string): boolean => (share[archetype]?.[band!] ?? 0) >= 0.3;
+      const lastFitting = pref.reduce((last, a, i) => (fits(a) ? i : last), -1);
+      const firstMiss = pref.findIndex((a) => !fits(a));
+      expect(lastFitting, `${name} lists nothing that fires ${band}`).toBeGreaterThanOrEqual(0);
+      if (firstMiss >= 0) {
+        expect(
+          firstMiss,
+          `${name} fights ${band} and ranks ${pref[firstMiss]} above ${pref[lastFitting]}`,
+        ).toBeGreaterThan(lastFitting);
+      }
+    }
+  });
+
+  it("heads each list with an archetype that fires in the role's own band", () => {
     // This used to name three archetypes: tank wants heavy, overwatch wants
     // marksman, skirmisher wants assault. Two of the three were a guess, and
     // the measurement of Section 7.49 disagrees with both.
@@ -132,12 +162,14 @@ describe("the role rankings that the design asks for", () => {
       const tactics = roles[name]?.tactics;
       const band = tactics?.rangePref[0];
       expect(band, name).toBeDefined();
-      for (const archetype of tactics?.weaponPref ?? []) {
+      // The first two, which carry the role's identity: 1.60 and about 1.50
+      // against 1.10 at the tail.
+      for (const archetype of (tactics?.weaponPref ?? []).slice(0, 2)) {
         const row = share[archetype];
         expect(row, `${name} wants ${archetype} and nothing measured it`).toBeDefined();
         expect(
           row![band!],
-          `${name} fights ${band} and ${archetype} fires ${((row![band!] ?? 0) * 100).toFixed(1)} % of its shots there`,
+          `${name} fights ${band} and reaches for ${archetype}, which fires ${((row![band!] ?? 0) * 100).toFixed(1)} % of its shots there`,
         ).toBeGreaterThanOrEqual(0.3);
       }
     }
