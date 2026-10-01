@@ -17,6 +17,7 @@ import { EventBus } from "../src/core/events.js";
 import { createRng } from "../src/core/rng.js";
 import { generateWeaponSet } from "../src/weapons/generate.js";
 import {
+  bandShareOfWeapon,
   applyPickups,
   createPickupStates,
   createSimState,
@@ -564,10 +565,7 @@ describe("weaponWorth: one ranking of weapons (Section 7.41)", () => {
 
   it("ranks the same two weapons differently for two real roles", () => {
     // The roles of `data/roles.json`, not a hand-made tactic, because a role
-    // carries BOTH rankings and it takes both to overcome raw DPS. `rangePref`
-    // alone is a weak signal: `rangePrefBias` is 0.25 against a `bandShare` that
-    // already puts 0.41 on the close band, so a shotgun with six times the
-    // close-band DPS still wins on range preference alone (Section 7.41.3).
+    // carries both a range ranking and a weapon ranking (Section 7.26).
     const state = room();
     const bot = state.bots[0] as BotState;
     const roles = loadRoles();
@@ -579,12 +577,35 @@ describe("weaponWorth: one ranking of weapons (Section 7.41)", () => {
     expect(weaponWorth(state, bot, shotgun())).toBeGreaterThan(weaponWorth(state, bot, sniper()));
   });
 
-  it("needs the weapon preference to do it, not the range preference alone", () => {
-    // The finding the test above rests on, stated so it cannot rot silently.
+  it("separates them on the range preference alone, which it could not before", () => {
+    // **This reverses the finding of Section 7.41.3**, and the reversal is the
+    // point of Section 7.46.4.
+    //
+    // With ONE pooled `bandShare` of 0.41 close, a shotgun with six times the
+    // close-band DPS beat a sniper even for a bot that ranked long range first:
+    // `rangePrefBias` at 0.25 was too weak a signal, so only `weaponPref` could
+    // tell the two apart. The share is per archetype now, so a marksman is
+    // weighed by the bands a marksman fires in (0.06 / 0.22 / 0.72) and an
+    // assault weapon by its own (0.48 / 0.43 / 0.09). Each weapon is valued for
+    // the fight it really has, and the range preference is enough on its own.
     const state = room();
     const bot = state.bots[0] as BotState;
     bot.tactics = withRange(["long", "mid", "close"]);
-    expect(weaponWorth(state, bot, sniper())).toBeLessThan(weaponWorth(state, bot, shotgun()));
+    expect(weaponWorth(state, bot, sniper())).toBeGreaterThan(weaponWorth(state, bot, shotgun()));
+
+    // And it still turns round for a bot that ranks close range first, so the
+    // preference is doing the work and not the archetype share by itself.
+    bot.tactics = withRange(["close", "mid", "long"]);
+    expect(weaponWorth(state, bot, shotgun())).toBeGreaterThan(weaponWorth(state, bot, sniper()));
+  });
+
+  it("weighs each weapon by the bands its own archetype fires in", () => {
+    // The mechanism under the reversal above, said directly.
+    const state = room();
+    const marksman = bandShareOfWeapon(state, sniper());
+    const assault = bandShareOfWeapon(state, shotgun());
+    expect(marksman.long).toBeGreaterThan(assault.long * 5);
+    expect(assault.close).toBeGreaterThan(marksman.close * 5);
   });
 
   it("reads the weapon preference as well as the range preference", () => {

@@ -66,7 +66,7 @@ function rollWeighted<T extends string>(rng: Rng, weights: Readonly<Record<strin
  * the AI takes a weapon that the budget calls weak, or it leaves the value
  * that the budget charged for.
  */
-function expectedTargets(draft: Omit<WeaponDraft, "perDamageDps" | "flatDps" | "bandReach">, tables: WeaponRoles): number {
+function expectedTargets(draft: Omit<WeaponDraft, "perDamageDps" | "flatDps" | "bandReach" | "archetype">, tables: WeaponRoles): number {
   const { value } = tables;
   if (draft.attackType === "burst") {
     return 1 + Math.min(value.aoeTargetsMax, draft.aoeRadius * value.aoeTargetsPerRadius);
@@ -83,7 +83,7 @@ function expectedTargets(draft: Omit<WeaponDraft, "perDamageDps" | "flatDps" | "
  * time, and the hazard tiles. It does not change with the damage of a shot.
  */
 function flatDpsOf(
-  draft: Omit<WeaponDraft, "perDamageDps" | "flatDps" | "bandReach">,
+  draft: Omit<WeaponDraft, "perDamageDps" | "flatDps" | "bandReach" | "archetype">,
   tables: WeaponRoles,
   ticksPerSecond: number,
 ): number {
@@ -149,6 +149,12 @@ export interface WeaponDraft {
   perDamageDps: BandValues;
   /** The DPS that does not come from the damage of a shot. */
   flatDps: number;
+  /**
+   * What this weapon will be called, derived before it is priced
+   * (Section 7.46.4). The band share of the archetype sets the price, so the
+   * draft must know its own name first.
+   */
+  archetype: Archetype;
 }
 
 /**
@@ -156,15 +162,34 @@ export interface WeaponDraft {
  * A cost that is a discount lowers the total, so a slow weapon may hit harder.
  */
 /**
- * The mean of a band value, weighted by how often the arena fires in each band
- * (Section 7.20.15).
+ * The band share this archetype fires at, or the global one when it has no row
+ * (Section 7.46.4).
+ */
+/**
+ * The mean of a band value, weighted by how often **this kind of weapon** fires
+ * in each band (Sections 7.20.15 and 7.46.4).
  *
  * A flat mean of three bands prices a weapon for a fight that does not happen:
  * the arena fires 1 % of its shots past the mid band, so a marksman paid 9 of
  * its 100 points for reach it never used.
+ *
+ * One share for every weapon has the same defect one step up. A bot fights at
+ * the range its weapon wants, so a marksman fires 72 % of its shots long and a
+ * denial weapon fires 0.5 % of them there. Pricing both by the pooled 43 % puts
+ * each in a fight it does not have. `archetype` is optional only so a caller
+ * with no weapon yet (the floor test against a flat profile) can still ask.
  */
-export function bandMean(values: BandValues, tables: WeaponRoles): number {
-  const share = tables.value.bandShare;
+export function bandShareFor(tables: WeaponRoles, archetype?: Archetype): BandValues {
+  const row = archetype === undefined ? undefined : tables.value.bandShareByArchetype[archetype];
+  return row ?? tables.value.bandShare;
+}
+
+export function bandMean(
+  values: BandValues,
+  tables: WeaponRoles,
+  archetype?: Archetype,
+): number {
+  const share = bandShareFor(tables, archetype);
   const total = share.close + share.mid + share.long;
   if (total <= 0) return (values.close + values.mid + values.long) / 3;
   return (values.close * share.close + values.mid * share.mid + values.long * share.long) / total;
@@ -172,7 +197,7 @@ export function bandMean(values: BandValues, tables: WeaponRoles): number {
 
 export function fixedCost(draft: WeaponDraft, tables: WeaponRoles): number {
   const { budget } = tables;
-  const meanReaction = bandMean(draft.reactionByBand, tables);
+  const meanReaction = bandMean(draft.reactionByBand, tables, draft.archetype);
   let cost = 0;
   // Section 7.33: the budget prices the two numbers that say where the weapon
   // works. Far ground is safer ground, so a distant optimal range costs; and a
@@ -198,7 +223,7 @@ export function fixedCost(draft: WeaponDraft, tables: WeaponRoles): number {
 
 /** The full cost of a weapon at a damage value. */
 export function costOf(draft: WeaponDraft, damage: number, tables: WeaponRoles): number {
-  const meanDps = bandMean(draft.perDamageDps, tables) * damage;
+  const meanDps = bandMean(draft.perDamageDps, tables, draft.archetype) * damage;
   return fixedCost(draft, tables) + meanDps * tables.budget.dpsWeight;
 }
 
@@ -365,7 +390,13 @@ function buildDraft(
     long: dpsPerDamage("long", byBand, attackData.bandMultiplier, fireIntervalTicks, ticksPerSecond, targets, accuracy),
   };
 
-  return { ...partial, bandReach, perDamageDps, flatDps: flatDpsOf(partial, tables, ticksPerSecond) };
+  return {
+    ...partial,
+    bandReach,
+    perDamageDps,
+    flatDps: flatDpsOf(partial, tables, ticksPerSecond),
+    archetype: archetypeOf(role, attackType),
+  };
 }
 
 export interface WeaponTier {
@@ -433,11 +464,16 @@ export function beatsBaseline(
   reactionByBand: BandValues,
   profile: DpsProfile,
   tables: WeaponRoles,
+  archetype?: Archetype,
   baseline: Weapon = loadBaselineWeapon(),
 ): boolean {
   const { floor } = tables;
-  const baseMean = bandMean(baseline.dpsProfile, tables);
-  if (bandMean(profile, tables) < baseMean * floor.meanDpsMargin) return false;
+  // Section 7.46.4: each side is weighed by the bands IT fires in. The baseline
+  // is a flat 30-cell weapon and it fires 65 % of its shots long; a splash
+  // weapon fires 17 % of them there. Weighing both by one share compared two
+  // fights that neither weapon has.
+  const baseMean = bandMean(baseline.dpsProfile, tables, baseline.archetype);
+  if (bandMean(profile, tables, archetype) < baseMean * floor.meanDpsMargin) return false;
 
   if (role === "assault") {
     const best = Math.max(profile.close, profile.mid, profile.long);
@@ -489,7 +525,7 @@ export function generateWeapon(
 
   for (let attempt = 0; attempt < maxTries; attempt += 1) {
     const draft = buildDraft(rng, role, tables, ticksPerSecond, rangeCapCells, bands, falloff);
-    const meanPerDamage = bandMean(draft.perDamageDps, tables);
+    const meanPerDamage = bandMean(draft.perDamageDps, tables, draft.archetype);
     if (meanPerDamage <= 0) continue;
 
     // Solve for the damage that puts the cost on the budget of the tier.
@@ -503,7 +539,16 @@ export function generateWeapon(
     // A weapon from the ground has to beat the weapon already in the hands of
     // the bot, or the walk to the point bought nothing (Section 7.3).
     const profile = dpsProfileOf(draft, damage);
-    if (!beatsBaseline(role, draft.fireIntervalTicks, draft.reactionByBand, profile, tables)) {
+    if (
+      !beatsBaseline(
+        role,
+        draft.fireIntervalTicks,
+        draft.reactionByBand,
+        profile,
+        tables,
+        draft.archetype,
+      )
+    ) {
       continue;
     }
 
@@ -514,7 +559,7 @@ export function generateWeapon(
       id: `${role}-${draft.attackType}-${index}`,
       // The name generator of Section 7.19 replaces this at M11. TBD
       name: `${roleWord} ${word}`,
-      archetype: archetypeOf(role, draft.attackType),
+      archetype: draft.archetype,
       role,
       tier: tier.name,
       attackType: draft.attackType,

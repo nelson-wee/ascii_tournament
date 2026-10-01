@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadBaselineWeapon, loadWeaponRoles } from "../src/core/data.js";
+import type { WeaponRoles } from "../src/core/schemas.js";
 import { createRng } from "../src/core/rng.js";
 import { archetypeOf, generateWeapon, generateWeaponSet } from "../src/weapons/generate.js";
 import {
@@ -13,6 +14,34 @@ import {
 
 function meanDps(weapon: Weapon): number {
   return (weapon.dpsProfile.close + weapon.dpsProfile.mid + weapon.dpsProfile.long) / 3;
+}
+
+/**
+ * Cone weapons, forced through the real pipeline (Section 7.46.5).
+ *
+ * `attackTypeWeights` is replaced with cone alone, so the roll cannot pick
+ * anything else. Everything after the roll -- the budget, the floor test, the
+ * band reach -- is the generator's own.
+ */
+function coneWeapons(seeds = 24): Weapon[] {
+  const real = loadWeaponRoles();
+  const tables = {
+    ...real,
+    roles: Object.fromEntries(
+      Object.entries(real.roles).map(([name, role]) => [
+        name,
+        { ...role, attackTypeWeights: { cone: 1 } },
+      ]),
+    ),
+  } as WeaponRoles;
+  const made: Weapon[] = [];
+  for (let seed = 1; seed <= seeds; seed += 1) {
+    for (const role of ["assault", "heavy"] as const) {
+      const weapon = generateWeapon(createRng(seed, "weapons"), role, 0, { tables });
+      if (weapon) made.push(weapon);
+    }
+  }
+  return made;
 }
 
 /** Every weapon of many sets. */
@@ -203,7 +232,13 @@ describe("the shape of a role", () => {
   });
 
   it("makes a cone weapon fade at long range", () => {
-    const cones = manyWeapons().filter((w) => w.attackType === "cone");
+    // The cone is forced here, and it used to be filtered out of a plain sweep.
+    //
+    // Section 7.46.5: the natural roll yields **no cone at all** -- 10 rolled
+    // and 0 accepted over 40 weapon sets -- so a test that waits for one is a
+    // test of the generator's luck and not of the cone. Forcing the attack type
+    // runs the same pipeline and tests the thing this test is named after.
+    const cones = coneWeapons();
     expect(cones.length).toBeGreaterThan(0);
     for (const cone of cones) {
       expect(cone.coneHalfAngle).toBeGreaterThan(0);

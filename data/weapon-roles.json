@@ -389,7 +389,7 @@
     "rangeGateTolerances": 1.5
   },
   "value": {
-    "_notes": "How much a weapon is expected to gain from an area, a pierce, damage over time, and a hazard tile, and how often each attack type lands. The DPS profile carries all of these, so the budget does not charge for them twice. TBD",
+    "_notes": "How much a weapon is expected to gain from an area, a pierce, damage over time, and a hazard tile, and how often each attack type lands. The DPS profile carries all of these, so the budget does not charge for them twice. TBD `bandShare` and `bandShareByArchetype` are MEASURED, not assumed (Section 7.46): the share of SHOTS each kind of weapon fires in each band, pooled over 3600 rounds and three arena styles. One global share matched no archetype at all -- the long share runs from 0.5 % for a denial weapon to 72.6 % for a marksman, and each archetype holds its figure across all three styles (marksman 66-76 %, assault 7-9 %), because a bot fights at the range its weapon wants. `bandShare` is the fallback for an archetype with no row, and it is the same measurement pooled over every archetype.",
     "aoeTargetsPerRadius": 0.3,
     "aoeTargetsMax": 1.0,
     "coneTargetsPerRadian": 0.9,
@@ -399,9 +399,56 @@
     "hazardOccupancy": 0.06,
     "coneFadeShare": 0.5,
     "bandShare": {
-      "close": 0.41,
+      "close": 0.23,
       "mid": 0.34,
-      "long": 0.25
+      "long": 0.43
+    },
+    "bandShareByArchetype": {
+      "assault": {
+        "close": 0.48,
+        "mid": 0.43,
+        "long": 0.09
+      },
+      "baseline": {
+        "close": 0.11,
+        "mid": 0.24,
+        "long": 0.65
+      },
+      "denial": {
+        "close": 0.52,
+        "mid": 0.47,
+        "long": 0.01
+      },
+      "heavy": {
+        "close": 0.49,
+        "mid": 0.45,
+        "long": 0.06
+      },
+      "marksman": {
+        "close": 0.06,
+        "mid": 0.22,
+        "long": 0.72
+      },
+      "precision": {
+        "close": 0.09,
+        "mid": 0.4,
+        "long": 0.51
+      },
+      "redeemer": {
+        "close": 0.2,
+        "mid": 0.34,
+        "long": 0.46
+      },
+      "splash": {
+        "close": 0.5,
+        "mid": 0.33,
+        "long": 0.17
+      },
+      "versatile": {
+        "close": 0.23,
+        "mid": 0.34,
+        "long": 0.43
+      }
     }
   },
   "tiers": {

@@ -24,6 +24,7 @@ import { generateWeaponSet } from "../src/weapons/generate.js";
 import type { Weapon } from "../src/weapons/types.js";
 import type { Tactics } from "../src/core/schemas.js";
 import {
+  bandShareOfWeapon,
   botCell,
   cellCenter,
   createSimState,
@@ -547,14 +548,19 @@ describe("bestWeaponOverall", () => {
     expect(bestWeaponOverall(state, bot).id).toBe("all-round");
   });
 
-  it("weighs a band by how often the arena fires in it", () => {
+  it("weighs a band by how often a weapon of this kind fires in it", () => {
     // Section 7.20.15: the AI and the power budget read one number, and
     // Section 7.30 set that number from the ground. The test works out where
     // the two weapons should change places and checks both sides of it, so it
-    // does not go stale when `bandShare` moves again.
+    // does not go stale when the share moves again.
+    //
+    // Section 7.46.4: the share is per ARCHETYPE now, so the crossover must be
+    // computed from the share of the archetype these two test weapons carry.
+    // Reading the pooled `bandShare` here would compute a crossover for a
+    // weapon that neither of them is.
     const state = roomState();
     const bot = state.bots[0] as BotState;
-    const share = state.config.bandShare;
+    const share = bandShareOfWeapon(state, bot.weapon);
     const bias = state.config.rangePrefBias;
 
     // `rangePref` puts mid at the head and long last, so mid is worth
