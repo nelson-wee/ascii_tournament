@@ -5358,7 +5358,14 @@ The test that pinned the old finding pins the reversal.
 This probably answers the open question of Section 7.41 — whether `rangePrefBias`
 should be larger — with **no**. It no longer has to carry the signal alone.
 
-### 7.46.7 The balance got worse, and the reason is measurable
+### 7.46.7 Every weapon lost damage, and the win rates could not see it
+
+**Corrected in Section 7.48.8.** This section first read the table below as
+"the balance got worse". It does not say that. Each composition cell carries
+±3.2, so a difference of two cells carries ±4.5, and **not one of the 3O moves
+reaches two standard errors**. The per-weapon numbers further down are real and
+measured; the win-rate reading was not, and a ten-composition sweep cannot
+resolve a move of this size at all.
 
 1200 rounds a style, before and after, same seeds and arenas.
 
@@ -5368,14 +5375,17 @@ should be larger — with **no**. It no longer has to carry the signal alone.
 | cavern | 35.4 % | **41.7 %** | **+6.3** | 21.7 | **17.9** |
 | openfield | 37.9 % | 32.5 % | −5.4 | 21.3 | **30.0** |
 
-Cavern improved and is the one style that needed it most (Section 7.43.4 named it
-the style whose remainder is not the rifle). Bastion and openfield got worse, and
-the spread from best composition to worst widened on two of three: a mean of 23.9
-to 27.8. Tank-heavy mixes gained nearly everywhere.
+Cavern reads as improved and bastion and openfield as worse, and the spread from
+best composition to worst widened on two of three: a mean of 23.9 to 27.8. **Read
+none of that as established.** Cavern's +6.3 is 1.4 standard errors and the other
+two are under 1.2. What the table does show is that a change this large to every
+weapon in the game moved the composition win rates by less than the noise, which
+is a finding of its own about where the Overwatch deficit comes from.
 
-**The cause is one number, and it is the budget, not the AI.** A higher
-`bandMean` means a weapon needs less raw damage to be worth its tier, so the
-archetype whose share rose most lost the most damage:
+**What is established is the per-weapon effect.** A higher `bandMean` means a
+weapon needs less raw damage to be worth its tier, so the archetype whose share
+rose most lost the most damage. These are measured over 120 weapon sets, not
+inferred from win rates:
 
 | archetype | peak DPS before | after | change |
 |---|---|---|---|
