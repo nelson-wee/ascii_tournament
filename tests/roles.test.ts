@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadDefaultTactics, loadRoles } from "../src/core/data.js";
+import { loadDefaultTactics, loadRoles, loadTuning, loadWeaponRoles } from "../src/core/data.js";
 import { TacticsSchema, type Tactics } from "../src/core/schemas.js";
 import { parseArenaText } from "../src/arena/index.js";
 import { archetypeOf } from "../src/weapons/generate.js";
@@ -116,10 +116,47 @@ describe("the role rankings that the design asks for", () => {
     }
   });
 
-  it("puts a weapon each role should want at the head of its list", () => {
-    expect(roles["tank"]?.tactics.weaponPref[0]).toBe("heavy");
-    expect(roles["overwatch"]?.tactics.weaponPref[0]).toBe("marksman");
-    expect(roles["skirmisher"]?.tactics.weaponPref[0]).toBe("assault");
+  it("only wants archetypes that fire in the band the role fights in", () => {
+    // This used to name three archetypes: tank wants heavy, overwatch wants
+    // marksman, skirmisher wants assault. Two of the three were a guess, and
+    // the measurement of Section 7.49 disagrees with both.
+    //
+    // The rule the test was protecting is the one worth holding: a role must not
+    // prefer a weapon that does not fight where the role fights. It reads the
+    // MEASURED shares in `value.bandShareByArchetype`, so it stays true as the
+    // measurement moves and it still rejects the cases that matter -- a marksman
+    // heading the tank's list (5.7 % of its shots close) or a denial weapon on
+    // the overwatch list (0.5 % long).
+    const share = loadWeaponRoles().value.bandShareByArchetype;
+    for (const name of ROLES) {
+      const tactics = roles[name]?.tactics;
+      const band = tactics?.rangePref[0];
+      expect(band, name).toBeDefined();
+      for (const archetype of tactics?.weaponPref ?? []) {
+        const row = share[archetype];
+        expect(row, `${name} wants ${archetype} and nothing measured it`).toBeDefined();
+        expect(
+          row![band!],
+          `${name} fights ${band} and ${archetype} fires ${((row![band!] ?? 0) * 100).toFixed(1)} % of its shots there`,
+        ).toBeGreaterThanOrEqual(0.3);
+      }
+    }
+  });
+
+  it("gives the hazard archetype to the only role that walks into a hazard", () => {
+    // `hazardAvoidBelowTolerance` is 0.5. A tank at 0.7 paths through a hazard;
+    // a skirmisher at 0.4 and an overwatch at 0.2 path around one. A denial
+    // weapon lays hazards, so its owner has to be willing to fight among them
+    // (Section 7.49).
+    const limit = loadTuning().ai.hazardAvoidBelowTolerance;
+    for (const name of ROLES) {
+      const tactics = roles[name]?.tactics;
+      if (!tactics?.weaponPref.includes("denial")) continue;
+      expect(tactics.hazardTolerance, `${name} wants denial and avoids hazards`)
+        .toBeGreaterThanOrEqual(limit);
+    }
+    // And the role that can take it, has it.
+    expect(roles["tank"]?.tactics.weaponPref).toContain("denial");
   });
 });
 

@@ -5797,11 +5797,19 @@ whole search for taking it away — and 40 % of all firing is still the rifle.
 This is a bigger number than anything Sections 7.46 and 7.48 moved, and it is not
 a weapon-generation problem at all. A bot starts every life on the baseline and
 keeps the weapons it found only until it dies; with about 25 kills a round over
-six bots, each bot rearms from nothing three or four times a round. The levers are
-the respawn loadout, the walk to a weapon point, and how long a found weapon
-survives its holder — none of which the power budget can reach.
+six bots, each bot rearms from nothing three or four times a round.
 
-**It should be measured before anything else is tuned.** **TBD**
+**This is settled, and it is a feature.** Spawning with the starting weapon and
+fighting with it in a pinch is the intended shape of the game: the rifle is the
+floor that makes a weapon point worth walking to, and Section 7.3 built it that
+way. The 40 % figure is therefore a **description of the game and not a defect**,
+and the levers it suggests — the respawn loadout, the walk to a weapon point, how
+long a found weapon outlives its holder — are deliberately left alone.
+
+What the number is still useful for is reading every other measurement. Two shots
+in five come from a weapon that nothing prices, so an archetype's share of shots
+or of damage is a share of the 60 % that is being chosen, and the baseline sets
+the floor that `beatsBaseline` and `floor.meanDpsMargin` compare against.
 
 #### What this says about the search so far
 
