@@ -3363,7 +3363,14 @@ in each band. That is not the same as the share of **kills** in each band,
 because a bot chooses its range. The geometric figure is the right starting
 point and the wrong finishing point. Re-measure `bandShare` from the kill
 bands of a batch once the boundaries settle, and re-run the weapon tier
-measurement of Section 7.14 against it. **TBD**
+measurement of Section 7.14 against it.
+
+**Answered in Section 7.46, and the instruction above was half wrong.** The
+prior was out by about 1.7 times on the close and long split. But **kills are
+the wrong measure to re-set it from**: they read 36 / 38 / 26 on openfield,
+which matches the prior almost exactly, because a kill is one blow out of the
+several a band takes. Shots is the measure, and it has to be per archetype —
+one share describes no weapon in the game.
 
 The test "weighs a band by how often the arena fires in it" in
 `tests/utility.test.ts` used to encode the old world — it asserted that the
@@ -4722,7 +4729,12 @@ for a long-preferring bot on range preference alone: 34.3 against 31.1.
 It is `weaponPref` that carries the role's identity, at `weaponPrefBonus` 0.6.
 Both rankings together give the table of Section 7.41.1; either alone does not.
 A test holds this so it cannot rot quietly, and whether `rangePrefBias` should be
-larger is a separate question that wants its own measurement. **TBD**
+larger is a separate question that wants its own measurement.
+
+**Section 7.46.6 reverses this finding and probably answers that question with
+no.** The share is per archetype now, so a marksman is weighed by the bands a
+marksman fires in. `rangePref` alone separates the two weapons, in both
+directions, and it no longer has to carry the signal by itself.
 
 ## 7.42 The pickup sweep: the biggest move of the whole search
 
@@ -5060,7 +5072,7 @@ could have produced.
   branch that never fires is the defect this guide keeps finding, and it wants its
   own look. **TBD**
 
-## 7.45 Is cover working? Four questions and one real bug
+## 7.45 Is cover working? Four questions, one real bug, and a regression sweep
 
 ### 7.45.1 A shooter's own tile shielded its target
 
@@ -5168,6 +5180,339 @@ bastion and flanks worse, which does not. `FLANK_TURNS` offers seven bearings an
 skips any that is unwalkable or has no clear shot, so in a walled arena the search
 is starved — but starvation does not explain a **reversal**. Cavern wants its own
 look. **TBD**
+
+### 7.45.5 The regression sweep: the cover fix costs nothing
+
+1200 rounds on openfield, the same config, seed and arenas as Section 7.44.4.
+
+| composition | before | after | diff |
+|---|---|---|---|
+| 2T1S | 60.0 % | 61.7 % | +1.7 |
+| 1T2O | 43.8 % | 44.6 % | +0.8 |
+| 1T1O1S | 49.2 % | 49.6 % | +0.4 |
+| 2O1S | 41.3 % | 41.7 % | +0.4 |
+| 2T1O | 51.7 % | 51.7 % | 0.0 |
+| **3O** | **43.8 %** | **43.8 %** | **0.0** |
+| 1O2S | 45.8 % | 45.4 % | −0.4 |
+| 1T2S | 55.8 % | 55.4 % | −0.4 |
+| 3S | 53.8 % | 52.9 % | −0.9 |
+| 3T | 55.0 % | 53.3 % | −1.7 |
+
+The largest move is 1.7 points against a standard error of ±3.2, and the mean
+absolute move is 0.67. The round keeps its shape: 2676 to 2675 ticks, 24.7 to
+24.7 kills, kill distance 11.3 to 11.3, hits per shot 1.26 to 1.26, kills from
+behind 9.9 % to 9.9 %. 3O lands on exactly 43.8, so the Support gain of
+Section 7.44 survives the fix.
+
+**What this does not show.** The fix only changed a shot fired *from* a cover
+tile at one or two cells. That is a narrow case and the measurement says it was
+narrow. It does not say cover is unimportant: Section 7.45.3 has bots holding a
+quarter to two fifths more cover than the ground offers.
+
+## 7.46 The band share: measured, and then measured per archetype
+
+`value.bandShare` says "how often the arena fires in each band". Two systems read
+it: the power budget that prices every generated weapon, and `weaponWorth` that
+decides what a weapon is worth to a bot. It was a **prior** from Section 7.30.4,
+and it stayed one through three arena reworks.
+
+### 7.46.1 The instrument was missing, not the data
+
+`killsByBand` has been in `RoundRecord` since M5. It reached the per-round CSV
+and **no total and no table**, so nothing ever compared the prior with play. The
+data was there; the report was not. That is why five reworks could pass over it.
+
+The `Shot` event already carried its band, so shots by band cost nothing to add.
+`Hit` did not, so it gained one: the band it landed at, for the `shot` and `area`
+sources only. A hazard tick and a burn are already on the target, so the distance
+to whoever started them is not the range of anything, and they carry `null`. A
+band there would fill a band that nothing fired at.
+
+A shot at a projectile is left out of the count. An intercept uses the weapon at
+a real range and damages no bot, so no DPS profile is ever paid for it.
+
+### 7.46.2 The ground said one thing and play says another
+
+1200 rounds a style, three arenas a style, about 320 000 shots a style.
+
+| sample | close | mid | long |
+|---|---|---|---|
+| **the prior** | **41.0 %** | **34.0 %** | **25.0 %** |
+| bastion | 27.2 % | 34.2 % | 38.6 % |
+| cavern | 19.0 % | 33.0 % | 48.0 % |
+| openfield | 21.7 % | 33.6 % | 44.7 % |
+| openfield, a second arena sample | 26.7 % | 38.5 % | 34.7 % |
+| **pooled** | **22.6 %** | **33.6 %** | **43.8 %** |
+
+Mid is almost exact. The close and long split is wrong by about 1.7 times, on
+every style and on both arena samples.
+
+**The prior was not bad arithmetic.** It is a correct measure of *visible pairs*,
+and a bot does not fire at a uniform sample of the pairs it can see. It stands
+off. Section 7.30.4 said this would happen and then nothing could check it.
+
+### 7.46.3 Kills would have closed the question wrongly
+
+| openfield | close | mid | long |
+|---|---|---|---|
+| shots | 21.7 % | 33.6 % | 44.7 % |
+| hits | 30.0 % | 35.7 % | 34.3 % |
+| damage | 26.1 % | 34.7 % | 39.2 % |
+| kills | 29.3 % | 34.6 % | 36.1 % |
+
+On the second arena sample the kill bands read 36.0 / 38.0 / 26.0, which matches
+the prior almost exactly. **A kill is one blow out of the several a band takes,
+and the close band finishes what the long band started.**
+
+Shots is the right measure for a second reason, and it is the stronger one.
+`perDamageDps` is built from `bandAccuracyOf`, so **the DPS profile already
+carries each band's accuracy curve**. Weighting it by a damage share would charge
+for the long-range falloff twice: once in the profile and again in the weight.
+
+### 7.46.4 One share cannot serve eight archetypes
+
+Setting the pooled value stopped the generator building cones, which exposed a
+larger fault than the value. One share for every weapon has the same defect one
+step up. **A bot fights at the range its weapon wants.**
+
+| archetype | close | mid | long | shots | long share, across the three styles |
+|---|---|---|---|---|---|
+| denial | 52.4 % | 47.1 % | **0.5 %** | 9 287 | 0–1 % |
+| heavy | 49.2 % | 45.5 % | 5.3 % | 37 960 | 4–6 % |
+| assault | 48.5 % | 43.5 % | 8.0 % | 210 174 | 7–9 % |
+| splash | 50.3 % | 33.5 % | 16.3 % | 71 118 | 14–20 % |
+| redeemer | 20.0 % | 33.8 % | 46.2 % | 2 399 | 39–58 % |
+| precision | 8.5 % | 39.7 % | 51.8 % | 238 948 | 47–55 % |
+| baseline | 10.7 % | 24.0 % | 65.3 % | 290 947 | 60–68 % |
+| marksman | **5.7 %** | 21.7 % | **72.6 %** | 109 782 | 66–76 % |
+| *pooled* | *22.6 %* | *33.6 %* | *43.8 %* | | *matches none of them* |
+
+The long share runs over a **145-fold range**, each archetype holds its own figure
+on all three styles, and the pooled number describes no weapon in the game.
+
+`bandMean` and `weaponWorth` now take an archetype. `WeaponDraft` carries its own,
+derived before it is priced. `beatsBaseline` weighs each side by the bands it
+fires in, because the baseline fires 65 % of its shots long and a splash weapon
+17 %, and one share compared two fights that neither weapon has. An archetype
+with no row takes the pooled share, so a new archetype needs no data to work.
+
+**The budget is far better calibrated for it.** Drafts rolled to make 160 weapons:
+
+| attack type | before: rolled → accepted | after |
+|---|---|---|
+| hitscan | 153 → 60 (39 %) | 107 → 79 (**74 %**) |
+| line | 57 → 24 (42 %) | 31 → 24 (**77 %**) |
+| ricochet | 35 → 15 (43 %) | 23 → 15 (**65 %**) |
+| projectile | 54 → 22 (41 %) | 38 → 21 (**55 %**) |
+| tile | 26 → 7 (27 %) | 23 → 9 (**39 %**) |
+| burst | 31 → 29 (94 %) | 13 → 12 (92 %) |
+| cone | 17 → 3 (18 %) | 10 → **0 (0 %)** |
+| **all** | **373 → 160 (43 %)** | **245 → 160 (65 %)** |
+
+Every type improves but the cone. And this exposes another thing that was never
+true: **the attack-type mix was an artefact of the accept rates, not of the
+declared weights.** Burst accepted at 94 % against a field of about 40 %, so it
+won the re-roll lottery and appeared 29 times. At a 65 % field it appears 12
+times, which is closer to what `attackTypeWeights` asks for. Burst did not get
+worse; the mix got honest.
+
+### 7.46.5 The cone is unexplained, and it is the next thing to look at
+
+The cone goes from 3 of 17 accepted to **0 of 10**. Forced through the same
+pipeline with cone-only weights it builds **198 of 200 at every tier**, so the
+mechanic, the budget and the floor test all work.
+
+**Those two facts do not reconcile.** Against a 98 % accept rate, 0 of 10 has a
+probability of about 1e-17, so it is not luck. Two causes were tested and
+**refuted**:
+
+- **A fractional `bandReach`.** `bandReach` is binary where the truth is a
+  fraction: a cone reaching 8 cells is written off for the whole mid band, which
+  spans 8 to 15. But a cone's accuracy at the mid band's representative distance
+  of 11.5 is already at the `rangeFloorShare` of 0.150, so a partial mid band
+  earns it almost nothing.
+- **The tier.** A cone builds at standard, strong and prize alike.
+
+So the cause is somewhere else, and this section does not claim one. **TBD**
+
+Two cost-model defects turned up while looking, and both predate this change:
+**27 drafts whose fixed cost alone met or passed the whole tier budget** (one read
+126.3 against a target of 125, giving a negative damage to solve for), and **20
+with a negative fixed cost**, which hands a weapon more than its whole budget to
+spend on damage. **TBD**
+
+The cone test now forces the attack type. A test that waits for a 1-in-50 roll
+tests the generator's luck and not the cone.
+
+### 7.46.6 Section 7.41.3 is reversed, on purpose
+
+Section 7.41.3 found that **range preference alone cannot overcome raw DPS**: at
+`rangePrefBias` 0.25 against a pooled share of 0.41 close, a shotgun with six
+times the close-band DPS beat a sniper even for a bot that ranked long range
+first, so only `weaponPref` could separate them.
+
+That is no longer true, and the reversal is the point. Each weapon is weighed by
+its own bands now, so `rangePref` alone separates the two **in both directions**.
+The test that pinned the old finding pins the reversal.
+
+This probably answers the open question of Section 7.41 — whether `rangePrefBias`
+should be larger — with **no**. It no longer has to carry the signal alone.
+
+### 7.46.7 The balance got worse, and the reason is measurable
+
+1200 rounds a style, before and after, same seeds and arenas.
+
+| style | 3O before | after | diff | spread before | after |
+|---|---|---|---|---|---|
+| bastion | 30.0 % | 27.1 % | −2.9 | 28.8 | **35.4** |
+| cavern | 35.4 % | **41.7 %** | **+6.3** | 21.7 | **17.9** |
+| openfield | 37.9 % | 32.5 % | −5.4 | 21.3 | **30.0** |
+
+Cavern improved and is the one style that needed it most (Section 7.43.4 named it
+the style whose remainder is not the rifle). Bastion and openfield got worse, and
+the spread from best composition to worst widened on two of three: a mean of 23.9
+to 27.8. Tank-heavy mixes gained nearly everywhere.
+
+**The cause is one number, and it is the budget, not the AI.** A higher
+`bandMean` means a weapon needs less raw damage to be worth its tier, so the
+archetype whose share rose most lost the most damage:
+
+| archetype | peak DPS before | after | change |
+|---|---|---|---|
+| **marksman** | 54.7 | 36.7 | **−33 %** |
+| heavy | 52.8 | 44.5 | −16 % |
+| assault | 49.5 | 41.9 | −15 % |
+| denial | 57.4 | 49.5 | −14 % |
+| precision | 41.6 | 37.2 | −11 % |
+| splash | 65.6 | 62.8 | −4 % |
+
+Marksman is nerfed **twice as hard as anything else**, and marksman is the
+archetype Overwatch ranks first. So the budget weakened Overwatch's weapon by a
+third while `weaponWorth` made the AI want it more.
+
+Worse, **the baseline lost nothing.** Its damage is fixed in data and the budget
+never re-solves it, so every generated weapon fell 4 to 33 % against a starting
+rifle that stood still. Section 7.40 found Overwatch fighting with that rifle,
+and Section 7.42 was the largest gain of the whole search for taking it away.
+This change gives some of that back.
+
+### 7.46.8 What to do about it, and what not to
+
+**Do not revert the measurement.** The old number was wrong, and the balance that
+rested on it rested on a compensating error. A correct model with a visible
+tuning debt beats an incorrect model with accidental balance, because the levers
+now mean what their names say.
+
+Two candidates, in order:
+
+1. **Re-calibrate the absolute level.** The measurement fixed the *relative*
+   price of the archetypes. The absolute level is a separate free parameter:
+   `budget.target` is 100, and every generated weapon now sits 4 to 33 % below
+   where it did against an unchanged baseline. Raising the target, or lowering
+   the baseline, restores the Section 7.42 balance **and keeps the corrected
+   relative pricing**. This is one number and one sweep.
+2. **Find the double charge.** `fixedCost` already charges
+   `optimalRange * budget.optimalRangeWeight`, on the rule that far ground is
+   safer ground. The per-archetype `bandMean` now *also* credits a long weapon
+   for firing where it is strong. **Two numbers may be pricing one advantage**,
+   which is the defect this guide keeps finding, and it would explain why
+   marksman alone fell by a third. **TBD**
+
+
+## 7.47 What a match already measures, and what M9 still needs
+
+Section 7.46 found a number that no table printed. That is worth a stock-take of
+its own, because M9 is the reporting milestone and a report can only show what
+the event log carries. This lists every statistic the code holds today, names who
+reads it, and sets what M9 must build on top.
+
+### 7.47.1 The events, and who reads them
+
+The event bus is the record (Section 4.6). Every number in every report comes
+from this list.
+
+| Event | What it carries | Who reads it |
+|---|---|---|
+| `Shot` | shooter, target, weapon, attack type, **range band**, visual | batch, display |
+| `Hit` | shooter, target, damage, raw damage, source, weapon, **range band** (Section 7.46) | batch |
+| `Crit` | shooter, target, damage | announcements |
+| `CoverSave` | shooter, target, weapon, source, range band, cover band, save | tests and `tools/` only |
+| `Kill` | killer, victim, both teams, weapon, archetype, attack type, source, range band, distance, target aware, killer in cover | batch, kill feed, round brief |
+| `Death` | bot, team, killer, **cell** | the influence map only |
+| `PickupTaken`, `PickupRespawned` | kind, slot, bot | batch, tempo |
+| `DotTick`, `HazardCreated`, `WeaponEmpty` | the source and the bot | the display |
+| `DecisionChanged` | bot, action | no report |
+| `Announcement` | kind, bot, team, victim, damage | the display |
+| `Assist` | **declared, and nothing emits it** | nothing |
+| `TraitGained`, `RivalryStarted`, `RivalryEventAdded`, `NicknameGained` | declared for M10 | nothing |
+
+Two rows are the finding. `Death` carries the cell it happened in, and only the
+influence map reads it — so **the death heatmap of M9 has its data already**.
+`Assist` has been in `GAME_EVENT_TYPES` since M0 and no system emits it.
+
+### 7.47.2 The three reports
+
+**1. `report/roundBrief.ts` — what the player sees (Section 7.27).** Per round:
+kills a side, kills by band, the weapons that killed and the band each worked at,
+kills from behind, the kill gap, the time to kill, the contact share, items by
+kind. Per bot: kills, deaths, the ratio, its weapons, its kills by band, its
+kills from behind, its contact share. The tactics screen draws it between rounds.
+
+**2. `report/tempo.ts` — the rhythm (Section 7.22).** Kill gap, burstiness, the
+share of kills inside a burst, trades, time to kill, shots to kill, time to the
+first shot and the first kill, time dead, the walk back, the contact share, lead
+changes, the largest lead, whether the next kill goes to the same team, and the
+wait at each item point. Every field is a sum or a count, so it adds over rounds.
+
+**3. `report/batchStats.ts` and `batchTables.ts` — the dev harness
+(Section 7.16).** Win rate by preset, by arena, by composition and by matchup;
+kills by archetype; weapon use; shots, hits, damage, kills and deaths a role;
+the band totals of Section 7.46; the tempo; the item rhythm; and the balance
+gate. `cli/styles.ts` runs one of these a style and prints them side by side.
+
+### 7.47.3 M9 against what exists
+
+M9 asks for four things and one acceptance test: *a player can see why a team
+lost a round (deaths by area, damage by archetype)*.
+
+| M9 asks for | State | What is missing |
+|---|---|---|
+| Round report | **built** | damage, shots, hits, accuracy |
+| Match report | **not built** | the match-over screen prints the round score and nothing else |
+| Death heatmap | **not built** | `Death` carries the cell; nothing adds it up |
+| Bot stat cards | **part built** (`BotBrief`) | damage, accuracy, assists, time alive |
+| "damage by archetype" | **not built** | `Hit` names the weapon, not its archetype |
+| "deaths by area" | **not built** | an area is one cell until M7 gives the arena rooms |
+
+So M9 is about one third built, and the hole in it is the same hole
+Section 7.39.3 found in the batch: **the reports count kills and ignore damage.**
+A bot that softens a target and lets a teammate finish it scores nothing on the
+screen that a player reads. The batch learned that lesson and gained
+`damageByRole`; the player-facing brief never did.
+
+### 7.47.4 The order to build M9 in
+
+Each step is small, and each one earns a table that does not exist yet.
+
+1. **Damage by archetype.** Put `weaponArchetype` on the `Hit` event, beside the
+   band that Section 7.46 added. It is half of the M9 acceptance test and it is
+   one field.
+2. **Damage, shots and hits in `BotBrief`.** The player-facing twin of
+   Section 7.39. The per-role instrument answered "does this role shoot less or
+   miss more"; a stat card must answer it for one bot.
+3. **Emit `Assist`.** `damageBot` knows who dealt damage to the victim and when,
+   so the rule is a window on the victim and not a new system. Then a card can
+   say what a bot contributed when it did not finish the job.
+4. **The death heatmap, on the grid.** `Death` carries the cell. A grid heatmap
+   needs no rooms, so it does not wait on M7; a *room* table does, and that is
+   the "deaths by area" wording of the acceptance test. Build the grid first and
+   say which one M9 accepts.
+5. **`matchBrief`.** One module over three rounds, the same shape as
+   `roundBrief`, so the match-over screen stops printing only the score.
+6. **Draw the heatmap.** The renderer of Section 7.18 already draws a grid.
+
+Steps 1 to 3 are event and report work with no display. Steps 4 to 6 reach the
+screen. **TBD**
 
 ## 8. Match flow (sequence)
 
@@ -5717,6 +6062,13 @@ None of these blocks M8. Each one is a place to read again after M7.
 
 - Add the round report, match report, death heatmap, and bot stat cards.
 - Accept: a player can see why a team lost a round (deaths by area, damage by archetype).
+
+**Section 7.47 holds the stock-take: what a match measures today, what M9 still
+needs, and the order to build it in.** About one third exists. The round report
+is built, `damage by archetype` arrived with Section 7.46.4, and `Death` has
+carried the cell a bot died in since M3 — so the heatmap has its data and nothing
+reads it. The match report, the assists and the per-bot damage do not exist, and
+"deaths by **area**" needs the rooms that M7 never built.
 
 ### M10 — Progression and rivalry
 
