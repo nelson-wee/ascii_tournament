@@ -754,7 +754,15 @@ export const WeaponRolesSchema = z
         /**
          * How often the arena fires in each band. The power budget and the AI
          * both weigh a DPS profile with it, so a weapon is worth what the
-         * arena lets it do. Measure it again after M7 changes the arena. TBD
+         * arena lets it do.
+         *
+         * **It is the share of SHOTS, and not of damage or of kills**
+         * (Section 7.46). `dpsProfile` already carries the accuracy curve of
+         * each band, so weighting it by a damage share would charge for the
+         * long-range falloff twice. Measured in play over three styles, not
+         * derived from the geometry of the ground: a bot chooses its range, so
+         * it fires where it wants to fight and not where a uniform sample of
+         * sight lines would put it.
          */
         bandShare: z
           .object({ close: unitRange, mid: unitRange, long: unitRange })

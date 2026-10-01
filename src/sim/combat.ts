@@ -323,6 +323,9 @@ export function tryFire(state: SimState, bot: BotState): void {
     shooterId: bot.id,
     targetId: target.id,
     weaponId: bot.weapon.id,
+    // Section 7.46.4: the archetype rides on the shot, so a report can group by
+    // it without reading the weapon list of the simulation back (Section 4.6).
+    weaponArchetype: bot.weapon.archetype,
     attackType: bot.weapon.attackType,
     rangeBand: band,
     visual: shotVisual(bot.weapon),
@@ -384,6 +387,7 @@ function tryIntercept(state: SimState, bot: BotState): boolean {
     shooterId: bot.id,
     targetId: id,
     weaponId: bot.weapon.id,
+    weaponArchetype: bot.weapon.archetype,
     attackType: bot.weapon.attackType,
     rangeBand: band,
     visual: shotVisual(bot.weapon),

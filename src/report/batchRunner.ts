@@ -177,6 +177,8 @@ export function runPlannedRound(
   const shotsByBand: Record<string, number> = {};
   const hitsByBand: Record<string, number> = {};
   const damageByBand: Record<string, number> = {};
+  const shotsByArchetypeBand: Record<string, number> = {};
+  const damageByArchetype: Record<string, number> = {};
   const killsByRole: Record<string, number> = {};
   const deathsByRole: Record<string, number> = {};
   const shotsByRole: Record<string, number> = {};
@@ -216,6 +218,12 @@ export function runPlannedRound(
       if (!at.startsWith("projectile:")) {
         const band = String(event.data["rangeBand"] ?? "unknown");
         shotsByBand[band] = (shotsByBand[band] ?? 0) + 1;
+        // Section 7.46.4: the same count, split by archetype. One global share
+        // prices a specialist wrong, because a bot fights where its weapon
+        // wants to fight.
+        const archetype = String(event.data["weaponArchetype"] ?? "unknown");
+        const key = `${archetype}|${band}`;
+        shotsByArchetypeBand[key] = (shotsByArchetypeBand[key] ?? 0) + 1;
       }
     } else if (event.type === "Hit") {
       hits += 1;
@@ -239,6 +247,13 @@ export function runPlannedRound(
       // already on the target, so the distance to whoever started them is not
       // the range of anything, and `damageBot` marks them with a `null` band
       // (Section 7.46). Summing them would fill a band nothing fired at.
+      // Damage by archetype, from every source: the burn a shot left behind is
+      // work the weapon did. It is half of the M9 acceptance test, and `Hit`
+      // could not answer it until the archetype rode along (Section 7.46.4).
+      if (typeof dealt === "number") {
+        const archetype = String(event.data["weaponArchetype"] ?? "unknown");
+        damageByArchetype[archetype] = (damageByArchetype[archetype] ?? 0) + dealt;
+      }
       const landed = event.data["rangeBand"];
       if (typeof landed === "string") {
         hitsByBand[landed] = (hitsByBand[landed] ?? 0) + 1;
@@ -292,6 +307,8 @@ export function runPlannedRound(
     shotsByBand,
     hitsByBand,
     damageByBand,
+    shotsByArchetypeBand,
+    damageByArchetype,
     killDistanceSum,
     killsByRole,
     deathsByRole,

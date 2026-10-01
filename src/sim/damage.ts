@@ -181,6 +181,10 @@ export function damageBot(
     rawDamage: raised,
     source: context.source,
     weaponId: context.weaponId,
+    // Section 7.46.4: the archetype of the weapon that dealt it. `Kill` has
+    // carried this since M3 and `Hit` did not, so "damage by archetype" -- half
+    // of the M9 acceptance test -- could not be computed at all.
+    weaponArchetype: context.weaponArchetype,
     // Section 7.46: the band the blow landed at, for `shot` and `area` only.
     // A hazard tile and a burn are already on the target, so the distance to
     // whoever started them is not the range of anything. `null` says so, and a

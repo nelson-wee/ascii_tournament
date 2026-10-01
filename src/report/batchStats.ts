@@ -62,6 +62,23 @@ export interface RoundRecord {
    */
   damageByBand: Readonly<Record<string, number>>;
   /**
+   * Shots by archetype AND band, keyed `archetype|band` (Section 7.46.4).
+   *
+   * `value.bandShare` is one global number, and the power budget applies it to
+   * every weapon it prices. That under-prices a specialist and over-prices a
+   * generalist, because **a bot fights at the range its weapon wants**: the
+   * share of shots a cone fires in the close band is not the share of shots the
+   * arena fires there. This is the number the budget actually needs.
+   */
+  shotsByArchetypeBand: Readonly<Record<string, number>>;
+  /**
+   * Damage dealt by archetype, from every source (Section 7.46.4).
+   *
+   * Kills by archetype say which weapon finished a fight. This says which one
+   * did the work, and it is half of the M9 acceptance test.
+   */
+  damageByArchetype: Readonly<Record<string, number>>;
+  /**
    * The sum of the distance of every kill, in cells. The mean kill distance is
    * this sum over the number of kills; a sum adds over rounds and a mean does
    * not.
@@ -167,6 +184,33 @@ export function bandShareOf(totals: Map<string, number>): {
   return { close: close / sum, mid: mid / sum, long: long / sum };
 }
 
+/**
+ * The band share of one archetype, from a `archetype|band` table
+ * (Section 7.46.4).
+ *
+ * An archetype that never fired reads all zeros, which says "no data" and not
+ * "fires nowhere". A caller must check the total before it tunes anything.
+ */
+export function archetypeBandShareOf(
+  totals: Map<string, number>,
+  archetype: string,
+): { close: number; mid: number; long: number; shots: number } {
+  const at = (band: string): number => totals.get(`${archetype}|${band}`) ?? 0;
+  const close = at("close");
+  const mid = at("mid");
+  const long = at("long");
+  const shots = close + mid + long;
+  if (shots <= 0) return { close: 0, mid: 0, long: 0, shots: 0 };
+  return { close: close / shots, mid: mid / shots, long: long / shots, shots };
+}
+
+/** Every archetype named in a `archetype|band` table, sorted. */
+export function archetypesOf(totals: Map<string, number>): string[] {
+  return [...new Set([...totals.keys()].map((key) => key.split("|")[0] ?? ""))]
+    .filter((name) => name !== "")
+    .sort();
+}
+
 export interface BatchSummary {
   rounds: number;
   arenas: string[];
@@ -207,6 +251,10 @@ export interface BatchSummary {
    * number to check it against. The data was there; the report was not.
    */
   byBand: BandTotals;
+  /** Shots by `archetype|band` over the batch (Section 7.46.4). */
+  shotsByArchetypeBand: Map<string, number>;
+  /** Damage by archetype over the batch. `killsByArchetype` is the other half. */
+  damageByArchetype: Map<string, number>;
   /** The tempo of every round added together. `tempoView` reads it. */
   tempo: TempoRecord;
   /** Ticks per second, so a reader can turn the tempo ticks into seconds. */
@@ -282,6 +330,8 @@ export function summarize(
   const killsByArchetype = new Map<string, number>();
   const shotsByWeapon = new Map<string, number>();
   const byBand = emptyBandTotals();
+  const shotsByArchetypeBand = new Map<string, number>();
+  const damageByArchetype = new Map<string, number>();
   const arenas = new Set<string>();
   const presets = new Set<string>();
   const compositions = new Set<string>();
@@ -330,6 +380,8 @@ export function summarize(
     addBand(byBand.hits, round.hitsByBand);
     addBand(byBand.damage, round.damageByBand);
     addBand(byBand.kills, round.killsByBand);
+    addBand(shotsByArchetypeBand, round.shotsByArchetypeBand);
+    addBand(damageByArchetype, round.damageByArchetype);
     addTempo(tempo, round.tempo);
   }
 
@@ -370,6 +422,8 @@ export function summarize(
     killsByArchetype,
     shotsByWeapon,
     byBand,
+    shotsByArchetypeBand,
+    damageByArchetype,
     tempo,
     ticksPerSecond,
     balanceFailures,
