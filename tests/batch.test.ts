@@ -13,6 +13,7 @@ import {
 } from "../src/report/batchRunner.js";
 import { simConfigFromTuning } from "../src/sim/index.js";
 import {
+  bandShareOf,
   standardError,
   summarize,
   winRate,
@@ -62,6 +63,9 @@ function record(over: Partial<RoundRecord> = {}): RoundRecord {
     killsByArchetype: { baseline: 25 },
     shotsByWeapon: { "baseline-rifle": 100 },
     killsByBand: { close: 10, mid: 10, long: 5 },
+    shotsByBand: { close: 50, mid: 35, long: 15 },
+    hitsByBand: { close: 25, mid: 12, long: 3 },
+    damageByBand: { close: 500, mid: 240, long: 60 },
     killDistanceSum: 200,
     killsByRole: { tank: 8, overwatch: 9, skirmisher: 8 },
     deathsByRole: { tank: 8, overwatch: 9, skirmisher: 8 },
@@ -251,6 +255,92 @@ describe("shots and hits by role (Section 7.39)", () => {
   });
 });
 
+describe("shots, hits and damage by band (Section 7.46)", () => {
+  const compositions = { mixed: ["overwatch", "tank", "tank"] } as const;
+
+  function oneRound(): ReturnType<typeof runPlannedRound> {
+    const [round] = planRounds({
+      arenas: arenas(),
+      presets: presets(),
+      compositions,
+      rounds: 1,
+      seed: 4,
+    });
+    return runPlannedRound(round!, presets(), simConfigFromTuning(), compositions);
+  }
+
+  it("names only the three real bands, never an unknown one", () => {
+    const result = oneRound();
+    for (const counts of [result.shotsByBand, result.hitsByBand, result.damageByBand]) {
+      for (const band of Object.keys(counts)) {
+        expect(["close", "mid", "long"]).toContain(band);
+      }
+    }
+  });
+
+  it("counts shots in a band for every shot but an intercept", () => {
+    // Every `Shot` event carries its band, so the two totals agree except for
+    // the shots aimed at a projectile, which damage no bot and so belong to no
+    // band the DPS profile is paid for.
+    const result = oneRound();
+    const total = Object.values(result.shotsByBand).reduce((sum, n) => sum + n, 0);
+    expect(total).toBeGreaterThan(0);
+    expect(total).toBeLessThanOrEqual(result.shots);
+  });
+
+  it("leaves a burn and a hazard tick out of the band damage", () => {
+    // `damageByRole` counts every source; `damageByBand` cannot, because a
+    // burn has no range. So the band total is a share of the role total and
+    // never the whole of it.
+    const result = oneRound();
+    const byBand = Object.values(result.damageByBand).reduce((sum, n) => sum + n, 0);
+    const byRole = Object.values(result.damageByRole).reduce((sum, n) => sum + n, 0);
+    expect(byBand).toBeGreaterThan(0);
+    expect(byBand).toBeLessThanOrEqual(byRole + 1e-9);
+  });
+
+  it("agrees with the hits a shot delivered, which is the same set", () => {
+    // `hitsByBand` and `hitsByRole` both count the `shot` and `area` sources,
+    // so the two totals are the same number read two ways. If they part, one of
+    // them is counting something its name does not say.
+    const result = oneRound();
+    const byBand = Object.values(result.hitsByBand).reduce((sum, n) => sum + n, 0);
+    const byRole = Object.values(result.hitsByRole).reduce((sum, n) => sum + n, 0);
+    expect(byBand).toBe(byRole);
+  });
+
+  it("fires more often than it finishes, in every band it fought in", () => {
+    // The point of the measure: a kill is one blow out of the several a band
+    // took, so kills are a coarse read of where a round fought.
+    const result = oneRound();
+    const shots = Object.values(result.shotsByBand).reduce((sum, n) => sum + n, 0);
+    const kills = Object.values(result.killsByBand).reduce((sum, n) => sum + n, 0);
+    expect(shots).toBeGreaterThan(kills);
+  });
+});
+
+describe("bandShareOf", () => {
+  it("normalises the three bands to one", () => {
+    const share = bandShareOf(new Map([["close", 3], ["mid", 1]]));
+    expect(share.close).toBeCloseTo(0.75, 10);
+    expect(share.mid).toBeCloseTo(0.25, 10);
+    expect(share.long).toBe(0);
+  });
+
+  it("drops an unknown band instead of folding it into a real one", () => {
+    // A band named anything else is a defect upstream. Adding it to `close`
+    // would hide the defect and move the number the budget reads.
+    const share = bandShareOf(new Map([["close", 1], ["mid", 1], ["nonsense", 98]]));
+    expect(share.close).toBeCloseTo(0.5, 10);
+    expect(share.mid).toBeCloseTo(0.5, 10);
+  });
+
+  it("reads zero for an empty measure rather than dividing by nothing", () => {
+    const share = bandShareOf(new Map());
+    expect(share).toEqual({ close: 0, mid: 0, long: 0 });
+  });
+});
+
 describe("runBatch", () => {
   it("runs every planned round and reports progress", () => {
     const seen: number[] = [];
@@ -357,11 +447,32 @@ describe("summarize", () => {
     expect(summary.missingReports.join(" ")).toMatch(/M11/);
   });
 
+  it("adds the four band measures over the batch (Section 7.46)", () => {
+    // `killsByBand` sat in the round record from M5 and reached no total, so
+    // the geometric prior in `value.bandShare` had nothing to answer to. This
+    // is the aggregation that was missing.
+    const summary = summarize([record(), record()]);
+    expect(summary.byBand.shots.get("close")).toBe(100);
+    expect(summary.byBand.shots.get("long")).toBe(30);
+    expect(summary.byBand.hits.get("mid")).toBe(24);
+    expect(summary.byBand.damage.get("close")).toBeCloseTo(1000, 6);
+    expect(summary.byBand.kills.get("long")).toBe(10);
+  });
+
+  it("turns the band totals into the share the power budget reads", () => {
+    const summary = summarize([record()]);
+    const share = bandShareOf(summary.byBand.shots);
+    expect(share.close).toBeCloseTo(0.5, 10);
+    expect(share.mid).toBeCloseTo(0.35, 10);
+    expect(share.long).toBeCloseTo(0.15, 10);
+  });
+
   it("handles an empty batch", () => {
     const summary = summarize([]);
     expect(summary.rounds).toBe(0);
     expect(summary.meanTicks).toBe(0);
     expect(summary.hitsPerShot).toBe(0);
+    expect(bandShareOf(summary.byBand.shots)).toEqual({ close: 0, mid: 0, long: 0 });
   });
 });
 
@@ -378,6 +489,7 @@ describe("the report tables", () => {
       "MATCHUPS",
       "ROUND END",
       "KILLS BY WEAPON ARCHETYPE",
+      "RANGE BANDS",
       "WEAPON USE",
       "NOT MEASURED YET",
     ]) {
@@ -391,6 +503,17 @@ describe("the report tables", () => {
 
   it("says when no balance failure was found", () => {
     expect(formatReport(summary)).toContain("no failure found");
+  });
+
+  it("prints all four band measures, not kills alone (Section 7.46)", () => {
+    const text = formatReport(summary);
+    const band = text.slice(text.indexOf("RANGE BANDS"));
+    for (const row of ["shots", "hits", "damage", "kills"]) {
+      expect(band, `the band table has no ${row} row`).toContain(row);
+    }
+    // The shots row is the one `value.bandShare` answers to, so it must read
+    // the share and not the count.
+    expect(band).toContain("50.0 %");
   });
 });
 
@@ -408,6 +531,21 @@ describe("the CSV files", () => {
     expect(lines[0]).toContain("kills_baseline");
     expect(lines[0]).toContain("kills_precision");
     expect(lines[2]).toContain("draw");
+  });
+
+  it("carries the nine band columns (Section 7.46)", () => {
+    const lines = roundsCsv(records).trim().split("\n");
+    const header = lines[0]!.split(",");
+    for (const column of [
+      "shotsClose", "shotsMid", "shotsLong",
+      "hitsClose", "hitsMid", "hitsLong",
+      "damageClose", "damageMid", "damageLong",
+    ]) {
+      expect(header, `the CSV has no ${column}`).toContain(column);
+    }
+    const row = lines[1]!.split(",");
+    expect(row[header.indexOf("shotsClose")]).toBe("50");
+    expect(row[header.indexOf("damageLong")]).toBe("60.0");
   });
 
   it("gives a zero for an archetype that a round did not use", () => {

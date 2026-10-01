@@ -26,6 +26,7 @@ import { createRng, deriveSeed } from "../core/rng.js";
 import { BatchConfigSchema } from "../core/schemas.js";
 import { runBatch, STANDARD_COMPOSITION, type BatchArena } from "../report/batchRunner.js";
 import {
+  bandShareOf,
   standardError,
   summarize,
   winRate,
@@ -341,6 +342,32 @@ function report(results: StyleResult[]): string {
           ];
         }),
         [false, true, true, true, true, true, true, true, true, true],
+      ),
+  );
+
+  // Section 7.46: `value.bandShare` is one global number that says "how often
+  // the arena fires in each band", and it priced every weapon in the game off a
+  // geometric prior. This table is the number it answers to, measured. Shots and
+  // kills sit side by side because they disagree: a kill is one blow out of the
+  // several a band took, so kills read the fight as closer than it was.
+  parts.push(
+    "RANGE BANDS: where each style FIRES, against where it finishes\n" +
+      table(
+        ["style", "shots close", "shots mid", "shots long", "kills close", "kills mid", "kills long"],
+        results.map((result) => {
+          const shots = bandShareOf(result.summary.byBand.shots);
+          const kills = bandShareOf(result.summary.byBand.kills);
+          return [
+            result.style,
+            percent(shots.close),
+            percent(shots.mid),
+            percent(shots.long),
+            percent(kills.close),
+            percent(kills.mid),
+            percent(kills.long),
+          ];
+        }),
+        [false, true, true, true, true, true, true],
       ),
   );
 

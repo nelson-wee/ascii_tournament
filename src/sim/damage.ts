@@ -181,6 +181,14 @@ export function damageBot(
     rawDamage: raised,
     source: context.source,
     weaponId: context.weaponId,
+    // Section 7.46: the band the blow landed at, for `shot` and `area` only.
+    // A hazard tile and a burn are already on the target, so the distance to
+    // whoever started them is not the range of anything. `null` says so, and a
+    // reader that summed those would report a band the weapon never fired at.
+    rangeBand:
+      context.source === "shot" || context.source === "area"
+        ? rangeBandOf(state, distanceBetween(attacker, target))
+        : null,
   });
   if (context.crit === true) {
     state.bus.emit("Crit", tick, roundNumber, {
