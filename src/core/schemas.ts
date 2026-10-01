@@ -722,6 +722,23 @@ export const WeaponRolesSchema = z
         bandShare: z
           .object({ close: unitRange, mid: unitRange, long: unitRange })
           .strict(),
+        /**
+         * The same share, per archetype (Section 7.46.4).
+         *
+         * One global share matched no archetype at all: the long share runs
+         * from 0.5 % for a denial weapon to 72.6 % for a marksman, because a
+         * bot fights at the range its weapon wants. A weapon priced by the
+         * global share is priced for a fight it does not have.
+         *
+         * A key is an archetype name. An archetype with no row takes
+         * `bandShare` above, so a new archetype needs no data to work.
+         */
+        bandShareByArchetype: z
+          .record(
+            z.string(),
+            z.object({ close: unitRange, mid: unitRange, long: unitRange }).strict(),
+          )
+          .default({}),
       })
       .strict(),
     tiers: z

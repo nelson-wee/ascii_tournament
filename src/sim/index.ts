@@ -49,6 +49,7 @@ export {
 } from "./match.js";
 export {
   applyPickups,
+  bandShareOfWeapon,
   createPickupStates,
   damageMultiplierOf,
   pickupValue,

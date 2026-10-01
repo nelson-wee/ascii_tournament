@@ -250,6 +250,14 @@ export interface SimConfig {
   dodgeRampTicks: number;
   /** How often the arena fires in each band (Section 7.20.15). */
   bandShare: { close: number; mid: number; long: number };
+  /**
+   * The same, per archetype (Section 7.46.4). A bot fights at the range its
+   * weapon wants, so a marksman fires 72 % of its shots long and a denial
+   * weapon 0.5 % of them. An archetype with no row takes `bandShare`.
+   */
+  bandShareByArchetype: Readonly<
+    Record<string, { close: number; mid: number; long: number }>
+  >;
   pickupAnticipationTicks: number;
   pickupAnticipationShare: number;
   holdContactTicks: number;
@@ -432,6 +440,7 @@ export function simConfigFromTuning(tuning: Tuning = loadTuning()): SimConfig {
     stationaryTicksForCrit: tuning.combat.stationaryTicksForCrit,
     dodgeRampTicks: tuning.combat.dodgeRampTicks,
     bandShare: { ...loadWeaponRoles().value.bandShare },
+    bandShareByArchetype: { ...loadWeaponRoles().value.bandShareByArchetype },
     pickupAnticipationTicks: tuning.ai.pickupAnticipationTicks,
     pickupAnticipationShare: tuning.ai.pickupAnticipationShare,
     holdContactTicks: tuning.ai.holdContactTicks,

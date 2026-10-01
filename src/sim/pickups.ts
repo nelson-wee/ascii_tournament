@@ -237,11 +237,23 @@ export function pickupValue(state: SimState, bot: BotState, pickup: PickupState)
 }
 
 /**
- * The damage per second of a weapon, over the bands that the arena fires in
- * (Section 7.20.15). The AI and the power budget read the same weights.
+ * The band share of a weapon's own archetype, or the pooled one when it has no
+ * row (Section 7.46.4). It is the same lookup the power budget makes.
+ */
+export function bandShareOfWeapon(
+  state: SimState,
+  weapon: Weapon,
+): { close: number; mid: number; long: number } {
+  return state.config.bandShareByArchetype[weapon.archetype] ?? state.config.bandShare;
+}
+
+/**
+ * The damage per second of a weapon, over the bands that **this kind of weapon**
+ * fires in (Sections 7.20.15 and 7.46.4). The AI and the power budget read the
+ * same weights.
  */
 export function meanDps(state: SimState, weapon: Weapon): number {
-  const share = state.config.bandShare;
+  const share = bandShareOfWeapon(state, weapon);
   return (
     weapon.dpsProfile.close * share.close +
     weapon.dpsProfile.mid * share.mid +
@@ -265,8 +277,11 @@ export function meanDps(state: SimState, weapon: Weapon): number {
  * Three factors, and each is a fact about a different thing:
  *
  * - `dpsProfile[band]` — what the weapon does at that range.
- * - `bandShare[band]` — how often the arena fights at that range. The power
- *   budget charges by the same weights (Section 7.20.15).
+ * - `bandShare[band]` — how often a weapon of this archetype fights at that
+ *   range. The power budget charges by the same weights (Sections 7.20.15 and
+ *   7.46.4). It is per archetype because a bot fights where its weapon wants
+ *   to: one pooled share under-values a marksman to an Overwatch bot and
+ *   over-values it to a Tank.
  * - `rangeWeight` and `weaponWeight` — what the role wants. A ranking of the
  *   three bands and a ranking of the archetypes (Section 7.26).
  *
@@ -275,7 +290,7 @@ export function meanDps(state: SimState, weapon: Weapon): number {
  */
 export function weaponWorth(state: SimState, bot: BotState, weapon: Weapon): number {
   const bias = state.config.rangePrefBias;
-  const share = state.config.bandShare;
+  const share = bandShareOfWeapon(state, weapon);
   const bands = {
     closeMax: state.config.rangeBandCloseMax,
     midMax: state.config.rangeBandMidMax,
