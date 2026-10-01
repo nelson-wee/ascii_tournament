@@ -5524,6 +5524,299 @@ Each step is small, and each one earns a table that does not exist yet.
 Steps 1 to 3 are event and report work with no display. Steps 4 to 6 reach the
 screen. **TBD**
 
+## 7.48 The bands made a symmetric curve asymmetric, and four other things
+
+Section 7.46 left two defects open: the cone that no roll would build, and a
+marksman with the lowest peak DPS in the game. Chasing the first found the
+second, and found three more on the way.
+
+### 7.48.1 One sample cannot stand for a band 11 cells wide
+
+`bandAccuracyOf` read the curve at **one distance a band** — close 4, mid 11.5,
+long 18.75 — and `bandReach` then switched the band on or off by comparing
+`rangeMax` with that same distance.
+
+Each half said something false, and together they broke the promise of
+Section 7.33:
+
+| weapon | fires to | mid band sampled at | mid DPS |
+|---|---|---|---|
+| cone | 8 cells | **11.5** | **0**, although it works at 8 |
+| marksman | 26 cells | 11.5 | full |
+
+So a weapon whose reach ended **inside** a band lost the whole band, and a
+close-range weapon read a **hard zero** at long range while a marksman read a
+soft fade at close range. The curve is symmetric. The bands were not.
+
+`bandCurveOf` averages the curve across each band's span over the part the weapon
+can reach, and returns that share as `reach`. `bandSpanOf` gives the two edges,
+and the long band's far edge is the sight radius, because a bot cannot shoot at
+what it cannot find.
+
+**The accuracy curve itself was always right.** Measured on generated weapons,
+each peaks at its own optimal range and falls away on both sides:
+
+| archetype | optimal | 2 | 4 | 8 | 11.5 | 15 | 18.75 | 24 |
+|---|---|---|---|---|---|---|---|---|
+| denial | 5.1 | 0.686 | **0.876** | 0.718 | 0.370 | 0.164 | 0.150 | 0.150 |
+| assault | 6.4 | 0.664 | 0.816 | **0.867** | 0.614 | 0.351 | 0.170 | 0.150 |
+| precision | 13.4 | 0.359 | 0.471 | 0.697 | 0.890 | **0.896** | 0.695 | 0.398 |
+| marksman | 18.9 | 0.150 | 0.150 | 0.192 | 0.399 | 0.687 | **0.874** | 0.573 |
+
+It was the **profile** that was asymmetric, not the curve. Splash long DPS now
+reads 2.1 where it read 0.0.
+
+Three tests hold it: nothing earns in a band whose **near** edge is past its
+reach, something earns a share of a band it stops inside, and the peak sits in
+the band holding the optimal range or the one next to it. The last one is loose
+on purpose: a weapon optimal at 8.0 is equally good at 7 and 9, and its own close
+band runs from 0 where it is poor, so the neighbour can legitimately hold more of
+its envelope. 24 of 240 weapons are boundary cases like that.
+
+### 7.48.2 The gate floor sat exactly on a band boundary
+
+`rangeGateOf` floored a weapon's reach at `bands.closeMax`, which is 8 — and 8 is
+the close/mid boundary. So a clamped weapon reached **exactly** to the boundary
+and its mid-band reach was **exactly zero**.
+
+A cone's natural reach is about 6.8 cells, so every cone was clamped, every cone
+was close-band only, and a profile in one band cannot be priced: the damage
+needed to fill a tier budget swung from −41 to 303 against a role range of 4 to
+30. The one cone that ever survived had a natural reach of 9.1.
+
+One number was doing two jobs — where the close band ends, and the least far a
+weapon may shoot. That is Section 7.30.3 again, where `sightRadiusCells`,
+`rangeBandMidMax` and `rangeValueCapCells` were all 20. The floor is now
+`budget.rangeGateFloorCells`.
+
+### 7.48.3 A reported range that the profile disagreed with
+
+`rangeMax` was rounded to a tenth **on the way out**, while the band reach was
+computed from the unrounded value. So a weapon reported 15.0 and earned 0.018 DPS
+in a band it said it could not reach. It is rounded where it is derived now. One
+of the new tests found this, which is the test earning its place.
+
+### 7.48.4 `flatDps` was charged beyond its reach
+
+The profile hands out `flatDps * bandReach[band]`. `fixedCost` charged the full
+`flatDps` in every band, so a weapon paid for a burn in bands it cannot fire
+into. A cone reaches the whole close band, most of the mid and none of the long,
+so it was charged about twice what it collects.
+
+This is why a cone's fixed cost swung from **−10 to +157** against a tier budget
+of 85 to 125: a cone that rolled a hazard tile or a burn spent its whole budget
+before any damage was priced. It also explains both cost-model defects
+Section 7.46.5 flagged — 27 drafts whose fixed cost alone passed the tier budget,
+and 20 with a negative one.
+
+### 7.48.5 A role's damage range is blind to the attack type
+
+With the four fixes above the cone still failed, and the reason was the last
+thing left: `wanted` damage 46.3 against an `assault` range of **[4, 30]**.
+
+One point of budget buys two to three times more damage in one attack type than
+another, and the damage range belongs to the **role**. So a type whose damage
+lands outside a range written for another type can never be built at all.
+
+`attackTypes[*].damageFactor` now scales the range, exactly as `intervalFactor`
+already scales the cadence. The cone takes 2.0, chosen by sweeping it:
+
+| cone `damageFactor` | cones built of 240 | error against the declared weights |
+|---|---|---|
+| 1.0 | 4 | 41 |
+| 1.5 | 9 | 33 |
+| **2.0** | **14** | **27** |
+| 2.5 | 12 | 31 |
+| 3.0 | 12 | 31 |
+
+**The cone goes from 0 accepted of 10 rolled to 14 of 16**, and the realised mix
+now tracks `attackTypeWeights` for every type:
+
+| type | realised | declared |
+|---|---|---|
+| hitscan | 114 | 102 |
+| line | 30 | 37 |
+| projectile | 32 | 32 |
+| ricochet | 21 | 20 |
+| burst | 16 | 20 |
+| **cone** | **14** | **16** |
+| tile | 13 | 14 |
+
+A test holds it: the data asks for seven attack types and the generator makes
+seven. Section 7.46.4 found the mix was an artefact of accept rates; this closes
+that.
+
+### 7.48.6 The double charge, confirmed by experiment and not by argument
+
+The budget's own fairness test is the DPS it delivers per 100 points spent.
+Before this section:
+
+| archetype | per 100 points |
+|---|---|
+| denial | **38.3** |
+| heavy | 37.2 |
+| splash | 37.0 |
+| assault | 33.8 |
+| marksman | **31.8** |
+| precision | **31.0** |
+
+The close archetypes bought a fifth more power per point than the long ones.
+Three candidate terms were tested:
+
+| change | spread across archetypes | marksman per 100 |
+|---|---|---|
+| nothing | 25 % | 31.7 |
+| `optimalRangeWeight` 0.35 → 0 | **20 %** | **34.3** |
+| `rangeToleranceWeight` 0.55 → 0.1 | 21 % | 33.1 |
+| `reactionDiscount` 1.6 → 3.2 | **34 %, worse** | 33.9 |
+
+So `optimalRangeWeight` is a real double charge and the reaction discount is not:
+raising the discount helps close weapons more, because `bandMean` now weights a
+marksman's fast long-range reaction rather than its slow close one.
+
+The per-archetype share of Section 7.46.4 prices **where a weapon fights**, which
+is what a distant optimal range was a proxy for. The weight drops to 0.15, which
+prices the one thing the share does not — far ground is safer ground.
+
+**The absolute level.** `budget.target` goes 100 to 120, chosen by measurement and
+checked two ways:
+
+| `target` | mean peak DPS | against before the band work | ratio to the baseline |
+|---|---|---|---|
+| 100 | 45.6 | −15 % | 3.62× |
+| 110 | 49.8 | −7 % | 3.95× |
+| **120** | **53.4** | **−0 %** | **4.24×** |
+| 130 | 58.3 | +9 % | 4.63× |
+
+The pre-change ratio was 4.25×, so 120 restores both the absolute level and the
+baseline relationship. Marksman peak DPS goes 37.5 to 44.0.
+
+**What is left.** The spread is 17 %, not 0. It favours multi-target weapons, and
+the metric over-counts them: a blast hitting two bots for 30 each reads as 60 DPS,
+which is not twice as useful once overkill and split damage are counted. **No
+further tuning should rest on this number until the metric charges a multi-target
+hit honestly.** **TBD**
+
+### 7.48.7 Overwatch wanted two archetypes, not five
+
+`weaponPref` already opened with marksman then precision. The tail was the defect:
+
+| archetype | weight before | now | measured long-band share |
+|---|---|---|---|
+| marksman | 1.60 | **1.60** | 72.6 % |
+| precision | 1.48 | **1.30** | 51.8 % |
+| denial | **1.36** | 1.00 | **0.5 %** |
+| versatile | 1.24 | — | **never generated** |
+| assault | 1.12 | 1.00 | 8.0 % |
+
+`denial` sat third at 1.36, within 0.12 of precision, and it fires **0.5 %** of
+its shots at long range: it is a close-range weapon. `versatile` sat fourth and
+`archetypeOf` can never return it, because every role trait matches an earlier
+rule — so the slot was dead and it diluted the two archetypes that do the work.
+
+The list is now those two and nothing else. Every other archetype is under 17 %
+long, so listing one would hand it a bonus for no measured reason. An earlier
+draft of this change put splash third on its long share of 16.3 %; that was
+wrong, because splash is the highest peak DPS in the game at 63.7 and fires half
+its shots **close**, so a third place for it sends an Overwatch bot to fetch a
+close-range weapon.
+
+**`tank` and `skirmisher` have the same two faults.** Both still list the dead
+`versatile`, and neither tail is ordered by measurement: a mid-preferring
+skirmisher should want `denial` (47.1 % mid) and `heavy` (45.5 % mid) most, and
+both are **unlisted**. Changing them moves the balance, so it is a decision and
+not a cleanup. **TBD**
+
+### 7.48.8 The sweep that could not see any of this, and the one that can
+
+The ten-composition sweep gives each composition a tenth of the rounds and reads
+**±3.2**, so a difference between two cells carries **±4.5**. Against that:
+
+| style | 3O before | after 7.46 | after 7.48 | the two moves, in sigma |
+|---|---|---|---|---|
+| bastion | 30.0 % | 27.1 % | 23.8 % | 1.4 and 0.7 |
+| cavern | 35.4 % | 41.7 % | 33.3 % | 0.5 and 1.9 |
+| openfield | 37.9 % | 32.5 % | 33.8 % | 0.9 and 0.3 |
+
+**Not one move in this table reaches two standard errors.** That is the finding,
+and it is about the instrument and not the game: the whole composition search of
+Sections 7.28 to 7.46 has been reading moves of 3 to 6 points that its own sweep
+could never resolve. Section 7.46.7 made exactly that mistake and is corrected.
+
+A head-to-head fixes it. Two compositions over 1600 rounds put 800 rounds on each
+side, which reads **±1.8** and a difference of **±2.5** — a third of the error of
+the ten-composition sweep for the same running time.
+
+### 7.48.9 The head-to-head, and the starting rifle again
+
+1600 rounds a style, 3O against 2T1S, 800 rounds a side. Every number reads
+**±1.2** instead of ±3.2.
+
+| style | 3O | 2T1S | gap |
+|---|---|---|---|
+| bastion | **36.3 %** | 63.7 % | −13.7 |
+| cavern | **41.8 %** | 58.2 % | −8.2 |
+| openfield | **43.6 %** | 56.4 % | −6.4 |
+
+Two things read clearly for the first time.
+
+**The specialisation works.** 36.3 to 41.8 to 43.6 across bastion, cavern and
+openfield is exactly the order the ground predicts: the close-quarters style is
+worst for an Overwatch team and the open one is best. Section 7.28.4 asked for
+this and no ten-composition sweep could ever show it.
+
+**And Overwatch still loses every style, by 6 to 14 points.** That is not noise
+now. It is 5 to 11 standard errors.
+
+#### What the head-to-head found instead
+
+| style | baseline shots | share of every shot | share of every point of damage |
+|---|---|---|---|
+| bastion | 181 614 | **39.6 %** | 14.8 % |
+| cavern | 199 018 | **43.1 %** | 14.5 % |
+| openfield | 170 849 | **38.8 %** | 12.9 % |
+
+**Two shots in five in this game are fired from the starting rifle**, and they
+deliver an eighth of the damage. Damage a shot, on bastion:
+
+| archetype | damage a shot | shots |
+|---|---|---|
+| redeemer | 90.94 | 907 |
+| denial | 35.46 | 2 760 |
+| splash | 27.37 | 27 528 |
+| heavy | 27.36 | 18 088 |
+| marksman | 22.32 | 54 675 |
+| precision | 10.08 | 114 767 |
+| assault | 7.34 | 58 522 |
+| **baseline** | **4.05** | **181 614** |
+
+A marksman shot is worth **5.5 baseline shots**. Section 7.40 found Overwatch
+fighting with the starting rifle and Section 7.42 was the largest gain of the
+whole search for taking it away — and 40 % of all firing is still the rifle.
+
+This is a bigger number than anything Sections 7.46 and 7.48 moved, and it is not
+a weapon-generation problem at all. A bot starts every life on the baseline and
+keeps the weapons it found only until it dies; with about 25 kills a round over
+six bots, each bot rearms from nothing three or four times a round. The levers are
+the respawn loadout, the walk to a weapon point, and how long a found weapon
+survives its holder — none of which the power budget can reach.
+
+**It should be measured before anything else is tuned.** **TBD**
+
+#### What this says about the search so far
+
+The composition sweep carried ±3.2 a cell and ±4.5 on a difference. Every result
+from Section 7.28 to Section 7.46 is a move of 3 to 6 points read through that
+instrument, which is why five reworks in a row each "did nothing": **the sweep
+could not have shown it either way.** The reworks were not wasted — each fixed a
+real defect, and Sections 7.46 and 7.48 verify them per weapon rather than per
+win rate — but the win-rate evidence beside them was never strong enough to carry
+the conclusions it was given. Section 7.46.7 is corrected on exactly that.
+
+`data/batch-h2h.json` holds the configuration. `npm run batch -- --config
+data/batch-h2h.json` runs it, and changing the two compositions asks a different
+question at the same precision.
+
 ## 8. Match flow (sequence)
 
 1. Load the arena and the weapon set for the match.
