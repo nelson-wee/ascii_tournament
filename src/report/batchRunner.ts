@@ -174,6 +174,9 @@ export function runPlannedRound(
   const killsByArchetype: Record<string, number> = {};
   const shotsByWeapon: Record<string, number> = {};
   const killsByBand: Record<string, number> = {};
+  const shotsByBand: Record<string, number> = {};
+  const hitsByBand: Record<string, number> = {};
+  const damageByBand: Record<string, number> = {};
   const killsByRole: Record<string, number> = {};
   const deathsByRole: Record<string, number> = {};
   const shotsByRole: Record<string, number> = {};
@@ -206,6 +209,14 @@ export function runPlannedRound(
       shotsByWeapon[weapon] = (shotsByWeapon[weapon] ?? 0) + 1;
       const shooter = roleOf(event.data["shooterId"]);
       shotsByRole[shooter] = (shotsByRole[shooter] ?? 0) + 1;
+      // Section 7.46: where the round FIRED, which is what `value.bandShare`
+      // claims to hold. A shot at a projectile is left out: it is a real use of
+      // the weapon and it damages no bot, so no DPS profile is paid for it.
+      const at = String(event.data["targetId"] ?? "");
+      if (!at.startsWith("projectile:")) {
+        const band = String(event.data["rangeBand"] ?? "unknown");
+        shotsByBand[band] = (shotsByBand[band] ?? 0) + 1;
+      }
     } else if (event.type === "Hit") {
       hits += 1;
       // Only damage that a SHOT delivered counts against the shots fired. A
@@ -223,6 +234,17 @@ export function runPlannedRound(
       const dealt = event.data["damage"];
       if (typeof dealt === "number") {
         damageByRole[shooter] = (damageByRole[shooter] ?? 0) + dealt;
+      }
+      // By band, a burn and a hazard tile are left out instead. They are
+      // already on the target, so the distance to whoever started them is not
+      // the range of anything, and `damageBot` marks them with a `null` band
+      // (Section 7.46). Summing them would fill a band nothing fired at.
+      const landed = event.data["rangeBand"];
+      if (typeof landed === "string") {
+        hitsByBand[landed] = (hitsByBand[landed] ?? 0) + 1;
+        if (typeof dealt === "number") {
+          damageByBand[landed] = (damageByBand[landed] ?? 0) + dealt;
+        }
       }
     } else if (event.type === "PickupTaken") {
       const kind = String(event.data["kind"] ?? "unknown");
@@ -267,6 +289,9 @@ export function runPlannedRound(
     killsByArchetype,
     shotsByWeapon,
     killsByBand,
+    shotsByBand,
+    hitsByBand,
+    damageByBand,
     killDistanceSum,
     killsByRole,
     deathsByRole,

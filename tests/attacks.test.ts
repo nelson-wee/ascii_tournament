@@ -406,6 +406,47 @@ describe("damageBot", () => {
     expect(kill?.data["attackType"]).toBe("burst");
     expect(kill?.data["source"]).toBe("area");
   });
+
+  it("names the band a shot landed at (Section 7.46)", () => {
+    const bus = new EventBus();
+    const state = hallState(1, bus);
+    const [a, b] = pair(state);
+    a.pos = cellCenter({ x: 2, y: 1 });
+    b.pos = cellCenter({ x: 4, y: 1 });
+    damageBot(state, a, b, 10, {
+      weaponId: "w1",
+      weaponArchetype: "precision",
+      attackType: "hitscan",
+      source: "shot",
+    });
+    expect(bus.filter("Hit")[0]?.data["rangeBand"]).toBe("close");
+  });
+
+  it("gives a burn and a hazard tick no band at all", () => {
+    // A burn is already on the target, so the distance to whoever started it
+    // is not the range of anything. A band here would fill a band that nothing
+    // fired at, and `damageByBand` would read a fight that never happened.
+    const bus = new EventBus();
+    const state = hallState(1, bus);
+    const [a, b] = pair(state);
+    a.pos = cellCenter({ x: 2, y: 1 });
+    b.pos = cellCenter({ x: 20, y: 1 });
+    damageBot(state, a, b, 5, {
+      weaponId: "w1",
+      weaponArchetype: "precision",
+      attackType: "hitscan",
+      source: "dot",
+    });
+    damageBot(state, a, b, 5, {
+      weaponId: "w1",
+      weaponArchetype: "precision",
+      attackType: "hitscan",
+      source: "hazard",
+    });
+    for (const hit of bus.filter("Hit")) {
+      expect(hit.data["rangeBand"]).toBeNull();
+    }
+  });
 });
 
 describe("leadAngle", () => {

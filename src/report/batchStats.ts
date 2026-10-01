@@ -38,6 +38,30 @@ export interface RoundRecord {
    */
   killsByBand: Readonly<Record<string, number>>;
   /**
+   * Shots fired by the range band of the shot (Section 7.46).
+   *
+   * `killsByBand` says where the round **finished** its fights. This says where
+   * it **fought**, which is the question `value.bandShare` asks and the one no
+   * table could answer before: the power budget and `weaponWorth` both weigh a
+   * DPS profile by "how often the arena fires in each band", and a kill is one
+   * blow out of the dozens a band takes.
+   *
+   * It leaves out a shot fired at a projectile. An intercept is a real use of
+   * the weapon at a real range, and it damages no bot, so it is not a band the
+   * DPS profile is ever paid for.
+   */
+  shotsByBand: Readonly<Record<string, number>>;
+  /** Shots that landed, by band. `shot` and `area` sources only, as for roles. */
+  hitsByBand: Readonly<Record<string, number>>;
+  /**
+   * Damage dealt by band, from the `shot` and `area` sources only.
+   *
+   * A burn and a hazard tile are already on the target, so they have no range.
+   * Counting them would put damage in a band nothing fired at, and the `Hit`
+   * event marks them with a `null` band for exactly that reason.
+   */
+  damageByBand: Readonly<Record<string, number>>;
+  /**
    * The sum of the distance of every kill, in cells. The mean kill distance is
    * this sum over the number of kills; a sum adds over rounds and a mean does
    * not.
@@ -103,6 +127,46 @@ export interface WinRecord {
   draws: number;
 }
 
+/**
+ * What each range band did over a batch (Section 7.46).
+ *
+ * Four measures of one thing, because they do not agree and the name of the
+ * number decides which one is right. `value.bandShare` says "how often the
+ * arena **fires** in each band", so `shots` is the faithful measure and the
+ * other three are the check on it.
+ */
+export interface BandTotals {
+  shots: Map<string, number>;
+  hits: Map<string, number>;
+  damage: Map<string, number>;
+  kills: Map<string, number>;
+}
+
+/** An empty set of band totals. */
+export function emptyBandTotals(): BandTotals {
+  return { shots: new Map(), hits: new Map(), damage: new Map(), kills: new Map() };
+}
+
+/**
+ * The share of each of the three bands in one measure, normalised to 1.
+ *
+ * An unknown band is dropped, not folded into a real one. A band that never
+ * fired reads 0, which is a finding and not a gap (Section 7.29 measured the
+ * long band at 1 % of shots and called it absent).
+ */
+export function bandShareOf(totals: Map<string, number>): {
+  close: number;
+  mid: number;
+  long: number;
+} {
+  const close = totals.get("close") ?? 0;
+  const mid = totals.get("mid") ?? 0;
+  const long = totals.get("long") ?? 0;
+  const sum = close + mid + long;
+  if (sum <= 0) return { close: 0, mid: 0, long: 0 };
+  return { close: close / sum, mid: mid / sum, long: long / sum };
+}
+
 export interface BatchSummary {
   rounds: number;
   arenas: string[];
@@ -135,6 +199,14 @@ export interface BatchSummary {
   lowKillRounds: number;
   killsByArchetype: Map<string, number>;
   shotsByWeapon: Map<string, number>;
+  /**
+   * The range bands of the batch, added over every round (Section 7.46).
+   *
+   * `killsByBand` sat in `RoundRecord` from M5 and reached no table, so the
+   * geometric prior in `value.bandShare` went three arena reworks without a
+   * number to check it against. The data was there; the report was not.
+   */
+  byBand: BandTotals;
   /** The tempo of every round added together. `tempoView` reads it. */
   tempo: TempoRecord;
   /** Ticks per second, so a reader can turn the tempo ticks into seconds. */
@@ -150,6 +222,13 @@ function record(map: Map<string, WinRecord>, key: string): WinRecord {
     map.set(key, value);
   }
   return value;
+}
+
+/** Add one round's band counts into a batch total. */
+function addBand(target: Map<string, number>, counts: Readonly<Record<string, number>>): void {
+  for (const [band, count] of Object.entries(counts)) {
+    target.set(band, (target.get(band) ?? 0) + count);
+  }
 }
 
 function add(target: WinRecord, result: "win" | "loss" | "draw"): void {
@@ -202,6 +281,7 @@ export function summarize(
   const byReason = new Map<RoundEndReason, number>();
   const killsByArchetype = new Map<string, number>();
   const shotsByWeapon = new Map<string, number>();
+  const byBand = emptyBandTotals();
   const arenas = new Set<string>();
   const presets = new Set<string>();
   const compositions = new Set<string>();
@@ -246,6 +326,10 @@ export function summarize(
     for (const [weapon, count] of Object.entries(round.shotsByWeapon)) {
       shotsByWeapon.set(weapon, (shotsByWeapon.get(weapon) ?? 0) + count);
     }
+    addBand(byBand.shots, round.shotsByBand);
+    addBand(byBand.hits, round.hitsByBand);
+    addBand(byBand.damage, round.damageByBand);
+    addBand(byBand.kills, round.killsByBand);
     addTempo(tempo, round.tempo);
   }
 
@@ -285,6 +369,7 @@ export function summarize(
     lowKillRounds,
     killsByArchetype,
     shotsByWeapon,
+    byBand,
     tempo,
     ticksPerSecond,
     balanceFailures,

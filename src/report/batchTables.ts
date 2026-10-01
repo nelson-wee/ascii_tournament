@@ -4,7 +4,10 @@
  */
 import { tempoView, type TempoRecord } from "./tempo.js";
 import type { RoundRecord, BatchSummary, WinRecord } from "./batchStats.js";
-import { standardError, winRate } from "./batchStats.js";
+import { bandShareOf, standardError, winRate } from "./batchStats.js";
+
+/** The three range bands, in the order every table prints them. */
+const BANDS = ["close", "mid", "long"] as const;
 
 function pad(text: string, width: number, right = false): string {
   return right ? text.padStart(width) : text.padEnd(width);
@@ -32,6 +35,24 @@ function percent(value: number): string {
 function rateCell(value: WinRecord | undefined): string {
   if (!value || value.rounds === 0) return "-";
   return `${percent(winRate(value))} ±${(standardError(value) * 100).toFixed(1)}`;
+}
+
+/**
+ * One measure of the band table: the share in each band, then the total.
+ *
+ * The share drops an unknown band rather than folding it into a real one, so a
+ * total that does not match the three shares is a defect and reads as one.
+ */
+function bandRow(name: string, totals: Map<string, number>): string[] {
+  const share = bandShareOf(totals);
+  const total = BANDS.reduce((sum, band) => sum + (totals.get(band) ?? 0), 0);
+  return [
+    name,
+    percent(share.close),
+    percent(share.mid),
+    percent(share.long),
+    total >= 1000 ? total.toFixed(0) : total.toFixed(1),
+  ];
 }
 
 /** Every table of the batch report, as one block of text. */
@@ -142,6 +163,25 @@ export function formatReport(summary: BatchSummary): string {
           percent(totalKills === 0 ? 0 : count / totalKills),
         ]),
         [false, true, true],
+      ),
+  );
+
+  // Section 7.46: the four measures of where a round fights, side by side.
+  // `value.bandShare` says "how often the arena FIRES in each band", so the
+  // shots row is the one that number answers to. The other three are the check
+  // on it: kills alone made a long-range weapon look useful on a map that never
+  // fired long, because a long kill is still a kill.
+  parts.push(
+    "RANGE BANDS: where the round fought\n" +
+      table(
+        ["measure", ...BANDS, "total"],
+        [
+          bandRow("shots", summary.byBand.shots),
+          bandRow("hits", summary.byBand.hits),
+          bandRow("damage", summary.byBand.damage),
+          bandRow("kills", summary.byBand.kills),
+        ],
+        [false, true, true, true, true],
       ),
   );
 
@@ -315,6 +355,16 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       "killsClose",
       "killsMid",
       "killsLong",
+      // Section 7.46: where the round FIRED, not only where it finished.
+      "shotsClose",
+      "shotsMid",
+      "shotsLong",
+      "hitsClose",
+      "hitsMid",
+      "hitsLong",
+      "damageClose",
+      "damageMid",
+      "damageLong",
       "killDistanceSum",
       ...roles.map((role) => `kills_role_${role}`),
       ...roles.map((role) => `deaths_role_${role}`),
@@ -350,6 +400,9 @@ export function roundsCsv(records: readonly RoundRecord[]): string {
       round.killsByBand["close"] ?? 0,
       round.killsByBand["mid"] ?? 0,
       round.killsByBand["long"] ?? 0,
+      ...BANDS.map((band) => round.shotsByBand[band] ?? 0),
+      ...BANDS.map((band) => round.hitsByBand[band] ?? 0),
+      ...BANDS.map((band) => (round.damageByBand[band] ?? 0).toFixed(1)),
       round.killDistanceSum.toFixed(2),
       ...roles.map((role) => round.killsByRole[role] ?? 0),
       ...roles.map((role) => round.deathsByRole[role] ?? 0),
